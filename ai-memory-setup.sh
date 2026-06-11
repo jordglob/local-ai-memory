@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.1
+#  ai-memory-setup.sh  v8.2
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.1"
+VERSION="8.2"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.1"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.2"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -443,7 +443,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.1 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.2 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -525,7 +525,9 @@ fi
 
 # macOS: no sudo explanation needed — Homebrew/Ollama don't require it
 if [[ "$OS" == "macos" ]]; then
-  info "macOS: no sudo required — all tools install to your home folder"
+  info "macOS: tools install to your home folder. ONE password prompt can"
+  info "appear in this terminal: the Homebrew installer asks for your account"
+  info "password the first time. That is normal — type it and continue."
   blank
 fi
 

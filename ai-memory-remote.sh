@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v1.0
+#  ai-memory-remote.sh  v1.1
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  What it configures (each part asked, nothing silent):
@@ -20,7 +20,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.0"
+VERSION="1.1"
 
 case "${1:-}" in
   -h|--help)
@@ -98,7 +98,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v1.0          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v1.1          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -140,6 +140,10 @@ else
       *)      die "No supported package manager found" ;;
     esac
     sudo systemctl enable --now ssh 2>/dev/null || sudo systemctl enable --now sshd 2>/dev/null
+    # If the ufw firewall is active it will block port 22 — open it
+    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+      sudo ufw allow ssh >/dev/null 2>&1 && ok "ufw: SSH allowed through the firewall"
+    fi
     ssh_running && ok "SSH server running" || warn "sshd not responding — check: systemctl status sshd"
   fi
 fi
@@ -260,7 +264,7 @@ if ask_yn "Install RustDesk?" n; then
   if [[ "$OS" == "macos" ]]; then
     command -v brew &>/dev/null || die "Homebrew required — run ai-memory-setup.sh first"
     brew install --cask rustdesk 2>/dev/null && ok "RustDesk installed" || warn "Install failed — get it from rustdesk.com"
-    pause_for "  Open ${BOLD}RustDesk${NC} once and approve the permissions macOS asks for:\n    System Settings → Privacy & Security → ${BOLD}Screen Recording${NC} → RustDesk\n    System Settings → Privacy & Security → ${BOLD}Accessibility${NC} → RustDesk\n  Then, in RustDesk: Settings → Security → set a ${BOLD}permanent password${NC}\n  (store it in your password manager — this script never touches it).\n  Note the ${BOLD}RustDesk ID${NC} shown in the main window for your checklist."
+    pause_for "  Open ${BOLD}RustDesk${NC} once. macOS may first say it was downloaded\n  from the internet — click ${BOLD}Open${NC}. Then approve:\n    System Settings → Privacy & Security → ${BOLD}Screen Recording${NC} → RustDesk\n    System Settings → Privacy & Security → ${BOLD}Accessibility${NC} → RustDesk\n  Then, in RustDesk: Settings → Security → set a ${BOLD}permanent password${NC}\n  (store it in your password manager — this script never touches it).\n  Newer macOS may also ask about ${BOLD}Local Network${NC} access — click Allow.\n  Note the ${BOLD}RustDesk ID${NC} shown in the main window for your checklist."
   else
     warn "On Linux, download the package for your distro from https://rustdesk.com"
     pause_for "  Install the downloaded package, open RustDesk, set a permanent\n  password (Settings → Security), and note the RustDesk ID."

@@ -100,7 +100,10 @@ S.append(Spacer(1, 3))
 S.append(Paragraph(
     "On Mac the script will pause and tell you exactly which security popup to expect "
     "(Xcode tools ~5–8 min, 'ollama was blocked', firewall). That is normal — it waits for you. "
-    "The script itself never asks for your password on macOS.", WARN))
+    "One password prompt is normal on macOS: the Homebrew installer asks for your account "
+    "password in the terminal (not a popup) the first time. Your first macOS account is an "
+    "admin account — keep it that way on this machine; the tools require it. "
+    "You may also see a notification 'Background items added' (Ollama) — that is expected.", WARN))
 
 S.append(PageBreak())
 S.append(Paragraph("Track B — Linux Mint on a PC (60–90 min)", H1))

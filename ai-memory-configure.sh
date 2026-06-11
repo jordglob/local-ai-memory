@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v3.0
+#  ai-memory-configure.sh  v3.1
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v3.0"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v3.1"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v3.0 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v3.1 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -403,5 +403,6 @@ echo -e "  API keys:      ${CYAN}$HERMES_ENV${NC} (chmod 600)"
 echo -e "  Model report:  ${CYAN}$REPORT${NC}"
 echo ""
 echo -e "${BOLD}Start a session:${NC}  ${CYAN}hermes chat${NC}   or   ${CYAN}bash $VAULT/.tools/resume.sh hermes${NC}"
-echo -e "${BOLD}Import history:${NC}   ${CYAN}bash ai-memory-ingest.sh $VAULT [claude-export.zip]${NC}"
+echo -e "${BOLD}Next step — import your history:${NC}"
+echo -e "  ${CYAN}bash $VAULT/.tools/ai-memory-ingest.sh $VAULT${NC}"
 echo ""

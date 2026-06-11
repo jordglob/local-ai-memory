@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.1
+#  ai-memory-ingest.sh  v2.2
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.1"
+VERSION = "2.2"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -567,7 +567,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.1          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.2          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -614,6 +614,10 @@ def main():
         ok("Nothing new — everything already imported")
     else:
         info("Nothing found. Try --scan <dir>, --deep-scan, or --list-sources")
+    print()
+    hdr("Next steps")
+    print(f"  Start your agent:        {c('1', 'hermes chat')}  (run from the vault folder)")
+    print(f"  Optional — headless node: {c('1', 'bash ' + str(vault / '.tools' / 'ai-memory-remote.sh'))}")
     return 0
 
 try:
