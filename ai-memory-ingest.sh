@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.0
+#  ai-memory-ingest.sh  v2.1
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.0"
+VERSION = "2.1"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -479,8 +479,10 @@ def find_files(roots, pattern, max_depth=6, shallow=False):
                            ("node_modules", ".git", ".Trash")]
                 out += [Path(dirpath) / f for f in fnmatch.filter(files, pattern)]
         except PermissionError:
-            warn(f"Permission denied under {root} — on macOS, grant Full Disk Access "
-                 f"to your terminal in System Settings → Privacy & Security if needed")
+            warn(f"Permission denied under {root}.")
+            warn("macOS: approve the folder popup, or System Settings → Privacy &"
+                 " Security → Files and Folders → Terminal → enable that folder."
+                 " For --deep-scan, Full Disk Access may be needed.")
     return out
 
 # ── runner ────────────────────────────────────────────────────────────────────
@@ -565,7 +567,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.0          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.1          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")

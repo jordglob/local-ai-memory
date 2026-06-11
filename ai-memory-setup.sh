@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.0
+#  ai-memory-setup.sh  v8.1
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.0"
+VERSION="8.1"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.0"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.1"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -443,7 +443,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.0 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.1 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -551,6 +551,33 @@ else
     [[ "$(lc "${_c:-n}")" == "y" ]] || die "Aborted — no network connectivity."
   else
     warn "Continuing without verified connectivity (downloads may fail)"
+  fi
+fi
+
+# ── macOS folder-permission (TCC) + iCloud checks ────────────────────────────
+if [[ "$OS" == "macos" ]]; then
+  # iCloud Desktop & Documents sync would silently cloud-sync the vault
+  if [[ "$VAULT" == "$HOME/Documents/"* ]] \
+     && [[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Documents" ]]; then
+    warn "Your Documents folder appears to be synced to iCloud (Desktop & Documents)."
+    warn "A vault there would be CLOUD-synced — against the point of this stack."
+    if $CAN_PROMPT && ! $ASSUME_YES; then
+      echo -e "${BOLD}Use ~/ai-memory instead (recommended)? [Y/n]${NC}"
+      read -r _ic < /dev/tty
+      [[ "$(lc "${_ic:-y}")" != "n" ]] && VAULT="$HOME/ai-memory" \
+        && TOOLS="$VAULT/.tools" && MCP_DIR="$VAULT/.mcp" \
+        && CHECKPOINT_DIR="$VAULT/.tools/.checkpoints" \
+        && info "Vault moved to: $VAULT"
+    else
+      warn "Non-interactive — keeping $VAULT (consider ~/ai-memory)"
+    fi
+  fi
+  # First touch of ~/Documents or ~/Downloads triggers a TCC popup
+  if ! mkdir -p "$VAULT" 2>/dev/null; then
+    checkpoint "tcc-folder" \
+      "Allow Terminal to access the vault folder" \
+      "  macOS showed (or blocked) a folder-access prompt.\n  Fix:\n    ${BOLD}System Settings → Privacy & Security → Files and Folders →\n    Terminal → enable Documents Folder${NC}\n  (If you clicked 'Don't Allow' earlier, this is where to undo it.)" \
+      "mkdir -p '$VAULT'"
   fi
 fi
 

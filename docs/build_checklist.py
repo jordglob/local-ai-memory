@@ -151,7 +151,8 @@ S.append(Paragraph("<i>The installer copies all scripts to a permanent home (~/D
 S.append(Paragraph("2.2 Install (15–25 min; Intel Mac 25–35; slow internet adds 10–20)", H2))
 S.append(step("In the terminal:&nbsp;&nbsp;<b>bash ai-memory-setup.sh</b>"))
 S.append(step("Linux: type your password ONCE when asked (sudo)"))
-S.append(step("Mac: approve the popups when the script pauses and points at them"))
+S.append(step("Mac: approve the popups when the script pauses and points at them — including the folder-access prompts ('Terminal would like to access Documents/Downloads'): click <b>OK/Allow</b>"))
+S.append(step("Mac + iCloud Desktop&amp;Documents sync: the script detects it and offers ~/ai-memory instead, so your vault stays OFF the cloud — accept"))
 S.append(step("Answer the two questions: install Hermes Agent? · start Ollama at login? (Enter = yes)"))
 S.append(step("Wait for the green box: <b>'Installation complete — no errors'</b>"))
 S.append(step("If RED: read the last line, fix, run the same command again — it resumes where it stopped"))
@@ -228,6 +229,12 @@ S.append(Paragraph(
     "remote tool can reach. Pick based on where the machine lives. If your router ever hands "
     "out new IPs, set a DHCP reservation for each node so the identity block stays true. "
     "Prefer zero cloud? Plain WireGuard replaces Tailscale at the cost of manual key setup.", BODY))
+S.append(Paragraph("macOS folder popups (power-user shortcut)", H2))
+S.append(Paragraph(
+    "Each first access to Documents/Downloads triggers an Allow prompt. Granting Terminal "
+    "<b>Full Disk Access</b> once (System Settings → Privacy &amp; Security) removes them all — "
+    "convenient, but it means anything run in that terminal can read everything. "
+    "Per-folder approval is the safer default; FDA is for those who know the tradeoff.", BODY))
 S.append(Paragraph("If something gets stuck", H2))
 S.append(Paragraph(
     "1) Read the last red line — the scripts always say WHAT failed and what to do. "
