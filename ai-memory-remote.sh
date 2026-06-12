@@ -141,7 +141,13 @@ if [[ "$ROLE" == "main" ]]; then
     info "Creating your keypair (one per client machine — never copy it elsewhere)."
     info "Pick a passphrase; on macOS it is stored in the Keychain so you"
     info "rarely type it again. A stolen key file is useless without it."
-    ssh-keygen -t ed25519 -f "$KEY" || die "ssh-keygen failed"
+    if $CAN_PROMPT && ! $ASSUME_YES; then
+      ssh-keygen -t ed25519 -f "$KEY" < /dev/tty > /dev/tty 2>&1 || die "ssh-keygen failed"
+    else
+      ssh-keygen -t ed25519 -f "$KEY" -N "" -q || die "ssh-keygen failed"
+      warn "Non-interactive: key created WITHOUT passphrase — regenerate with one"
+      warn "when convenient: ssh-keygen -p -f $KEY"
+    fi
     ok "Keypair created"
   fi
   if [[ "$OSTYPE" == darwin* ]]; then
