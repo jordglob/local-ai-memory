@@ -136,7 +136,7 @@ if [[ "$ROLE" == "main" ]]; then
   if ! command -v ssh-keygen &>/dev/null; then
     info "Installing OpenSSH client tools..."
     case "$PKG" in
-      apt)    sudo apt-get update -qq; sudo apt-get install -y -qq openssh-client ;;
+      apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq openssh-client ;;
       dnf)    sudo dnf install -y -q openssh-clients ;;
       pacman) sudo pacman -S --noconfirm --needed openssh ;;
     esac
@@ -226,7 +226,7 @@ else
   else
     info "Installing OpenSSH server..."
     case "$PKG" in
-      apt)    sudo apt-get update -qq; sudo apt-get install -y -qq openssh-server ;;
+      apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq openssh-server ;;
       dnf)    sudo dnf install -y -q openssh-server ;;
       pacman) sudo pacman -S --noconfirm --needed openssh ;;
       *)      die "No supported package manager found" ;;

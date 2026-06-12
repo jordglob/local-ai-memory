@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.2
+#  ai-memory-setup.sh  v8.3
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.2"
+VERSION="8.3"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.2"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.3"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -443,7 +443,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.2 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.3 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -592,7 +592,7 @@ APT_UPDATED=false
 apt_update_once() {
   if [[ "$PKG_MANAGER" == "apt" ]] && ! $APT_UPDATED; then
     start_spinner "apt-get update..."
-    sudo apt-get update -qq 2>/dev/null
+    sudo apt-get update -qq 2>/dev/null || warn "apt-get update had errors (a stale third-party repo?) — continuing"
     stop_spinner
     APT_UPDATED=true
   fi
