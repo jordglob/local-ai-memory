@@ -133,6 +133,15 @@ fi
 
 if [[ "$ROLE" == "main" ]]; then
   hdr "MAIN machine — your SSH identity"
+  if ! command -v ssh-keygen &>/dev/null; then
+    info "Installing OpenSSH client tools..."
+    case "$PKG" in
+      apt)    sudo apt-get update -qq; sudo apt-get install -y -qq openssh-client ;;
+      dnf)    sudo dnf install -y -q openssh-clients ;;
+      pacman) sudo pacman -S --noconfirm --needed openssh ;;
+    esac
+    command -v ssh-keygen &>/dev/null || die "ssh-keygen unavailable — install OpenSSH manually"
+  fi
   mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
   KEY="$HOME/.ssh/id_ed25519"
   if [[ -f "$KEY" ]]; then
