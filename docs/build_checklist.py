@@ -191,8 +191,10 @@ S.append(Paragraph("Headless node (optional) — reach this machine without a sc
 S.append(Paragraph(
     "Run this AFTER Step 2, while you still have a screen and keyboard connected. "
     "It is the last time you need them.", BODY))
-S.append(step("Run:&nbsp;&nbsp;<b>bash ~/Documents/ai-memory/.tools/ai-memory-remote.sh</b>"))
-S.append(step("Part 1–2: it enables SSH and installs your public key (easiest: from github.com/&lt;your-user&gt;.keys)"))
+S.append(step("Run on your <b>MAIN computer first</b>:&nbsp;&nbsp;<b>bash ~/Documents/ai-memory/.tools/ai-memory-remote.sh</b> → answer <b>1) MAIN</b>. It creates your SSH key (one per client machine, never copied) and shows the public key — add it to GitHub (Settings → SSH keys)"))
+S.append(fill("Main machine — key fingerprint (printed by the script):", 92))
+S.append(step("Then run the same script <b>on each node</b> → answer <b>2) NODE</b>"))
+S.append(step("Part 1–2: enables SSH and installs your public key (easiest: the GitHub username option)"))
 S.append(step("Part 3: verify key login FROM YOUR OTHER COMPUTER before letting it disable password login"))
 S.append(step("Part 4–5 (optional): Tailscale for access from anywhere · RustDesk for the graphical moments (macOS popups)"))
 S.append(step("Part 6: always-on power profile (no sleep, auto-restart after power loss)"))

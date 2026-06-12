@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v1.1
+#  ai-memory-remote.sh  v2.0
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
-#  What it configures (each part asked, nothing silent):
-#    1. SSH server          — enable + install your public key
-#    2. SSH hardening       — disable password login (only after key verified)
-#    3. Tailscale           — reach the node from anywhere (optional)
-#    4. RustDesk            — graphical access for macOS popups (optional)
-#    5. Always-on power     — no sleep, auto-restart after power loss
-#    6. Identity block      — everything you need to write on the checklist
+#  First question: what is this machine?
+#    MAIN  — the computer you sit at. Gets an SSH keypair (one per client
+#            machine, never copied), optional Tailscale client. No sshd.
+#    NODE  — a machine reached remotely. SSH server + your public key,
+#            hardening, optional Tailscale/RustDesk host, always-on power.
+#    SOLO  — your only computer. Remote access is unnecessary; exits.
+#
+#  Run on the MAIN machine first (creates your key), then on each NODE.
+#  Flags: --role main|node|solo  --yes
 #
 #  Secrets model: this script creates, moves and protects keys but NEVER
 #  stores, displays or invents secrets. Only PUBLIC keys are handled.
@@ -20,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.1"
+VERSION="2.0"
 
 case "${1:-}" in
   -h|--help)
@@ -47,8 +49,12 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 ASSUME_YES=false
 VAULT=""
+ROLE=""
+prev=""
 for arg in "$@"; do
+  if [[ "$prev" == "--role" ]]; then ROLE="$(lc "$arg")"; prev=""; continue; fi
   case "$arg" in
+    --role)   prev="--role" ;;
     --yes|-y) ASSUME_YES=true ;;
     -*) echo "Unknown flag: $arg (see --help)" >&2; exit 1 ;;
     *)  [[ -z "$VAULT" ]] && VAULT="$arg" ;;
@@ -98,7 +104,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v1.1          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.0          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -107,6 +113,77 @@ info "This configures the machine you are sitting at (or SSH'd into) as a"
 info "remotely reachable node. Each part is optional and asked about."
 echo ""
 
+# ── Machine role ──────────────────────────────────────────────────────────────
+if [[ -z "$ROLE" ]] && $CAN_PROMPT && ! $ASSUME_YES; then
+  echo -e "${BOLD}What is this machine?${NC}"
+  echo "    1) MAIN — the computer I sit at (creates your SSH key; no server)"
+  echo "    2) NODE — reached remotely (SSH server, always-on, RustDesk host)"
+  echo "    3) SOLO — my only computer (remote access not needed)"
+  echo -e "${BOLD}Choice [1/2/3]:${NC}" > /dev/tty
+  read -r _r < /dev/tty
+  case "$_r" in 1) ROLE="main" ;; 3) ROLE="solo" ;; *) ROLE="node" ;; esac
+fi
+ROLE="${ROLE:-node}"
+
+if [[ "$ROLE" == "solo" ]]; then
+  info "Only computer → nothing to configure here. Remote access matters only"
+  info "when there is a second machine to reach. Re-run this when you add one."
+  exit 0
+fi
+
+if [[ "$ROLE" == "main" ]]; then
+  hdr "MAIN machine — your SSH identity"
+  mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
+  KEY="$HOME/.ssh/id_ed25519"
+  if [[ -f "$KEY" ]]; then
+    skip "SSH keypair ($KEY)"
+  else
+    info "Creating your keypair (one per client machine — never copy it elsewhere)."
+    info "Pick a passphrase; on macOS it is stored in the Keychain so you"
+    info "rarely type it again. A stolen key file is useless without it."
+    ssh-keygen -t ed25519 -f "$KEY" || die "ssh-keygen failed"
+    ok "Keypair created"
+  fi
+  if [[ "$OSTYPE" == darwin* ]]; then
+    ssh-add --apple-use-keychain "$KEY" 2>/dev/null || ssh-add "$KEY" 2>/dev/null || true
+    if ! grep -q "UseKeychain" "$HOME/.ssh/config" 2>/dev/null; then
+      printf 'Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile %s
+' "$KEY" >> "$HOME/.ssh/config"
+      chmod 600 "$HOME/.ssh/config"
+      ok "Keychain integration configured"
+    fi
+  fi
+  echo ""
+  echo -e "${BOLD}Your PUBLIC key (safe to share — this is what nodes receive):${NC}"
+  echo -e "${CYAN}$(cat "$KEY.pub")${NC}"
+  echo ""
+  echo "  Recommended: add it to GitHub (github.com → Settings → SSH keys)."
+  echo "  Then every node can fetch it with the 'GitHub username' option."
+  if ask_yn "Install Tailscale client on this machine? (reach nodes from anywhere)" n; then
+    if [[ "$OSTYPE" == darwin* ]]; then
+      command -v brew &>/dev/null && brew install --cask tailscale 2>/dev/null || warn "Install from tailscale.com"
+      echo "  Open the Tailscale app and log in."
+    else
+      info "Installer fetched with curl | sh from tailscale.com"
+      curl -fsSL --max-time 60 https://tailscale.com/install.sh | sh 2>/dev/null || warn "Install failed"
+      sudo tailscale up 2>/dev/null || info "Run later: sudo tailscale up"
+    fi
+  fi
+  hdr "Checklist block — MAIN machine"
+  echo -e "    Role:            MAIN (client)"
+  echo -e "    Key fingerprint: $(ssh-keygen -lf "$KEY.pub" 2>/dev/null | awk '{print $2}')"
+  echo -e "    Key comment:     $(awk '{print $NF}' "$KEY.pub")"
+  echo -e "    ${DIM}Nothing secret to note. RustDesk on this machine is just the"
+  echo -e "    client app — install when needed, no setup.${NC}"
+  echo ""
+  ok "Main machine done. Now run this script on each NODE."
+  exit 0
+fi
+
+# ── NODE role from here on ────────────────────────────────────────────────────
 info "sudo is needed for: SSH service, sshd config, power settings."
 sudo -v || die "sudo required."
 ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
@@ -310,6 +387,7 @@ else
   IDENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"; IDENT_IP="${IDENT_IP:-?}"
 fi
 echo ""
+echo -e "    Role:       ${BOLD}NODE${NC}"
 echo -e "    Hostname:   ${BOLD}$IDENT_HOST${NC}"
 echo -e "    Local IP:   ${BOLD}$IDENT_IP${NC}"
 echo -e "    SSH line:   ${BOLD}ssh $REMOTE_USER@$IDENT_IP${NC}"

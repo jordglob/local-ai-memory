@@ -1,7 +1,8 @@
-# AI Memory Stack — Requirements Specification v1.2
+# AI Memory Stack — Requirements Specification v1.3
 
 Status: agreed baseline for the next build round (June 2026).
-v1.2 adds: power-outage recovery chain + pull-the-plug test, manual
+v1.3 adds: machine-role model (MAIN/NODE/SOLO) + key policy in §2.7.
+v1.2 added: power-outage recovery chain + pull-the-plug test, manual
 power-settings step. v1.1 added: remote-access script (§2.7), family conventions (§2.8),
 checklist v3 scope (§2.5), stay-awake + self-install in setup (§2.1).
 Everything in this document was settled in design discussion; items marked
@@ -179,9 +180,21 @@ Optional final step: distill imported history into a `USER.md` /
 - Versioned releases; parser architecture documented to invite contributions.
 - Repo: `github.com/jordglob/local-ai-memory` (decided).
 
-### 2.7 `ai-memory-remote.sh` (remote access for nodes — new, standalone)
+### 2.7 `ai-memory-remote.sh` (remote access — role-aware, standalone)
 
-Opt-in, node-side. Never part of setup.sh.
+Opt-in. Never part of setup.sh. First question: machine role.
+
+- **MAIN** (the client you sit at): generates one ed25519 keypair per client
+  machine (passphrase, macOS Keychain integration), never copies private
+  keys, shows the public key + GitHub upload advice, optional Tailscale
+  client. No sshd, no always-on. Prints a client checklist block
+  (fingerprint — nothing secret).
+- **NODE**: the flow below (SSH server, key install, hardening, optional
+  Tailscale/RustDesk host, always-on power, identity block).
+- **SOLO** (only computer): explains remote access is unnecessary and exits.
+- Key policy: one key per client; private keys never leave their machine;
+  public keys distributed via github.com/<user>.keys; revocation = remove
+  one line from each node's authorized_keys.
 
 - **SSH:** enable Remote Login (macOS) / openssh-server (Linux); install the
   user's public key (paste, file, or `https://github.com/<user>.keys`);
