@@ -1,7 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.4
+# AI Memory Stack — Requirements Specification v1.5
 
 Status: agreed baseline for the next build round (June 2026).
-v1.4 adds: network-analysis + WireGuard-first remote choice, Cloudflare
+v1.5 adds: reassurance & feedback layer (§2.9) — bandwidth probe (default,
+--no-speedtest), data/time estimates, safe-to-interrupt lines, closing summary.
+v1.4 added: network-analysis + WireGuard-first remote choice, Cloudflare
 DDNS updater, AI-workflow tools in Tips. v1.3 added: machine-role model (MAIN/NODE/SOLO) + key policy in §2.7.
 v1.2 added: power-outage recovery chain + pull-the-plug test, manual
 power-settings step. v1.1 added: remote-access script (§2.7), family conventions (§2.8),
@@ -234,6 +236,38 @@ Opt-in. Never part of setup.sh. First question: machine role.
 - First session per node is physical by necessity (enable SSH, approve
   GUI permissions) — the script's job is to make it a 10-minute checklist
   and everything after 100% remote.
+
+### 2.9 Reassurance & feedback layer (next build) — "they thought of everything"
+
+Goal: a user who trusts the script does not Ctrl+C mid-download, so calm IS
+stability. All of the following are messaging/feedback, not new behavior:
+
+- **Bandwidth probe (default on, `--no-speedtest` to skip):** a small timed
+  download (~5 MB) measures the link. Honest caveat printed: measured now,
+  real speed varies.
+- **Two-stage download estimate:** setup prints a rough total
+  ("~2–3 GB tools + the model you pick later"); configure, AFTER hardware
+  analysis, prints the exact figure ("your machine → qwen3:35b, 20 GB;
+  at ~50 Mbit ≈ 55 min").
+- **Per-step "safe to interrupt" line:** every long step states
+  "Safe to Ctrl+C — re-running resumes where it stopped." (We already have
+  checkpoints; this just communicates them.)
+- **"What's happening and why" before slow steps:** e.g. "Apple is
+  downloading ~700 MB of developer tools, no progress shown — this is normal."
+- **Surface real progress:** stop hiding Ollama's own download percentage
+  behind the spinner; show step counter ("step 3 of 7").
+- **Optional live log hint:** "want to watch? open another terminal:
+  tail -f <log>".
+- **Closing summary with personality (the fun bit):** time taken, model size
+  running locally (zero cloud), conversations imported + approximate word
+  count ("≈ 3.2M words — about 40 novels"), all on your own disk.
+- **Hardware "rating" in configure (light, honest):** top-tier vs. "works,
+  but a RAM upgrade would open a lot."
+- **Anchoring comparisons:** "20 GB ≈ 5 HD movies" so the wait has a felt size.
+
+Priority order if time is short: safe-to-interrupt line, what/why + time,
+then the closing summary (cheap, high delight). Only the bandwidth probe
+needs new code (a curl + timing).
 
 ### 2.8 Script family conventions (what lets the family grow)
 
