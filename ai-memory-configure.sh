@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v3.1
+#  ai-memory-configure.sh  v3.2
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v3.1"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v3.2"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v3.1 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v3.2 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -192,10 +192,10 @@ echo ""
 # Inventory report into vault
 mkdir -p "$REPORT_DIR"
 REPORT="$REPORT_DIR/model-inventory-$(date -u +%Y%m%dT%H%M%SZ).md"
-echo "$SCAN" | python3 - "$REPORT" "$HOME" << 'PYREP'
+python3 - "$REPORT" "$HOME" "$SCAN" << 'PYREP'
 import sys, json
-data = json.load(sys.stdin)
-out, home = sys.argv[1], sys.argv[2]
+out, home, scan = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.loads(scan)
 L = ["# Model Inventory","",f"Total: {data['total_fmt']} across {data['count']} files",""]
 if data['ollama']:
     L += ["## Ollama models",""] + [f"- `{m}`" for m in data['ollama']] + [""]
@@ -403,6 +403,18 @@ echo -e "  API keys:      ${CYAN}$HERMES_ENV${NC} (chmod 600)"
 echo -e "  Model report:  ${CYAN}$REPORT${NC}"
 echo ""
 echo -e "${BOLD}Start a session:${NC}  ${CYAN}hermes chat${NC}   or   ${CYAN}bash $VAULT/.tools/resume.sh hermes${NC}"
-echo -e "${BOLD}Next step — import your history:${NC}"
-echo -e "  ${CYAN}bash $VAULT/.tools/ai-memory-ingest.sh $VAULT${NC}"
+INGEST="$VAULT/.tools/ai-memory-ingest.sh"
+if $ASSUME_YES; then
+  echo -e "${BOLD}Next — import your history:${NC} ${CYAN}bash $INGEST $VAULT${NC}"
+else
+  echo -e "${BOLD}Next step — import your AI conversation history.${NC}"
+  echo -e "  ${DIM}If your export ZIP is in Downloads, it will be found automatically.${NC}"
+  ask "Import history now? [Y/n]"
+  read -r _go
+  if [[ "$(lc "${_go:-y}")" != "n" ]] && [[ -f "$INGEST" ]]; then
+    echo -e "${CYAN}→ Launching ingest...${NC}"
+    exec bash "$INGEST" "$VAULT"
+  fi
+  echo -e "  Run later: ${CYAN}bash $INGEST $VAULT${NC}"
+fi
 echo ""

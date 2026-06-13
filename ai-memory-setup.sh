@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.3
+#  ai-memory-setup.sh  v8.4
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.3"
+VERSION="8.4"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.3"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.4"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -443,7 +443,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.3 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.4 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1359,17 +1359,37 @@ if [[ $ERRORS -eq 0 ]]; then
   blank
   echo -e "${BOLD}Next steps:${NC}"
   blank
-  echo -e "  1. Open Obsidian → point it at: ${CYAN}$VAULT${NC}"
+  echo -e "  1. Open Obsidian → point it at: ${CYAN}$VAULT${NC}  (optional, do anytime)"
+  echo -e "  2. Configure your model (next)   3. Import history   4. (optional) remote node"
   blank
-  echo -e "  2. ${BOLD}Open a new terminal${NC} and run:"
-  echo -e "     ${CYAN}bash $TOOLS/ai-memory-configure.sh $VAULT${NC}"
-  blank
-  echo -e "     ${DIM}(Keep this terminal open — configure.sh may"
-  echo -e "      need to report back here)${NC}"
-  blank
-  echo -e "  3. Import your existing AI conversations (10 sources supported):"
-  echo -e "     ${CYAN}bash $TOOLS/ai-memory-ingest.sh $VAULT${NC}        ${DIM}# auto-discover${NC}"
-  echo -e "     ${CYAN}bash $TOOLS/ai-memory-ingest.sh --list-sources${NC}"
+
+  # ── Chain into configure (Model B: offer, don't force) ─────────────────────
+  # New tools (Ollama, brew, hermes) may not be on PATH in THIS shell yet, so a
+  # fresh shell is the safe default — but we offer to continue right here too.
+  CONFIGURE="$TOOLS/ai-memory-configure.sh"
+  if $ASSUME_YES || ! $CAN_PROMPT; then
+    echo -e "  Next: ${CYAN}bash $CONFIGURE $VAULT${NC}"
+    echo -e "  ${DIM}(open a new terminal first so freshly-installed tools are on PATH)${NC}"
+  else
+    blank
+    echo -e "  Freshly-installed tools (Ollama, etc.) are picked up reliably in a"
+    echo -e "  ${BOLD}new terminal window${NC}. Recommended: open one and run:"
+    echo -e "     ${CYAN}bash $CONFIGURE $VAULT${NC}"
+    blank
+    echo -e "${BOLD}Or continue here now? [y/N]${NC}"
+    echo -e "  ${DIM}(fine in most cases; choose 'n' if a later step can't find 'ollama')${NC}"
+    read -r _cont < /dev/tty
+    if [[ "$(lc "${_cont:-n}")" == "y" ]]; then
+      # refresh PATH best-effort for this session before handing off
+      [[ -d "$NPM_PREFIX/bin" ]] && export PATH="$NPM_PREFIX/bin:$PATH"
+      [[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
+      [[ -f /usr/local/bin/brew   ]] && eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
+      if [[ -f "$CONFIGURE" ]]; then
+        echo -e "${CYAN}→ Launching configure...${NC}"
+        exec bash "$CONFIGURE" "$VAULT"
+      fi
+    fi
+  fi
   blank
   # Identity block — copy onto the checklist
   IDENT_HOST="$(hostname 2>/dev/null || echo '?')"
