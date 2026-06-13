@@ -183,6 +183,7 @@ S.append(KeepTogether([
     Paragraph("Machine identity (the install script prints these values — just copy)", H2),
     fill("Hostname:", 30), fill("Local IP:", 30),
     fill("SSH line (ssh user@ip):", 50),
+    fill("WireGuard endpoint (domain or IP:51820):", 70),
     fill("Tailscale IP/name (if used):", 56),
     fill("RustDesk ID (if used):", 46)]))
 
@@ -196,7 +197,10 @@ S.append(fill("Main machine — key fingerprint (printed by the script):", 92))
 S.append(step("Then run the same script <b>on each node</b> → answer <b>2) NODE</b>"))
 S.append(step("Part 1–2: enables SSH and installs your public key (easiest: the GitHub username option)"))
 S.append(step("Part 3: verify key login FROM YOUR OTHER COMPUTER before letting it disable password login"))
-S.append(step("Part 4–5 (optional): Tailscale for access from anywhere · RustDesk for the graphical moments (macOS popups)"))
+S.append(step("Part 4 — remote networking: the script analyzes your connection and recommends a path. <b>WireGuard (fully local) is the first choice</b>; Tailscale is offered for convenience or behind carrier-NAT (CGNAT)"))
+S.append(step("If WireGuard: forward <b>UDP 51820</b> to the hub machine in your router. Note the endpoint on the identity block"))
+S.append(step("<b>Verify from OUTSIDE only</b> — turn off phone wifi, connect over mobile data, test the tunnel. Do NOT trust 'port checker' sites: WireGuard is silent by design and they wrongly say 'closed'"))
+S.append(step("Part 5 (optional): RustDesk for the graphical moments (macOS popups)"))
 S.append(step("Part 6: always-on power profile (no sleep, auto-restart after power loss)"))
 S.append(step("Mac only: HDMI <b>dummy plug</b> (~10 €) in a video port — without it remote graphics is slow and blurry"))
 S.append(step("Mac only: enable autologin (System Settings → Users &amp; Groups) so services return after a reboot — requires FileVault OFF (tradeoff on the Tips page)"))
@@ -212,6 +216,17 @@ S.append(Paragraph(
     "agent needs your input. Free, no telemetry, no account. Install AFTER the base setup works: "
     "download from <b>cmux.io</b> or GitHub (sst/cmux). Linux alternative: Ghostty (same engine, "
     "without the agent features) or plain tmux.", BODY))
+S.append(Paragraph("Tools that strengthen the AI workflow (optional, open-source)", H2))
+S.append(Paragraph(
+    "All install after the base setup; each is one command. "
+    "<b>cmux</b> (macOS) — run several agents side by side. "
+    "<b>llama.cpp</b> — the engine under many runtimes; GGUF conversion and benchmarking. "
+    "<b>litellm</b> — a local proxy giving one OpenAI-style endpoint across Ollama and cloud fallbacks. "
+    "<b>whisper.cpp</b> — local speech-to-text, so voice notes never leave the machine. "
+    "<b>ripgrep</b> (rg) — instant full-text search across the vault. "
+    "<b>jq</b> — inspect the JSON the importers read. "
+    "A commercial VPN (Mullvad etc.) can be installed too, but it competes with your own "
+    "WireGuard tunnel for routing — use one at a time.", BODY))
 S.append(Paragraph("Syncthing — sync the vault between machines, no cloud", H2))
 S.append(Paragraph(
     "Free, peer-to-peer, encrypted. Install on both machines (<b>syncthing.net</b>), share the vault "

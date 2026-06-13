@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.0
+#  ai-memory-remote.sh  v2.1
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.0"
+VERSION="2.1"
 
 case "${1:-}" in
   -h|--help)
@@ -104,7 +104,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.0          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.1          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -323,31 +323,251 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "4/6  Tailscale (optional — reach the node from anywhere)"
+hdr "4/6  Remote networking — analysis, then your choice"
 # ═════════════════════════════════════════════════════════════════════════════
-if command -v tailscale &>/dev/null && tailscale status &>/dev/null 2>&1; then
-  skip "Tailscale (connected)"
-elif ask_yn "Install Tailscale? (encrypted mesh VPN; login via browser; control plane is a cloud service)" n; then
-  if [[ "$OS" == "macos" ]]; then
-    command -v brew &>/dev/null || die "Homebrew required — run ai-memory-setup.sh first"
-    brew install --cask tailscale 2>/dev/null || warn "brew cask install failed"
-    pause_for "  Open the ${BOLD}Tailscale${NC} app (Applications), log in in the browser,\n  and approve this machine."
+
+# ── Network analysis (facts before recommendation) ───────────────────────────
+info "Checking how this machine is reachable..."
+PUB4="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || echo '')"
+PUB6="$(curl -fsS --max-time 8 -6 https://api64.ipify.org 2>/dev/null || echo '')"
+[[ "$PUB6" == "$PUB4" ]] && PUB6=""   # api64 falls back to v4; ignore if same
+IS_CGNAT=false
+case "$PUB4" in
+  100.6[4-9].*|100.7[0-9].*|100.8[0-9].*|100.9[0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) IS_CGNAT=true ;;
+esac
+RDNS=""
+[[ -n "$PUB4" ]] && command -v dig &>/dev/null && RDNS="$(dig +short -x "$PUB4" 2>/dev/null | head -1)"
+LOOKS_DYNAMIC=false
+echo "$RDNS" | grep -qiE 'dyn|dhcp|pool|cust|client|dsl|cable|broadband' && LOOKS_DYNAMIC=true
+
+echo ""
+echo -e "  Public IPv4:  ${BOLD}${PUB4:-not detected}${NC}$( $IS_CGNAT && echo '  ⚠ CGNAT (carrier-NAT)' )"
+[[ -n "$PUB6" ]] && echo -e "  Public IPv6:  ${BOLD}$PUB6${NC}  (often a stable prefix — may avoid DDNS)"
+[[ -n "$RDNS" ]] && echo -e "  Reverse DNS:  ${DIM}$RDNS${NC}$( $LOOKS_DYNAMIC && echo '  (looks dynamic)' )"
+
+# Optional: user already has a domain/endpoint pointing home
+USER_DOMAIN=""
+if $CAN_PROMPT && ! $ASSUME_YES; then
+  echo -e "${BOLD}Already have a domain pointing home (e.g. vpn.example.org)? Enter it, or leave blank:${NC}" > /dev/tty
+  read -r USER_DOMAIN < /dev/tty
+  if [[ -n "$USER_DOMAIN" ]] && command -v dig &>/dev/null; then
+    RESOLVED="$(dig +short "$USER_DOMAIN" 2>/dev/null | tail -1)"
+    if [[ -n "$RESOLVED" ]]; then
+      echo -e "  $USER_DOMAIN → ${BOLD}$RESOLVED${NC}$( [[ "$RESOLVED" == "$PUB4" ]] && echo '  ✓ matches this network' || echo '  ⚠ does not match current IP' )"
+    else
+      warn "$USER_DOMAIN does not resolve yet"
+    fi
+  fi
+fi
+
+# ── Recommendation logic ──────────────────────────────────────────────────────
+if $IS_CGNAT; then
+  REC="tailscale"
+  REC_WHY="you are behind carrier-NAT — a home WireGuard port cannot be reached directly"
+elif [[ -n "$USER_DOMAIN" ]]; then
+  REC="wg-domain"; REC_WHY="you have a domain and a reachable public IP — fully local works"
+elif [[ -n "$PUB4" ]] && ! $LOOKS_DYNAMIC; then
+  REC="wg-ip"; REC_WHY="you have a public, seemingly static IP"
+elif [[ -n "$PUB4" ]]; then
+  REC="wg-ddns"; REC_WHY="public IP but possibly dynamic — a name that follows your IP helps"
+else
+  REC="tailscale"; REC_WHY="no reachable public IP detected"
+fi
+
+star() { [[ "$1" == "$REC" ]] && echo "  ${GREEN}${BOLD}★ RECOMMENDED${NC} — $REC_WHY" || echo ""; }
+
+echo ""
+echo -e "${BOLD}Remote access options — all available, recommendation marked:${NC}"
+echo ""
+echo -e "  1) WireGuard, fully local$([[ "$REC" == wg-* ]] && echo "$(star "$REC")")"
+echo -e "       ${DIM}+ nothing leaves your control   − needs a router port + an outside test${NC}"
+echo -e "  2) WireGuard + Cloudflare DNS updater (if you own a domain on Cloudflare)"
+echo -e "       ${DIM}+ survives IP changes, still all yours   − needs a scoped API token${NC}"
+echo -e "  3) Tailscale$([[ "$REC" == tailscale ]] && echo "$(star tailscale)")"
+echo -e "       ${DIM}+ zero-config, beats CGNAT   − cloud directory; login (GitHub/Apple/Passkey/your own OIDC — not only Google)${NC}"
+echo -e "  4) Skip remote networking"
+echo ""
+
+NETCHOICE=""
+if $CAN_PROMPT && ! $ASSUME_YES; then
+  echo -e "${BOLD}Choice [1-4]:${NC}" > /dev/tty
+  read -r NETCHOICE < /dev/tty
+else
+  info "Non-interactive — skipping remote networking (run again interactively to set it up)"
+  NETCHOICE="4"
+fi
+
+setup_wireguard() {  # $1 = endpoint (domain or IP), may be empty
+  local endpoint="$1"
+  if ! command -v wg &>/dev/null; then
+    info "Installing WireGuard tools..."
+    case "$OS-$PKG" in
+      macos-*)      brew install wireguard-tools 2>/dev/null ;;
+      linux-apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq wireguard-tools ;;
+      linux-dnf)    sudo dnf install -y -q wireguard-tools ;;
+      linux-pacman) sudo pacman -S --noconfirm --needed wireguard-tools ;;
+    esac
+  fi
+  command -v wg &>/dev/null || { warn "wireguard-tools missing — install manually"; return 1; }
+
+  local WGDIR="$HOME/.config/wireguard"
+  mkdir -p "$WGDIR"; chmod 700 "$WGDIR"
+  # This NODE becomes the hub. Generate its keypair (private stays here).
+  if [[ ! -f "$WGDIR/hub_private.key" ]]; then
+    (umask 077; wg genkey > "$WGDIR/hub_private.key")
+    wg pubkey < "$WGDIR/hub_private.key" > "$WGDIR/hub_public.key"
+    ok "Hub keypair created (private key never leaves this machine)"
   else
-    info "Installer is fetched with curl | sh from tailscale.com — review at https://tailscale.com/install.sh"
-    if ask_yn "Proceed?" y; then
-      curl -fsSL --max-time 60 https://tailscale.com/install.sh | sh || warn "Installer failed"
-      if $CAN_PROMPT && ! $ASSUME_YES; then
-        info "Starting auth — a login URL will be printed. Open it in any browser."
-        sudo tailscale up || warn "tailscale up did not complete"
-      else
-        info "Non-interactive — run later: sudo tailscale up"
+    skip "Hub keypair"
+  fi
+  local HUB_PUB; HUB_PUB="$(cat "$WGDIR/hub_public.key")"
+  local HUB_PRIV_REF="$WGDIR/hub_private.key"
+
+  # Client (your MAIN machine / phone) keypair — generated here for convenience,
+  # delivered via QR; the client's private key is shown once, not stored by us.
+  local CLI_PRIV CLI_PUB
+  CLI_PRIV="$(wg genkey)"; CLI_PUB="$(printf '%s' "$CLI_PRIV" | wg pubkey)"
+
+  # Hub config: split tunnel (only the home LAN routes through the tunnel)
+  local LAN_CIDR; LAN_CIDR="$(ip -o -f inet addr show 2>/dev/null | awk '/scope global/{print $4; exit}')"
+  LAN_CIDR="${LAN_CIDR:-192.168.1.0/24}"
+  local HUB_CONF="$WGDIR/wg0.conf"
+  if [[ ! -f "$HUB_CONF" ]]; then
+    cat > "$HUB_CONF" <<WG
+[Interface]
+Address = 10.99.0.1/24
+ListenPort = 51820
+PostUp = sysctl -w net.ipv4.ip_forward=1
+# PrivateKey is read from: $HUB_PRIV_REF (kept out of this file on purpose)
+
+[Peer]
+# MAIN / client
+PublicKey = $CLI_PUB
+AllowedIPs = 10.99.0.2/32
+WG
+    chmod 600 "$HUB_CONF"
+    ok "Hub config written: $HUB_CONF"
+  else
+    info "Hub config exists — leaving it (add peers manually or re-create)"
+  fi
+
+  # Client profile (split tunnel) — shown as QR for phones, text for laptops
+  local EP="${endpoint:-${PUB4:-YOUR_PUBLIC_IP}}"
+  local CLIENT_PROFILE
+  CLIENT_PROFILE="$(cat <<WG
+[Interface]
+PrivateKey = $CLI_PRIV
+Address = 10.99.0.2/24
+
+[Peer]
+PublicKey = $HUB_PUB
+Endpoint = ${EP}:51820
+AllowedIPs = 10.99.0.0/24, ${LAN_CIDR}
+PersistentKeepalive = 25
+WG
+)"
+  echo ""
+  echo -e "${BOLD}Client profile (split tunnel — only home traffic goes through it):${NC}"
+  echo -e "${DIM}Scan on a phone, or save as wg0.conf on a laptop. Shown once.${NC}"
+  echo ""
+  if command -v qrencode &>/dev/null; then
+    echo "$CLIENT_PROFILE" | qrencode -t ansiutf8
+  else
+    info "(install 'qrencode' to show a scannable QR; profile printed below)"
+    echo "$CLIENT_PROFILE"
+  fi
+  echo ""
+  warn "This profile contains the client's PRIVATE key — capture it now, it is not saved."
+  echo ""
+  echo -e "${YELLOW}${BOLD}Router step (manual):${NC} forward ${BOLD}UDP 51820${NC} to this hub"
+  echo -e "  ($IDENT_HINT). See the checklist for router examples."
+  echo -e "${BOLD}Verify from OUTSIDE${NC} (phone hotspot) — a port-checker website will"
+  echo -e "wrongly say 'closed' because WireGuard stays silent by design."
+  # start the hub
+  if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
+    sudo cp "$HUB_CONF" /etc/wireguard/wg0.conf 2>/dev/null &&     sudo sed -i "/PrivateKey/d" /etc/wireguard/wg0.conf 2>/dev/null
+    # inject private key into the system copy only
+    sudo sed -i "/^\[Interface\]/a PrivateKey = $(cat "$HUB_PRIV_REF")" /etc/wireguard/wg0.conf 2>/dev/null
+    sudo chmod 600 /etc/wireguard/wg0.conf
+    sudo systemctl enable --now wg-quick@wg0 2>/dev/null && ok "WireGuard hub running (wg-quick@wg0)"       || warn "Start manually: sudo wg-quick up wg0"
+    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q active; then
+      sudo ufw allow 51820/udp >/dev/null 2>&1 && ok "ufw: UDP 51820 opened"
+    fi
+  else
+    info "Start the hub with: sudo wg-quick up $HUB_CONF"
+  fi
+}
+
+setup_cloudflare_ddns() {
+  local domain="$1"
+  echo ""
+  warn "The DNS record for $domain must be 'DNS only' (GREY cloud) in Cloudflare —"
+  warn "the orange proxy does NOT carry WireGuard's UDP. This is a common trap."
+  echo ""
+  echo "  Create a scoped API token: Cloudflare dashboard → My Profile → API Tokens"
+  echo "  → Create → permissions: Zone:DNS:Edit, limited to this zone only."
+  if $CAN_PROMPT && ! $ASSUME_YES; then
+    echo -e "${BOLD}Paste the API token (stored chmod 600, never logged):${NC}" > /dev/tty
+    read -r -s CF_TOKEN < /dev/tty; echo ""
+    if [[ -n "$CF_TOKEN" ]]; then
+      local CFDIR="$HOME/.config/ai-memory"; mkdir -p "$CFDIR"; chmod 700 "$CFDIR"
+      printf 'CF_API_TOKEN=%s
+CF_RECORD=%s
+' "$CF_TOKEN" "$domain" > "$CFDIR/cloudflare-ddns.env"
+      chmod 600 "$CFDIR/cloudflare-ddns.env"
+      cat > "$CFDIR/cloudflare-ddns.sh" <<'DDNS'
+#!/usr/bin/env bash
+# Updates a Cloudflare A record to this network's current public IP.
+set -euo pipefail
+source "$(dirname "$0")/cloudflare-ddns.env"
+IP="$(curl -fsS https://api.ipify.org)"
+ZONE="$(printf '%s' "$CF_RECORD" | awk -F. '{print $(NF-1)"."$NF}')"
+api() { curl -fsS -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" "$@"; }
+ZID="$(api "https://api.cloudflare.com/client/v4/zones?name=$ZONE" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"][0]["id"])')"
+REC="$(api "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records?name=$CF_RECORD&type=A")"
+RID="$(printf '%s' "$REC" | python3 -c 'import sys,json;r=json.load(sys.stdin)["result"];print(r[0]["id"] if r else "")')"
+BODY="{"type":"A","name":"$CF_RECORD","content":"$IP","ttl":120,"proxied":false}"
+if [[ -n "$RID" ]]; then
+  api -X PUT "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records/$RID" --data "$BODY" >/dev/null
+else
+  api -X POST "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records" --data "$BODY" >/dev/null
+fi
+echo "Updated $CF_RECORD → $IP"
+DDNS
+      chmod +x "$CFDIR/cloudflare-ddns.sh"
+      "$CFDIR/cloudflare-ddns.sh" 2>/dev/null && ok "Cloudflare record updated to current IP"         || warn "First update failed — check token/zone; script saved at $CFDIR/cloudflare-ddns.sh"
+      # schedule
+      if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
+        (crontab -l 2>/dev/null; echo "*/15 * * * * $CFDIR/cloudflare-ddns.sh >/dev/null 2>&1") | crontab - 2>/dev/null           && ok "Scheduled every 15 min (cron)"
+      elif [[ "$OS" == "macos" ]]; then
+        info "To run it regularly, add a launchd job (see Tips) — or it runs on demand."
       fi
     fi
   fi
-  tailscale status &>/dev/null 2>&1 && ok "Tailscale connected" || info "Tailscale not connected yet"
-else
-  info "Tailscale skipped (plain WireGuard is the no-cloud alternative — see Tips)"
-fi
+}
+
+IDENT_HINT="this machine"
+case "$NETCHOICE" in
+  1) setup_wireguard "$USER_DOMAIN" ;;
+  2) setup_wireguard "$USER_DOMAIN"; setup_cloudflare_ddns "${USER_DOMAIN:-}" ;;
+  3)
+    if command -v tailscale &>/dev/null && tailscale status &>/dev/null 2>&1; then
+      skip "Tailscale (connected)"
+    else
+      if [[ "$OS" == "macos" ]]; then
+        command -v brew &>/dev/null && brew install --cask tailscale 2>/dev/null || warn "Install from tailscale.com"
+        pause_for "  Open ${BOLD}Tailscale${NC}, log in (GitHub/Apple/Passkey/your own OIDC — not only Google),
+  and approve this machine."
+      else
+        info "Installer fetched with curl | sh from tailscale.com — review at https://tailscale.com/install.sh"
+        ask_yn "Proceed?" y && curl -fsSL --max-time 60 https://tailscale.com/install.sh | sh 2>/dev/null || warn "skipped/failed"
+        $CAN_PROMPT && ! $ASSUME_YES && sudo tailscale up 2>/dev/null || info "Run later: sudo tailscale up"
+      fi
+      tailscale status &>/dev/null 2>&1 && ok "Tailscale connected" || info "Tailscale not connected yet"
+    fi
+    ;;
+  *) info "Remote networking skipped (WireGuard is the recommended local path — re-run to set up)" ;;
+esac
 
 # ═════════════════════════════════════════════════════════════════════════════
 hdr "5/6  RustDesk (optional — graphical access, e.g. for macOS popups)"

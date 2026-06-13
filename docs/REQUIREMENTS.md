@@ -1,7 +1,8 @@
-# AI Memory Stack — Requirements Specification v1.3
+# AI Memory Stack — Requirements Specification v1.4
 
 Status: agreed baseline for the next build round (June 2026).
-v1.3 adds: machine-role model (MAIN/NODE/SOLO) + key policy in §2.7.
+v1.4 adds: network-analysis + WireGuard-first remote choice, Cloudflare
+DDNS updater, AI-workflow tools in Tips. v1.3 added: machine-role model (MAIN/NODE/SOLO) + key policy in §2.7.
 v1.2 added: power-outage recovery chain + pull-the-plug test, manual
 power-settings step. v1.1 added: remote-access script (§2.7), family conventions (§2.8),
 checklist v3 scope (§2.5), stay-awake + self-install in setup (§2.1).
@@ -199,10 +200,18 @@ Opt-in. Never part of setup.sh. First question: machine role.
 - **SSH:** enable Remote Login (macOS) / openssh-server (Linux); install the
   user's public key (paste, file, or `https://github.com/<user>.keys`);
   offer to disable password login **only after key login is verified**.
-- **Tailscale:** install; `tailscale up` auth URL handled as a checkpoint
-  (open link → approve → verified via `tailscale status`). Default
-  recommendation, with plain WireGuard documented in Tips as the
-  no-cloud-control-plane alternative.
+- **Remote networking — analysis then choice:** detect public IPv4/IPv6,
+  CGNAT (100.64/10), reverse-DNS dynamic-vs-static hint, and resolve a
+  user-supplied domain. Present all options with the recommendation marked:
+  **WireGuard fully-local is first choice** (flips to Tailscale only under
+  CGNAT). WireGuard hub keypair (private key stays on the hub, never in
+  wg0.conf), split-tunnel client profile delivered as QR; optional Cloudflare
+  DNS updater (grey-cloud warning, Zone:DNS:Edit token in ~/.config chmod
+  600). Tailscale offered for convenience/CGNAT with a note that login can be
+  GitHub/Apple/Passkey/own OIDC — not only Google. Router UDP-51820 forward
+  and a phone-hotspot verification are manual (checklist); port-checker sites
+  warned against (WireGuard is silent by design). Full-tunnel profile and
+  macOS pf-NAT deferred to backlog.
 - **RustDesk:** install automatically; macOS Screen Recording/Accessibility
   approvals as checkpoints; permanent password set in the GUI, never by
   the script.

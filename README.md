@@ -33,10 +33,13 @@ git clone https://github.com/jordglob/local-ai-memory
   instructions that make it actively maintain the vault — including a
   read-only Update Advisor that reports available upgrades but never
   installs them itself.
-- **Remote/node setup** — `ai-memory-remote.sh` turns a machine into an
-  always-on headless node: SSH + key install (password login disabled only
-  after a verified key login), optional Tailscale and RustDesk, no-sleep +
-  auto-restart power profile, and a printed identity block for the checklist.
+- **Remote/node setup** — `ai-memory-remote.sh` is role-aware (MAIN / NODE /
+  SOLO). It sets up SSH + your public key (password login disabled only after
+  a verified key login), then analyzes your connection and recommends a
+  remote-access path — **WireGuard (fully local) first**, with Tailscale
+  offered for convenience or behind CGNAT, and an optional Cloudflare DNS
+  updater for dynamic IPs. Plus no-sleep + auto-restart power profile and a
+  printed identity block for the checklist.
 - **Ingest** — importers for **10 sources**: Claude.ai, ChatGPT, Claude Code,
   Codex CLI, Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI,
   and Google Takeout (Gemini). Idempotent — re-run any time.
