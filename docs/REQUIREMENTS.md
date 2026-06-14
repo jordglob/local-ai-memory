@@ -1,7 +1,8 @@
-# AI Memory Stack — Requirements Specification v1.6
+# AI Memory Stack — Requirements Specification v1.7
 
 Status: agreed baseline for the next build round (June 2026).
-v1.6 adds: LiteLLM self-hosted gateway as sovereign routing option (§2.11),
+v1.7 adds: build workflow + pattern-hunt discipline (§5), born from the X230
+live run. v1.6 added: LiteLLM self-hosted gateway as sovereign routing option (§2.11),
 plus X230 live-run findings (cloud-only path, context_length=model max,
 exit-status-1 fix, guided-mode clarity fixes). v1.5 added: reassurance & feedback layer (§2.9) — bandwidth probe (default,
 --no-speedtest), data/time estimates, safe-to-interrupt lines, closing summary.
@@ -338,8 +339,46 @@ conventions:
 
 ## 5. Build-round working agreements
 
-- Reasoning level: medium/high for code and document production; high for
-  review rounds; review rounds ("fresh eyes") are mandatory before release.
+Proven by the X230 live run: the sandbox lies. Every serious bug that night
+(context floor, exit-status-1, the cloud-only gap, the no-download-check)
+passed sandbox testing and only surfaced on real hardware. The workflow below
+exists because of that.
+
+### 5.1 Workflow (every build follows this)
+1. Raise reasoning level (medium/high to build; high for review rounds).
+2. Lock a SMALL, coherent bundle — never the whole backlog at once.
+3. Build + sandbox-test (catches syntax, logic, the gross failures).
+4. Pattern-hunt (see 5.3) — not just point-fixes.
+5. LIVE-test on real hardware before calling it "done" — the only honest bar.
+6. User feedback -> next bundle.
+
+Prefer doing build work in Claude Code on a real machine so step 5 is the
+normal case, not an afterthought. The machine must be backed up first
+(the kraftvagn lesson) and Claude Code's permission prompts left on.
+
+### 5.2 Build order
+Fix what's BROKEN before adding what's MISSING. New features (backup, LiteLLM
+gateway, mode selection) are built on top of setup/configure — building them
+on buggy foundations means building on rot. Bug-fix bundle first, each new
+feature as its own later build with its own live test.
+
+### 5.3 Pattern-hunt principle (a bug is rarely alone)
+For every bug found, ask "where else does this CLASS of bug live?" before
+moving on. Known classes from the X230 run:
+- **Assume-without-verify:** configure wrote a model name without checking it
+  was downloaded. Audit everywhere: does ingest validate an export zip before
+  opening it? Does remote confirm a key works before hardening? Rule:
+  verify before you act.
+- **Write-blind-don't-preserve:** configure may overwrite ~/.hermes/.env
+  instead of reading the existing key first. Audit: does it overwrite
+  config.yaml a re-run should preserve? Does setup clobber anything on re-run?
+  Rule: read-preserve-ask, don't blind-write.
+- **Write-against-unknown-limit:** context_length written below Hermes' 64K
+  floor. Audit: other values written without knowing the receiver's required
+  range?
+
+### 5.4 Verification & honesty
 - Every external integration verified against its current source.
-- Sandbox-test every script path that can be tested without real hardware;
-  flag honestly what could only be tested synthetically.
+- Sandbox-test every path testable without real hardware; flag honestly what
+  could only be tested synthetically.
+- Review rounds ("fresh eyes") are mandatory before release.
