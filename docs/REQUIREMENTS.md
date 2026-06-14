@@ -1,7 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.5
+# AI Memory Stack — Requirements Specification v1.6
 
 Status: agreed baseline for the next build round (June 2026).
-v1.5 adds: reassurance & feedback layer (§2.9) — bandwidth probe (default,
+v1.6 adds: LiteLLM self-hosted gateway as sovereign routing option (§2.11),
+plus X230 live-run findings (cloud-only path, context_length=model max,
+exit-status-1 fix, guided-mode clarity fixes). v1.5 added: reassurance & feedback layer (§2.9) — bandwidth probe (default,
 --no-speedtest), data/time estimates, safe-to-interrupt lines, closing summary.
 v1.4 added: network-analysis + WireGuard-first remote choice, Cloudflare
 DDNS updater, AI-workflow tools in Tips. v1.3 added: machine-role model (MAIN/NODE/SOLO) + key policy in §2.7.
@@ -274,6 +276,28 @@ stability. All of the following are messaging/feedback, not new behavior:
 Priority order if time is short: safe-to-interrupt line, what/why + time,
 then the closing summary (cheap, high delight). Only the bandwidth probe
 needs new code (a curl + timing).
+
+### 2.11 LiteLLM self-hosted gateway — the sovereign routing option (next build)
+
+The lower-stack answer to "OpenRouter vs competition": don't depend on a
+hosted aggregator as the front door. On capable hardware, offer LiteLLM as a
+LOCAL gateway the user owns.
+
+- **Capable hardware (e.g. Mac mini):** primary = local Ollama (open-weight,
+  nothing leaves the machine). LiteLLM runs locally as the user's own gateway,
+  routing local-first and spilling over to cloud providers (OpenAI / Anthropic
+  / OpenRouter) only on demand. Provider keys held by the user; providers paid
+  directly at list rate; no third-party proxy in the default path.
+- **Weak hardware (e.g. X230):** OpenRouter (or direct provider) stays the
+  simple choice — the machine cannot run a useful local model, so a hosted
+  cloud path is correct there.
+- configure should detect the tier and lean accordingly: sovereign-by-default
+  on capable hardware, cloud-by-necessity on weak hardware.
+- This is the natural evolution of the existing fallback chain
+  (local -> cheap cloud -> premium): LiteLLM is simply that chain run as the
+  user's own infrastructure rather than as config pointing at one aggregator.
+- LiteLLM already listed in Tips; this promotes it from "nice tool" to
+  "the recommended sovereign routing layer."
 
 ### 2.8 Script family conventions (what lets the family grow)
 
