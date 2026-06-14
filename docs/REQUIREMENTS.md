@@ -265,6 +265,12 @@ stability. All of the following are messaging/feedback, not new behavior:
   but a RAM upgrade would open a lot."
 - **Anchoring comparisons:** "20 GB ≈ 5 HD movies" so the wait has a felt size.
 
+- **Context length = model's real max, not a fixed floor (X230 finding):**
+  configure wrote 64000 (Hermes' minimum) but gpt-4o-mini supports 128000.
+  Set context_length to the model's actual capability, clamped to Hermes'
+  64K floor as the *lower* bound — never below 64K, but go higher when the
+  model allows.
+
 Priority order if time is short: safe-to-interrupt line, what/why + time,
 then the closing summary (cheap, high delight). Only the bandwidth probe
 needs new code (a curl + timing).
