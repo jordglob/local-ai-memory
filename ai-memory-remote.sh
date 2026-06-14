@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.1
+#  ai-memory-remote.sh  v2.2
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.1"
+VERSION="2.2"
 
 case "${1:-}" in
   -h|--help)
@@ -74,7 +74,7 @@ ask_yn() {  # ask_yn "question" default(y|n)
   else
     echo -e "${BOLD}$q [y/N]${NC}" > /dev/tty
   fi
-  read -r ans < /dev/tty
+  read -r ans < /dev/tty || ans=""
   ans="$(lc "${ans:-$def}")"
   [[ "$ans" == "y" || "$ans" == "yes" || "$ans" == "j" || "$ans" == "ja" ]]
 }
@@ -86,7 +86,7 @@ pause_for() {  # blocking instruction without verification
   echo -e "$msg"
   if $CAN_PROMPT && ! $ASSUME_YES; then
     echo -e "${BOLD}Press ENTER when done:${NC}" > /dev/tty
-    read -r _ < /dev/tty
+    read -r _ < /dev/tty || _=""
   else
     warn "Non-interactive — complete this manually later"
   fi
@@ -104,7 +104,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.1          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.2          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -120,7 +120,7 @@ if [[ -z "$ROLE" ]] && $CAN_PROMPT && ! $ASSUME_YES; then
   echo "    2) NODE — reached remotely (SSH server, always-on, RustDesk host)"
   echo "    3) SOLO — my only computer (remote access not needed)"
   echo -e "${BOLD}Choice [1/2/3]:${NC}" > /dev/tty
-  read -r _r < /dev/tty
+  read -r _r < /dev/tty || _r=""
   case "$_r" in 1) ROLE="main" ;; 3) ROLE="solo" ;; *) ROLE="node" ;; esac
 fi
 ROLE="${ROLE:-node}"
@@ -264,11 +264,11 @@ if $CAN_PROMPT && ! $ASSUME_YES; then
   echo "    3) Read from a file on this machine"
   echo "    Enter) Skip"
   echo -e "${BOLD}Choice:${NC}" > /dev/tty
-  read -r choice < /dev/tty
+  read -r choice < /dev/tty || choice=""
   case "$choice" in
     1)
       echo -e "${BOLD}GitHub username:${NC}" > /dev/tty
-      read -r ghuser < /dev/tty
+      read -r ghuser < /dev/tty || ghuser=""
       if [[ -n "$ghuser" ]]; then
         keys="$(curl -fsSL --max-time 15 "https://github.com/${ghuser}.keys" 2>/dev/null || true)"
         if [[ -n "$keys" ]]; then
@@ -280,12 +280,12 @@ if $CAN_PROMPT && ! $ASSUME_YES; then
       ;;
     2)
       echo -e "${BOLD}Paste the public key (one line, starts with ssh-ed25519/ssh-rsa):${NC}" > /dev/tty
-      read -r pasted < /dev/tty
+      read -r pasted < /dev/tty || pasted=""
       [[ -n "$pasted" ]] && add_key "$pasted"
       ;;
     3)
       echo -e "${BOLD}Path to the .pub file:${NC}" > /dev/tty
-      read -r kpath < /dev/tty
+      read -r kpath < /dev/tty || kpath=""
       [[ -f "$kpath" ]] && add_key "$(cat "$kpath")" || warn "File not found: $kpath"
       ;;
     *) info "Key installation skipped" ;;
@@ -349,7 +349,7 @@ echo -e "  Public IPv4:  ${BOLD}${PUB4:-not detected}${NC}$( $IS_CGNAT && echo '
 USER_DOMAIN=""
 if $CAN_PROMPT && ! $ASSUME_YES; then
   echo -e "${BOLD}Already have a domain pointing home (e.g. vpn.example.org)? Enter it, or leave blank:${NC}" > /dev/tty
-  read -r USER_DOMAIN < /dev/tty
+  read -r USER_DOMAIN < /dev/tty || USER_DOMAIN=""
   if [[ -n "$USER_DOMAIN" ]] && command -v dig &>/dev/null; then
     RESOLVED="$(dig +short "$USER_DOMAIN" 2>/dev/null | tail -1)"
     if [[ -n "$RESOLVED" ]]; then
@@ -391,7 +391,7 @@ echo ""
 NETCHOICE=""
 if $CAN_PROMPT && ! $ASSUME_YES; then
   echo -e "${BOLD}Choice [1-4]:${NC}" > /dev/tty
-  read -r NETCHOICE < /dev/tty
+  read -r NETCHOICE < /dev/tty || NETCHOICE=""
 else
   info "Non-interactive — skipping remote networking (run again interactively to set it up)"
   NETCHOICE="4"

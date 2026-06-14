@@ -27,7 +27,9 @@ git clone https://github.com/jordglob/local-ai-memory
 - **Vault** — an Obsidian-compatible folder of plain markdown: your imported
   history, distilled entity files, and an inbox the agent reads at startup.
 - **Local model** — [Ollama](https://ollama.com) with a model matched to your
-  RAM/GPU (3B on 8 GB up to 35B on 48 GB).
+  RAM/GPU (3B on 8 GB up to 35B on 48 GB). On low-RAM machines configure
+  detects this and offers **cloud-only** mode (Hermes via OpenRouter), so an
+  old laptop works without running anything heavy locally.
 - **Agent** — [Hermes Agent](https://github.com/NousResearch/hermes-agent)
   (optional), auto-configured for your local Ollama, with workspace
   instructions that make it actively maintain the vault — including a

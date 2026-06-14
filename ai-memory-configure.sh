@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v3.2
+#  ai-memory-configure.sh  v4.0
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v3.2"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.0"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v3.2 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.0 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -256,34 +256,89 @@ PYSEL
 sget() { echo "$SELECTED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"; }
 MODEL_TAG=$(sget model); SOURCE=$(sget source); DESC=$(sget desc); REASON=$(sget reason)
 
-echo ""
-echo -e "  ${BOLD}Suggested model:${NC} ${GREEN}$MODEL_TAG${NC} — $DESC"
-echo -e "  Reason: $REASON"
-echo ""
+# Hermes Agent refuses any model below this context floor (learned on the X230).
+HERMES_CTX_FLOOR=64000
 
-if [[ "$SOURCE" == "pull" ]]; then
-  PULL=$(sget pull)
-  warn "Model not installed yet."
-  if $ASSUME_YES; then dl="n"; else
-    ask "Download it now with '$PULL'? (y/N)"
-    read -r dl
-  fi
-  if [[ "$(lc "$dl")" == "y" ]]; then
-    $PULL && ok "Model downloaded" || warn "Download failed — run later: $PULL"
-  fi
+# Is this machine too weak for a useful local model? (X230 case)
+# Heuristic: under ~6 GB RAM, a local model is either too small to be useful
+# (0.5b) or too slow (3b). Offer cloud-only instead of forcing a local model.
+RAM_INT="${RAM_GB%.*}"; [[ "$RAM_INT" =~ ^[0-9]+$ ]] || RAM_INT=0
+WEAK_FOR_LOCAL=false
+[[ "$RAM_INT" -lt 6 ]] && WEAK_FOR_LOCAL=true
+
+MODE="local"   # local | cloud
+if $WEAK_FOR_LOCAL && ! $ASSUME_YES; then
+  echo ""
+  warn "This machine has ~${RAM_GB} GB RAM — small for a useful local model."
+  echo -e "  A tiny local model runs but is weak; a 3B model runs but is slow."
+  echo -e "  ${BOLD}Recommended here: cloud-only${NC} — Hermes uses a cloud model"
+  echo -e "  (via OpenRouter), nothing heavy runs on this machine."
+  echo ""
+  echo -e "  1) Cloud-only   ${GREEN}★ recommended for this hardware${NC}"
+  echo -e "  2) Local model  (download one anyway — slower, but private/offline)"
+  ask "Choice [1/2] (ENTER = 1):"
+  read -r _modechoice || _modechoice=""
+  [[ "$_modechoice" == "2" ]] && MODE="local" || MODE="cloud"
+elif $WEAK_FOR_LOCAL && $ASSUME_YES; then
+  MODE="cloud"   # non-interactive on weak hardware defaults to cloud
 fi
 
-if $ASSUME_YES; then override=""; else
-  ask "Confirm model (ENTER = $MODEL_TAG, or type another Ollama tag):"
-  read -r override
+echo ""
+if [[ "$MODE" == "local" ]]; then
+  echo -e "  ${BOLD}Suggested model:${NC} ${GREEN}$MODEL_TAG${NC} — $DESC"
+  echo -e "  Reason: $REASON"
 fi
-[[ -n "$override" ]] && MODEL_TAG="$override"
-ok "Primary model: $MODEL_TAG"
+echo ""
 
-# Context length recommendation (Ollama defaults are low)
-CTX=32000
-[[ "${RAM_GB%.*}" -ge 40 ]] 2>/dev/null && CTX=64000
-[[ "${RAM_GB%.*}" -ge 90 ]] 2>/dev/null && CTX=128000
+# Helper: ensure a local Ollama model is actually present; offer to pull if not.
+# (Pattern-hunt fix: verify-before-act — never write a model name without
+#  confirming it exists, whether suggested OR user-chosen.)
+ensure_model_present() {  # ensure_model_present <tag>
+  local tag="$1"
+  if ollama list 2>/dev/null | grep -q "^${tag%%:*}"; then
+    return 0   # already there
+  fi
+  warn "Model '$tag' is not downloaded yet."
+  if $ASSUME_YES; then
+    warn "Non-interactive — leaving it unpulled; run later: ollama pull $tag"
+    return 1
+  fi
+  ask "Download it now with 'ollama pull $tag'? (Y/n)"
+  local dl; read -r dl
+  if [[ "$(lc "${dl:-y}")" != "n" ]]; then
+    if ollama pull "$tag"; then ok "Model downloaded: $tag"; return 0
+    else warn "Download failed — run later: ollama pull $tag"; return 1; fi
+  fi
+  warn "Skipped — config will reference '$tag' but it isn't installed."
+  return 1
+}
+
+if [[ "$MODE" == "cloud" ]]; then
+  # Cloud-only: pick a sensible default cloud model, no local download.
+  if $ASSUME_YES; then
+    MODEL_TAG="openai/gpt-4o-mini"
+  else
+    ask "Cloud model tag (ENTER = openai/gpt-4o-mini):"
+    read -r _cloudmodel || _cloudmodel=""
+    MODEL_TAG="${_cloudmodel:-openai/gpt-4o-mini}"
+  fi
+  ok "Primary model (cloud): $MODEL_TAG"
+else
+  # Local path: let the user confirm or override, THEN verify the model exists.
+  if ! $ASSUME_YES; then
+    ask "Confirm model (ENTER = $MODEL_TAG, or type another Ollama tag):"
+    read -r override || override=""
+    [[ -n "$override" ]] && MODEL_TAG="$override"
+  fi
+  ok "Primary model: $MODEL_TAG"
+  ensure_model_present "$MODEL_TAG" || true
+fi
+
+# Context length: never below Hermes' hard floor; scale up with RAM/model max.
+# (Pattern-hunt fix: write-against-known-limit — clamp to the floor always.)
+CTX=$HERMES_CTX_FLOOR
+[[ "$RAM_INT" -ge 40 ]] 2>/dev/null && CTX=128000
+[[ "$CTX" -lt "$HERMES_CTX_FLOOR" ]] && CTX=$HERMES_CTX_FLOOR
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 4/5  HERMES CONFIG + API KEYS (fallback chain)
@@ -291,18 +346,40 @@ CTX=32000
 hdr "4/5  Hermes configuration"
 
 echo ""
-echo -e "  ${BOLD}Fallback chain:${NC}"
-echo -e "   1. ${GREEN}Local Ollama${NC}   — $MODEL_TAG (free, offline)"
-echo -e "   2. ${YELLOW}OpenRouter${NC}     — cheap cloud models (optional API key)"
-echo -e "   3. ${RED}Anthropic${NC}      — Claude (optional API key, most reliable)"
+if [[ "$MODE" == "cloud" ]]; then
+  echo -e "  ${BOLD}Cloud-only setup:${NC} Hermes will use ${GREEN}$MODEL_TAG${NC} via OpenRouter."
+  echo -e "  An OpenRouter API key is ${BOLD}required${NC} for this to work."
+else
+  echo -e "  ${BOLD}Fallback chain:${NC}"
+  echo -e "   1. ${GREEN}Local Ollama${NC}   — $MODEL_TAG (free, offline)"
+  echo -e "   2. ${YELLOW}OpenRouter${NC}     — cheap cloud models (optional API key)"
+  echo -e "   3. ${RED}Anthropic${NC}      — Claude (optional API key, most reliable)"
+fi
 echo ""
 echo -e "  Keys are stored in ${CYAN}$HERMES_ENV${NC} — never in the vault."
-echo -e "  Press ENTER to skip any key."
+# (Pattern-hunt fix: read-preserve — detect an existing key and offer to keep it.)
+EXISTING_OR=""
+[[ -f "$HERMES_ENV" ]] && EXISTING_OR="$(grep "^OPENROUTER_API_KEY=" "$HERMES_ENV" 2>/dev/null | cut -d= -f2-)"
+if [[ -n "$EXISTING_OR" ]]; then
+  echo -e "  ${GREEN}An OpenRouter key is already saved${NC} — press ENTER to keep it."
+fi
+echo -e "  Press ENTER to skip (or keep existing)."
 echo ""
 
 if $ASSUME_YES; then OR_KEY=""; AN_KEY=""; else
-  ask "OpenRouter API key (ENTER = skip):"; read -r -s OR_KEY; echo ""
-  ask "Anthropic API key (ENTER = skip):";  read -r -s AN_KEY; echo ""
+  ask "OpenRouter API key (paste = set, ENTER = keep/skip; input hidden):"
+  read -r -s OR_KEY; echo ""
+  ask "Anthropic API key (paste = set, ENTER = keep/skip; input hidden):"
+  read -r -s AN_KEY; echo ""
+fi
+# Confirm a paste landed without echoing the secret (feedback fix from X230 run).
+[[ -n "$OR_KEY" ]] && ok "OpenRouter key received (${#OR_KEY} chars) — looks set."
+[[ -n "$AN_KEY" ]] && ok "Anthropic key received (${#AN_KEY} chars) — looks set."
+# In cloud mode, a usable key (new or existing) is required — fail clearly if none.
+if [[ "$MODE" == "cloud" && -z "$OR_KEY" && -z "$EXISTING_OR" ]]; then
+  warn "Cloud-only mode needs an OpenRouter key, but none was given or found."
+  warn "Hermes will not be able to reach a model. Re-run and paste a key,"
+  warn "or get one at https://openrouter.ai/keys"
 fi
 
 mkdir -p "$HERMES_HOME"
@@ -312,15 +389,21 @@ if [[ -f "$HERMES_CONFIG" ]]; then
   cp "$HERMES_CONFIG" "${HERMES_CONFIG}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
   ok "Backed up existing config.yaml"
 fi
-python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" << 'PYCONF'
+python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" "$MODE" << 'PYCONF'
 import sys, re
 from pathlib import Path
-path, model, ctx = sys.argv[1], sys.argv[2], int(sys.argv[3])
+path, model, ctx, mode = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+if mode == "cloud":
+    base_url = "https://openrouter.ai/api/v1"
+    comment = "# cloud via OpenRouter (key in ~/.hermes/.env)"
+else:
+    base_url = "http://localhost:11434/v1"
+    comment = "# local Ollama (OpenAI-compatible)"
 block = (
     "model:\n"
     f"  default: {model}\n"
-    "  provider: custom            # local Ollama (OpenAI-compatible)\n"
-    "  base_url: http://localhost:11434/v1\n"
+    f"  provider: custom            {comment}\n"
+    f"  base_url: {base_url}\n"
     f"  context_length: {ctx}\n"
 )
 p = Path(path)
@@ -336,7 +419,11 @@ p.parent.mkdir(parents=True, exist_ok=True)
 p.write_text(text)
 print("ok")
 PYCONF
-ok "config.yaml → provider: custom, base_url: http://localhost:11434/v1, model: $MODEL_TAG"
+if [[ "$MODE" == "cloud" ]]; then
+  ok "config.yaml → cloud via OpenRouter, model: $MODEL_TAG, ctx: $CTX"
+else
+  ok "config.yaml → local Ollama, model: $MODEL_TAG, ctx: $CTX"
+fi
 
 # .env — only touch our keys, keep the rest
 touch "$HERMES_ENV"; chmod 600 "$HERMES_ENV"
@@ -379,15 +466,23 @@ ok "ai-config.json written"
 # ═════════════════════════════════════════════════════════════════════════════
 hdr "5/5  Validation"
 
-if command -v ollama &>/dev/null && ollama list &>/dev/null 2>&1; then
-  ok "Ollama responding"
-  if ollama list 2>/dev/null | grep -q "${MODEL_TAG%%:*}"; then
-    ok "Primary model available: $MODEL_TAG"
+if [[ "$MODE" == "cloud" ]]; then
+  if [[ -n "$OR_KEY" || -n "$EXISTING_OR" ]]; then
+    ok "Cloud-only: OpenRouter key present, model $MODEL_TAG"
   else
-    warn "Model $MODEL_TAG not in Ollama — run: ollama pull $MODEL_TAG"
+    warn "Cloud-only but no OpenRouter key — Hermes can't reach a model yet"
   fi
 else
-  warn "Ollama not responding — start it: ollama serve"
+  if command -v ollama &>/dev/null && ollama list &>/dev/null 2>&1; then
+    ok "Ollama responding"
+    if ollama list 2>/dev/null | grep -q "^${MODEL_TAG%%:*}"; then
+      ok "Primary model available: $MODEL_TAG"
+    else
+      warn "Model $MODEL_TAG not in Ollama — run: ollama pull $MODEL_TAG"
+    fi
+  else
+    warn "Ollama not responding — start it: ollama serve"
+  fi
 fi
 command -v hermes &>/dev/null \
   && ok "Hermes command found — start with: hermes chat" \
@@ -410,7 +505,7 @@ else
   echo -e "${BOLD}Next step — import your AI conversation history.${NC}"
   echo -e "  ${DIM}If your export ZIP is in Downloads, it will be found automatically.${NC}"
   ask "Import history now? [Y/n]"
-  read -r _go
+  read -r _go || _go=""   # EOF-safe: don't let set -e abort on closed stdin
   if [[ "$(lc "${_go:-y}")" != "n" ]] && [[ -f "$INGEST" ]]; then
     echo -e "${CYAN}→ Launching ingest...${NC}"
     exec bash "$INGEST" "$VAULT"

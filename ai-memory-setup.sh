@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.4
+#  ai-memory-setup.sh  v8.5
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.4"
+VERSION="8.5"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.4"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.5"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -325,7 +325,7 @@ checkpoint() {
     echo -e "$instructions"
     blank
     echo -e "${BOLD}Press ENTER when done${NC} (or type 'skip' to skip):"
-    read -r response < /dev/tty
+    read -r response < /dev/tty || response=""
 
     [[ "$(lc "$response")" == "skip" ]] && {
       warn "Skipped: $title — may cause issues later"
@@ -343,11 +343,11 @@ checkpoint() {
     if [[ $attempts -ge 3 ]]; then
       warn "Still not working after $attempts attempts."
       echo "Type 'skip' to continue anyway, or ENTER to retry:"
-      read -r response < /dev/tty
+      read -r response < /dev/tty || response=""
       [[ "$(lc "$response")" == "skip" ]] && return 0
     else
       echo "Press ENTER to try again, or type 'skip':"
-      read -r response < /dev/tty
+      read -r response < /dev/tty || response=""
       [[ "$(lc "$response")" == "skip" ]] && return 0
     fi
   done
@@ -443,7 +443,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.4 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.5 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -549,7 +549,7 @@ else
   fi
   if $CAN_PROMPT && ! $ASSUME_YES; then
     echo -e "${BOLD}Continue anyway? [y/N]${NC}"
-    read -r _c < /dev/tty
+    read -r _c < /dev/tty || _c=""
     [[ "$(lc "${_c:-n}")" == "y" ]] || die "Aborted — no network connectivity."
   else
     warn "Continuing without verified connectivity (downloads may fail)"
@@ -565,7 +565,7 @@ if [[ "$OS" == "macos" ]]; then
     warn "A vault there would be CLOUD-synced — against the point of this stack."
     if $CAN_PROMPT && ! $ASSUME_YES; then
       echo -e "${BOLD}Use ~/ai-memory instead (recommended)? [Y/n]${NC}"
-      read -r _ic < /dev/tty
+      read -r _ic < /dev/tty || _ic=""
       [[ "$(lc "${_ic:-y}")" != "n" ]] && VAULT="$HOME/ai-memory" \
         && TOOLS="$VAULT/.tools" && MCP_DIR="$VAULT/.mcp" \
         && CHECKPOINT_DIR="$VAULT/.tools/.checkpoints" \
@@ -654,7 +654,7 @@ if [[ "$OS" == "macos" ]]; then
       blank
       if $CAN_PROMPT; then
         echo "  Press ENTER to continue anyway (not recommended), or Ctrl+C to abort:"
-        read -r _ < /dev/tty
+        read -r _ < /dev/tty || _=""
       else
         warn "Non-interactive — continuing despite Rosetta terminal"
       fi
@@ -886,7 +886,7 @@ if command -v ollama &>/dev/null; then
     else
       echo -e "${BOLD}Start Ollama automatically at login? [Y/n]${NC}"
       echo -e "  ${DIM}(background service; uses no RAM until a model is loaded)${NC}"
-      read -r _a < /dev/tty
+      read -r _a < /dev/tty || _a=""
       [[ "$(lc "${_a:-y}")" == "n" ]] && DO_AUTO="no" || DO_AUTO="yes"
     fi
   fi
@@ -1119,7 +1119,7 @@ else
         echo -e "  Review it first if you wish:"
         echo -e "  ${CYAN}https://github.com/NousResearch/hermes-agent/blob/main/scripts/install.sh${NC}"
         echo -e "${BOLD}Install Hermes Agent? [Y/n]${NC}"
-        read -r _h < /dev/tty
+        read -r _h < /dev/tty || _h=""
         [[ "$(lc "${_h:-y}")" == "n" ]] && DO_HERMES="no" || DO_HERMES="yes"
       fi
     fi
@@ -1378,7 +1378,7 @@ if [[ $ERRORS -eq 0 ]]; then
     blank
     echo -e "${BOLD}Or continue here now? [y/N]${NC}"
     echo -e "  ${DIM}(fine in most cases; choose 'n' if a later step can't find 'ollama')${NC}"
-    read -r _cont < /dev/tty
+    read -r _cont < /dev/tty || _cont=""
     if [[ "$(lc "${_cont:-n}")" == "y" ]]; then
       # refresh PATH best-effort for this session before handing off
       [[ -d "$NPM_PREFIX/bin" ]] && export PATH="$NPM_PREFIX/bin:$PATH"
