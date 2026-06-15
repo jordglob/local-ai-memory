@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.3
+#  ai-memory-ingest.sh  v2.4
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.3"
+VERSION = "2.4"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -69,7 +69,10 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     if path.exists():
         stats["skipped"] += 1
         return
-    msgs = [(r, t) for r, t in conv.get("messages", []) if t and t.strip()]
+    # Clean every message (strip renderer-placeholder noise, tidy blank lines)
+    # BEFORE the empty check, so a message that was *only* noise is dropped and
+    # never emits a hollow "**Assistant:**" block.
+    msgs = [(r, ct) for r, ct in ((r, clean_text(t)) for r, t in conv.get("messages", [])) if ct]
     if not msgs:
         stats["empty"] += 1
         return
@@ -87,6 +90,22 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     out_dir.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(L), encoding="utf-8")
     stats["new"] += 1
+
+# Renderer placeholders some exporters embed in their pre-rendered "text" field
+# where a tool-call / artifact / search block could not be shown. Pure noise in a
+# saved transcript — stripped generically for EVERY source (pattern-hunt class fix).
+_NOISE_LINES = (
+    "This block is not supported on your current device yet.",
+)
+def clean_text(t):
+    if not t:
+        return ""
+    for noise in _NOISE_LINES:
+        # the placeholder, optionally wrapped in a ``` code fence
+        t = re.sub(r"```[ \t]*\n[ \t]*" + re.escape(noise) + r"[ \t]*\n[ \t]*```", "", t)
+        t = re.sub(r"(?m)^[ \t]*" + re.escape(noise) + r"[ \t]*$", "", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)        # collapse runs of blank lines
+    return t.strip()
 
 def text_from_blocks(content):
     """Extract text from a string / list-of-blocks / dict — defensively."""
@@ -123,8 +142,30 @@ def parse_claude_zip(zpath, out_root):
         try:
             msgs = []
             for m in conv.get("chat_messages", []):
-                t = m.get("text") or text_from_blocks(m.get("content"))
-                msgs.append(("user" if m.get("sender") == "human" else "assistant", t))
+                role = "user" if m.get("sender") == "human" else "assistant"
+                # Prefer the structured content blocks: the flat "text" field
+                # embeds renderer placeholders where tool/search/artifact blocks
+                # were. Fall back to "text" for the rare block-less message.
+                body = text_from_blocks(m.get("content")) or m.get("text") or ""
+                parts = [body] if body.strip() else []
+                # Uploaded documents carry their extracted text — real user
+                # content that would otherwise be lost. Keep it.
+                for a in (m.get("attachments") or []):
+                    if not isinstance(a, dict):
+                        continue
+                    fn = a.get("file_name") or "attachment"
+                    ec = a.get("extracted_content")
+                    if ec and str(ec).strip():
+                        parts.append(f"_[attached file: {fn}]_\n\n```\n{str(ec).strip()}\n```")
+                    else:
+                        parts.append(f"_[attached file: {fn}]_")
+                # Images / binary files have no extractable text — note their
+                # names so an image-only turn isn't dropped (breaks the thread).
+                imgs = [f.get("file_name") for f in (m.get("files") or [])
+                        if isinstance(f, dict) and f.get("file_name")]
+                if imgs:
+                    parts.append("_[attached: " + ", ".join(imgs) + "]_")
+                msgs.append((role, "\n\n".join(p for p in parts if p and p.strip())))
             write_conv(out, "claude.ai", {"id": conv.get("uuid"), "title": conv.get("name"),
                        "created": conv.get("created_at"), "messages": msgs}, st)
         except Exception: st["failed"] += 1
@@ -425,7 +466,11 @@ SOURCES = {
     "gemini-takeout": {"desc": "Google Takeout (Gemini)",       "kind": "zip"},
 }
 
-ZIP_PATTERNS = ["data-*.zip", "*chatgpt*.zip", "*conversations*.zip", "takeout-*.zip", "*.zip"]
+# Match known export *stems* without requiring an extension: browsers (and
+# "Save As") routinely drop or change .zip, and the contents are validated by
+# sniff_zip() anyway (it reads zip magic bytes, not the name). The trailing
+# "*.zip" stays as the generic catch-all for anything still carrying it.
+ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*", "*.zip"]
 
 def sniff_zip(zpath):
     """Return source name for an export zip, or None."""
@@ -556,7 +601,11 @@ def main():
 
     pos = list(a.positional)
     zip_arg = None
-    if pos and pos[-1].endswith(".zip"): zip_arg = pos.pop()
+    # Treat a trailing positional that is an existing FILE as the export to
+    # import (sniff_zip identifies it by content). Don't require a .zip name —
+    # a browser may have stripped it. A directory positional stays as the vault.
+    if pos and (pos[-1].endswith(".zip") or Path(pos[-1]).expanduser().is_file()):
+        zip_arg = pos.pop()
     vault = Path(pos[0]).expanduser() if pos else HOME / "Documents" / "ai-memory"
     if not vault.is_absolute(): vault = Path.cwd() / vault
     out_root = vault / "05-AI-Sessions"
@@ -567,7 +616,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.3          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.4          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
