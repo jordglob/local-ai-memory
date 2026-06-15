@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.2
+#  ai-memory-configure.sh  v4.3
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.1"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.3"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.2 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.3 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -313,6 +313,27 @@ ensure_model_present() {  # ensure_model_present <tag>
   return 1
 }
 
+# §4.2 model-capability floor: a model can be cheap enough to chat yet too weak
+# to DRIVE the agent's search tools — it guesses filenames instead of running
+# grep/search, so imported memory looks "missing" though everything is wired.
+# Warn (don't block) when a small/cheap model is chosen. Heuristic by tag —
+# honest "may be", not a hard rule.
+warn_weak_model() {  # warn_weak_model <model_tag>
+  local t; t="$(lc "$1")"
+  case "$t" in
+    *mini*|*gpt-3.5*|*tinyllama*|*phi-2*|*gemma:2b*|\
+    *:0.5b*|*:1b*|*:1.5b*|*:2b*|*:3b*|*-1b*|*-3b*)
+      echo ""
+      warn "'$1' is a small/cheap model — fine for chat, but it may be too weak"
+      echo -e "  ${DIM}for MEMORY/search. Weak models tend to GUESS filenames instead of"
+      echo -e "  running grep/search, so your imported history can look 'missing' even"
+      echo -e "  when it's all there. For reliable recall of imported conversations,"
+      echo -e "  prefer a more capable model (e.g. a full-size cloud model, not a 'mini').${NC}"
+      return 0 ;;
+  esac
+  return 1
+}
+
 if [[ "$MODE" == "cloud" ]]; then
   # Cloud-only: pick a sensible default cloud model, no local download.
   if $ASSUME_YES; then
@@ -333,6 +354,9 @@ else
   ok "Primary model: $MODEL_TAG"
   ensure_model_present "$MODEL_TAG" || true
 fi
+
+# §4.2 — warn if the chosen model is likely too weak to drive memory/search tools.
+warn_weak_model "$MODEL_TAG" || true
 
 # Context length: never below Hermes' hard floor; scale up with RAM/model max.
 # (Pattern-hunt fix: write-against-known-limit — clamp to the floor always.)
@@ -451,6 +475,57 @@ if [[ -z "$OR_KEY" && -z "$AN_KEY" ]]; then
   fi
 fi
 
+# ═════════════════════════════════════════════════════════════════════════════
+# §4.3 import->reachable: make a plain `hermes` find the vault
+# ═════════════════════════════════════════════════════════════════════════════
+# Hermes' local file tools (search/grep) root at the LAUNCH directory, not at a
+# path in config.yaml (terminal.cwd is ignored by the local backend — verified on
+# real hardware). So a plain `hermes` started from $HOME can't see the imported
+# history in the vault. Two belt-and-suspenders fixes, both aimed at the vault:
+#   (1) TERMINAL_CWD in ~/.hermes/.env (honored by some Hermes paths), and
+#   (2) a shell launcher that cd's into the vault (the proven, reliable fix).
+set_env TERMINAL_CWD "$VAULT"
+ok "TERMINAL_CWD → vault (in .env)"
+
+install_vault_launcher() {
+  local primary="$HOME/.bashrc"
+  case "${SHELL:-}" in *zsh*) primary="$HOME/.zshrc";; esac
+  [[ "${OSTYPE:-}" == darwin* && "${SHELL:-}" != *bash* ]] && primary="$HOME/.zshrc"
+  local other; [[ "$primary" == *zshrc ]] && other="$HOME/.bashrc" || other="$HOME/.zshrc"
+  local targets=("$primary"); [[ -f "$other" ]] && targets+=("$other")
+  local rc
+  for rc in "${targets[@]}"; do
+    python3 - "$rc" "$VAULT" << 'PYLAUNCH'
+import sys, re
+from pathlib import Path
+rc, vault = sys.argv[1], sys.argv[2]
+start = "# >>> ai-memory hermes launcher >>>"
+end   = "# <<< ai-memory hermes launcher <<<"
+block = (
+    start + "\n"
+    "# Run Hermes from your AI-memory vault so its file tools (search/grep) are\n"
+    "# rooted where your imported history lives. The subshell keeps your shell's\n"
+    "# own directory unchanged. Added by ai-memory-configure.sh (reachability fix).\n"
+    'hermes() { ( cd "' + vault + '" 2>/dev/null && command hermes "$@" ); }\n'
+    + end
+)
+p = Path(rc)
+text = p.read_text() if p.exists() else ""
+pat = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+if pat.search(text):
+    text = pat.sub(lambda m: block, text)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "\n" + block + "\n"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(text)
+PYLAUNCH
+    ok "Vault launcher installed in ${rc/#$HOME/~}"
+  done
+}
+install_vault_launcher
+
 # ai-config.json for resume.sh and other tooling
 mkdir -p "$MCP_DIR"
 python3 - "$CONFIG_FILE" "$MODEL_TAG" "$RAM_GB" "$GPU_TYPE" "$VRAM_GB" << 'PYJSON'
@@ -495,6 +570,9 @@ fi
 command -v hermes &>/dev/null \
   && ok "Hermes command found — start with: hermes chat" \
   || info "Hermes not in PATH yet — open a new terminal, then: hermes chat"
+echo -e "  ${DIM}A vault launcher was added to your shell startup so a plain 'hermes'"
+echo -e "  runs from the vault and can see your imported history. Open a NEW terminal"
+echo -e "  (or run: source ~/.bashrc) for it to take effect.${NC}"
 
 echo ""
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
