@@ -6,6 +6,33 @@ Consolidate your scattered AI conversations into one local vault you own —
 and run a persistent local agent on top of it. No cloud accounts. No lock-in.
 Plain markdown on your own disk.
 
+## Get the scripts (no `unzip` required)
+
+**Recommended — `git clone`.** git checks the files out already unpacked, so
+there is no extract step at all:
+
+```
+git clone https://github.com/YOUR-USERNAME/local-ai-memory
+cd local-ai-memory
+```
+
+**Or download the ZIP** ("Code → Download ZIP" on GitHub). A clean machine may
+not have `unzip` yet — so unpack with Python, which ships on virtually every
+Linux / WSL / macOS, no extra tools needed:
+
+```
+python3 -c "import zipfile; zipfile.ZipFile('local-ai-memory-main.zip').extractall()"
+cd local-ai-memory-main
+```
+
+**On Windows? Run it in WSL** (Windows Subsystem for Linux): `wsl --install`
+once, open Ubuntu, then follow the Linux steps below. `setup` installs the few
+base tools a fresh WSL lacks (`unzip`, `zstd`), and `ingest` detects WSL and
+offers to also scan your **Windows** Downloads (`/mnt/c/Users/<you>/Downloads`),
+where your AI exports usually live.
+
+## Quick start
+
 ```
 bash ai-memory-setup.sh        # installs everything on a blank machine
 bash ai-memory-configure.sh    # picks the best model for YOUR hardware
@@ -17,10 +44,6 @@ hermes chat                    # talk to an agent that knows your past
 The scripts are a family: same flags everywhere (`--help` `--version` `--yes`),
 idempotent re-runs, and on first run they install themselves to
 `~/Documents/ai-memory/.tools/` — delete the downloads afterwards.
-
-```
-git clone https://github.com/YOUR-USERNAME/local-ai-memory
-```
 
 ## Who it's for
 
