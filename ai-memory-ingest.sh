@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.5
+#  ai-memory-ingest.sh  v2.6
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.5"
+VERSION = "2.6"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.5          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.6          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -629,6 +629,30 @@ def main():
             scan_roots.append(HOME)
         else:
             info("Deep scan cancelled — continuing with default discovery")
+
+    # §4.1 WSL: a Windows user's exports usually live on the WINDOWS side
+    # (/mnt/c/Users/<name>/Downloads), not in the WSL home where discovery looks
+    # by default. Detect WSL and add the Windows Downloads to discovery — ask, or
+    # auto-include under --yes. No-op when not on WSL.
+    def _wsl_windows_downloads():
+        import glob
+        if not Path("/mnt/c").is_dir():
+            return []
+        try:
+            marker = Path("/proc/version").read_text().lower()
+        except OSError:
+            marker = ""
+        if "microsoft" not in marker and "wsl" not in marker:
+            return []
+        skip = {"Public", "Default", "Default User", "All Users"}
+        return [Path(d) for d in sorted(glob.glob("/mnt/c/Users/*/Downloads"))
+                if Path(d).is_dir() and Path(d).parent.name not in skip]
+    for _wd in _wsl_windows_downloads():
+        if _wd in scan_roots:
+            continue
+        if ASSUME_YES or ask_yn(f"Running under WSL — also scan your Windows Downloads at {_wd}?"):
+            scan_roots.append(_wd)
+            ok(f"Including Windows Downloads in discovery: {_wd}")
 
     results = {}
     if zip_arg:                                   # backward compatible: sniff & route
