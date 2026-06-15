@@ -29,7 +29,7 @@ laptop a second life, or run a serious local stack on a capable machine. The
 tool adapts to what you have:
 
 - **Weak/old machine?** It detects low memory and sets up **cloud-only** mode —
-  your old ThinkPad talks to a cloud model and works fine, nothing heavy runs
+  an old laptop talks to a cloud model and works fine, nothing heavy runs
   locally.
 - **Capable machine?** It runs a real local model — your conversations and your
   agent stay entirely on your own disk, no cloud, no accounts.

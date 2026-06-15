@@ -18,7 +18,7 @@ History:
   v1  WEB  2026-06-15  — first consolidated bundle: CC's live-tested code
                             (configure v4.1, ingest v2.4, setup v8.6, remote v2.3)
                             merged with spec v1.10.
-  v2  WEB  2026-06-15  — generalized for ANY hardware: removed X230 footprints
+  v2  WEB  2026-06-15  — generalized for ANY hardware: removed machine-specific footprints
                           from code, replaced personal GitHub handle with a
                           placeholder, added 'Who it's for' (old-hardware
                           revival) + 'Design philosophy' to README, fixed source
