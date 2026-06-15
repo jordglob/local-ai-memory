@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.0
+#  ai-memory-configure.sh  v4.1
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.0"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.1"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.0 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.1 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -441,7 +441,15 @@ PYENV
 }
 [[ -n "$OR_KEY" ]] && { set_env OPENROUTER_API_KEY "$OR_KEY"; ok "OpenRouter key saved"; }
 [[ -n "$AN_KEY" ]] && { set_env ANTHROPIC_API_KEY "$AN_KEY"; ok "Anthropic key saved"; }
-[[ -z "$OR_KEY" && -z "$AN_KEY" ]] && info "No API keys — Hermes runs fully local"
+# Status line must reflect the ACTUAL config — never claim "fully local" in cloud
+# mode, and credit an existing key we kept rather than reporting "no keys".
+if [[ -z "$OR_KEY" && -z "$AN_KEY" ]]; then
+  if [[ "$MODE" == "cloud" ]]; then
+    [[ -n "$EXISTING_OR" ]] && info "Keeping existing OpenRouter key — cloud via OpenRouter"
+  else
+    info "No API keys — Hermes runs fully local"
+  fi
+fi
 
 # ai-config.json for resume.sh and other tooling
 mkdir -p "$MCP_DIR"
