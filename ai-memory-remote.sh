@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.3
+#  ai-memory-remote.sh  v2.4
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.3"
+VERSION="2.4"
 
 case "${1:-}" in
   -h|--help)
@@ -104,7 +104,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.3          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.4          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -136,7 +136,7 @@ if [[ "$ROLE" == "main" ]]; then
   if ! command -v ssh-keygen &>/dev/null; then
     info "Installing OpenSSH client tools..."
     case "$PKG" in
-      apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq openssh-client ;;
+      apt)    sudo apt-get -o DPkg::Lock::Timeout=300 update -qq 2>/dev/null || true; sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq openssh-client ;;
       dnf)    sudo dnf install -y -q openssh-clients ;;
       pacman) sudo pacman -S --noconfirm --needed openssh ;;
     esac
@@ -232,7 +232,7 @@ else
   else
     info "Installing OpenSSH server..."
     case "$PKG" in
-      apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq openssh-server ;;
+      apt)    sudo apt-get -o DPkg::Lock::Timeout=300 update -qq 2>/dev/null || true; sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq openssh-server ;;
       dnf)    sudo dnf install -y -q openssh-server ;;
       pacman) sudo pacman -S --noconfirm --needed openssh ;;
       *)      die "No supported package manager found" ;;
@@ -409,7 +409,7 @@ setup_wireguard() {  # $1 = endpoint (domain or IP), may be empty
     info "Installing WireGuard tools..."
     case "$OS-$PKG" in
       macos-*)      brew install wireguard-tools 2>/dev/null ;;
-      linux-apt)    sudo apt-get update -qq 2>/dev/null || true; sudo apt-get install -y -qq wireguard-tools ;;
+      linux-apt)    sudo apt-get -o DPkg::Lock::Timeout=300 update -qq 2>/dev/null || true; sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq wireguard-tools ;;
       linux-dnf)    sudo dnf install -y -q wireguard-tools ;;
       linux-pacman) sudo pacman -S --noconfirm --needed wireguard-tools ;;
     esac
