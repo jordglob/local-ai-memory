@@ -33,3 +33,12 @@ History:
                           CC's next job. The working launcher fix currently lives
                           only on the test machine's ~/.bashrc; it must be baked
                           into setup/configure for all users.
+  v4  CC   2026-06-15  — §4.3 + §4.2 BUILT and live-verified on real hardware.
+                          configure v4.3: installs a hermes() vault launcher into
+                          the shell rc + sets TERMINAL_CWD; warns on weak models
+                          (§4.2). ingest v2.5: post-import reachability check.
+                          setup v8.7: AGENTS.md ships an explicit search recipe.
+                          spec v1.13. Live finding: TERMINAL_CWD is ineffective
+                          for the local terminal tool — the launcher is the fix.
+                          Before: plain hermes from /tmp -> "NONE FOUND". After:
+                          launcher -> hermes roots at vault -> found 19 files.
