@@ -1,7 +1,8 @@
-# AI Memory Stack — Requirements Specification v1.11
+# AI Memory Stack — Requirements Specification v1.12
 
 Status: agreed baseline for the next build round (June 2026).
-v1.11 adds: §4.3 CRITICAL import->reachable gap (core-promise bug: ingest
+v1.12 adds: §4.2 model-capability floor for memory/tool-use (a too-weak model
+guesses filenames instead of searching — warn on weak model choice). v1.11 added: §4.3 CRITICAL import->reachable gap (core-promise bug: ingest
 fills the vault but plain `hermes` searches cwd, not the vault — found on X230
 live). v1.10 added: §4.55 scan-to-report option (map messy data, agent acts on a
 bridge file). v1.9 added: ingest backlog §4.4, GitHub-sync local-first design §4.6,
@@ -490,6 +491,38 @@ Also clarified (not a bug): "list memory returns empty" is expected — the vaul
 import is plain markdown reached by file search, NOT entries in Hermes' native
 state.db memory. Seeding native memory is the optional USER.md/MEMORY.md step
 (§2.3), separate from import.
+
+## 4.2 Model capability floor for tool-use / memory (X230 live finding)
+
+Discovered by the user: with a weak/cheap cloud model (gpt-4o-mini), Hermes
+reached the vault but could NOT use memory well — it GUESSED filenames
+(01-Projects/Project Kraftvagn.md) instead of running grep/search_files. The
+SAME vault, files, and Hermes worked correctly the moment a more capable model
+was selected: the better model reasons "I should SEARCH" and calls the tools.
+
+The lesson: memory/RAG here depends on the model being capable enough to use
+tools (search-don't-guess), not just to chat. A model can be cheap enough to
+hold a conversation yet too weak to drive the agent's file-search tools — and
+then memory silently appears broken though everything is wired correctly.
+
+Implications for the build:
+- configure should WARN when a low-capability model is chosen for an agent that
+  relies on tool-use/search: "this model may be too weak to search your memory
+  reliably; it may guess instead of search. For memory features, prefer a more
+  capable model." Especially relevant in cloud-only mode on weak hardware, where
+  the cheapest model is the tempting default.
+- This is distinct from §4.3 (working-directory reachability). Order of failure:
+  (1) agent must be ROOTED at the vault (§4.3), THEN (2) the model must be
+  CAPABLE enough to search it (this §4.2). Both must hold for memory to work.
+- Note the tension with cloud-only-on-weak-hardware: the machines most likely to
+  need cloud are also most likely to reach for the cheapest model — exactly the
+  one that may be too weak for memory. Surface the tradeoff honestly.
+
+Architecture note (answers a user question): imported history is currently
+reached by LIVE FILE SEARCH of the vault markdown, not a database. Seeding it
+into Hermes' native memory (USER.md/MEMORY.md, §2.3) is a separate optional
+step that would make memory faster/more integrated — not required for it to
+work, but a natural enhancement.
 
 ## 4.8 Known untested surface (honest)
 
