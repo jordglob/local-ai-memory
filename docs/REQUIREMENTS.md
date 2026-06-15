@@ -1,7 +1,13 @@
-# AI Memory Stack — Requirements Specification v1.12
+# AI Memory Stack — Requirements Specification v1.13
 
 Status: agreed baseline for the next build round (June 2026).
-v1.12 adds: §4.2 model-capability floor for memory/tool-use (a too-weak model
+v1.13 (CC, package v4): §4.3 + §4.2 fixes BUILT and live-verified on real
+hardware — vault launcher baked into configure (writes a `hermes()` shell
+launcher + TERMINAL_CWD), ingest gained a post-import reachability check,
+setup's generated AGENTS.md now carries an explicit search recipe, and
+configure warns on a weak model. LIVE FINDING (corrects §4.3): TERMINAL_CWD is
+INEFFECTIVE for Hermes' local terminal/file tools — the shell launcher is the
+proven fix (kept TERMINAL_CWD as harmless belt-and-suspenders). v1.12 adds: §4.2 model-capability floor for memory/tool-use (a too-weak model
 guesses filenames instead of searching — warn on weak model choice). v1.11 added: §4.3 CRITICAL import->reachable gap (core-promise bug: ingest
 fills the vault but plain `hermes` searches cwd, not the vault — found on X230
 live). v1.10 added: §4.55 scan-to-report option (map messy data, agent acts on a
@@ -487,6 +493,22 @@ Required fixes (next build, HIGH priority — this is the core promise):
    summary: "Run hermes from the vault, or the agent won't see what was imported."
 3. Document "run from the vault" and lean on the existing resume.sh / AGENTS.md.
 
+**BUILT + live-verified (package v4, CC) — configure v4.3 / ingest v2.5 / setup v8.7:**
+- configure now installs a `hermes()` launcher (`( cd "$VAULT" && command hermes "$@" )`)
+  into the user's shell rc (.bashrc/.zshrc, idempotent marker block) and sets
+  TERMINAL_CWD in ~/.hermes/.env. Closing message tells the user to open a new
+  terminal so it takes effect.
+- ingest does a post-import reachability check (launcher/TERMINAL_CWD present?);
+  if not, it prints a loud "a plain hermes may NOT see this" instruction instead
+  of a falsely-happy summary.
+- setup's generated AGENTS.md step 3 upgraded from soft "consult it" to an
+  explicit recipe: `grep -rli "KEYWORD" 05-AI-Sessions/` then read matches.
+- LIVE PROOF (real hardware, /proc-verified): BEFORE (no launcher, from /tmp) →
+  worker cwd=/tmp, "NONE FOUND, 05-AI-Sessions does not exist". AFTER (launcher
+  active, even launched from /tmp) → worker cwd=vault, found 19 claude-web files
+  for "outlander". TERMINAL_CWD alone (launched from /tmp) did NOT fix it — the
+  launcher is what works.
+
 Also clarified (not a bug): "list memory returns empty" is expected — the vault
 import is plain markdown reached by file search, NOT entries in Hermes' native
 state.db memory. Seeding native memory is the optional USER.md/MEMORY.md step
@@ -511,6 +533,10 @@ Implications for the build:
   reliably; it may guess instead of search. For memory features, prefer a more
   capable model." Especially relevant in cloud-only mode on weak hardware, where
   the cheapest model is the tempting default.
+  **BUILT (configure v4.3):** `warn_weak_model` fires on small/cheap tags
+  (*mini*, *:0.5b/:1b/:2b/:3b*, gpt-3.5, gemma:2b, tinyllama, phi-2, ...) right
+  after the model is chosen. Live-verified: choosing openai/gpt-4o-mini prints
+  the warning. It warns, does not block (recommend-don't-decide).
 - This is distinct from §4.3 (working-directory reachability). Order of failure:
   (1) agent must be ROOTED at the vault (§4.3), THEN (2) the model must be
   CAPABLE enough to search it (this §4.2). Both must hold for memory to work.
