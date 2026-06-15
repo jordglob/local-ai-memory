@@ -6,7 +6,8 @@ zips) can't happen.
 
 Scheme:  local-ai-memory-repo_v<N>_<author>_<YYYY-MM-DD>.zip
   <N>       running package release number, +1 each consolidated zip
-  <author>  who produced it: "claude" (chat), "cc-x230" (Claude Code on X230), etc.
+  <author>  who produced it: "WEB" (Claude in chat), "CC" (Claude Code). Nothing
+            machine-specific — the tool is generic, not tied to any one box.
   <date>    build date
 
 This is SEPARATE from the per-script versions (setup v8.6, ingest v2.4, spec
@@ -14,6 +15,6 @@ v1.10 ...) which move independently. The package number just answers
 "which bundle is newest?".
 
 History:
-  v1  claude  2026-06-15  — first consolidated bundle: CC's live-tested code
+  v1  WEB  2026-06-15  — first consolidated bundle: CC's live-tested code
                             (configure v4.1, ingest v2.4, setup v8.6, remote v2.3)
                             merged with spec v1.10.
