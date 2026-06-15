@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.3
+#  ai-memory-configure.sh  v4.4
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.3"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.4"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.3 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.4 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -414,21 +414,28 @@ if [[ -f "$HERMES_CONFIG" ]]; then
   ok "Backed up existing config.yaml"
 fi
 python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" "$MODE" << 'PYCONF'
-import sys, re
+import sys, re, os
 from pathlib import Path
 path, model, ctx, mode = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 if mode == "cloud":
     base_url = "https://openrouter.ai/api/v1"
     comment = "# cloud via OpenRouter (key in ~/.hermes/.env)"
+    extra = ""
 else:
     base_url = "http://localhost:11434/v1"
     comment = "# local Ollama (OpenAI-compatible)"
+    # §4.35: a local model whose native context is below Hermes' floor must ALSO
+    # be told to LOAD at the floor, or Ollama loads it small and Hermes refuses
+    # ("runtime context too small") even though context_length passed its check.
+    # context_length = what Hermes believes; ollama_num_ctx = what Ollama loads.
+    extra = f"  ollama_num_ctx: {ctx}            # force Ollama to load >= Hermes' floor\n"
 block = (
     "model:\n"
     f"  default: {model}\n"
     f"  provider: custom            {comment}\n"
     f"  base_url: {base_url}\n"
     f"  context_length: {ctx}\n"
+    + extra
 )
 p = Path(path)
 if p.exists():
@@ -440,14 +447,39 @@ else:
     text = ("# Hermes Agent CLI configuration — written by ai-memory-configure.sh\n"
             "# Env vars in ~/.hermes/.env take precedence over this file.\n\n" + block)
 p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(text)
+# Atomic write so a failure can never leave a half-written / empty config.
+tmp = Path(str(p) + ".tmp")
+tmp.write_text(text)
+os.replace(str(tmp), str(p))
 print("ok")
 PYCONF
 if [[ "$MODE" == "cloud" ]]; then
   ok "config.yaml → cloud via OpenRouter, model: $MODEL_TAG, ctx: $CTX"
 else
-  ok "config.yaml → local Ollama, model: $MODEL_TAG, ctx: $CTX"
+  ok "config.yaml → local Ollama, model: $MODEL_TAG, ctx: $CTX (+ ollama_num_ctx)"
 fi
+
+# §4.35: a green run that writes no config is a bad failure (confirmed on WSL:
+# model downloaded, config.yaml never written, Hermes fell back to its default).
+# VERIFY the write actually landed by reading it back — fail loudly if not.
+verify_config_written() {
+  [[ -f "$HERMES_CONFIG" ]] \
+    || die "config.yaml was NOT written to $HERMES_CONFIG — Hermes would fall back to its default. Re-run configure."
+  grep -qF "  default: $MODEL_TAG" "$HERMES_CONFIG" \
+    || die "config.yaml is missing the model default ($MODEL_TAG) — write did not land correctly."
+  grep -qE "^  context_length: [0-9]+" "$HERMES_CONFIG" \
+    || die "config.yaml is missing context_length — write did not land correctly."
+  if [[ "$MODE" == "local" ]]; then
+    grep -qE "^  ollama_num_ctx: [0-9]+" "$HERMES_CONFIG" \
+      || die "config.yaml is missing ollama_num_ctx — a local model needs it to clear Hermes' 64K floor."
+  fi
+  if [[ "$MODE" == "local" ]]; then
+    ok "Verified config.yaml on disk (model, context_length, ollama_num_ctx)"
+  else
+    ok "Verified config.yaml on disk (model, context_length)"
+  fi
+}
+verify_config_written
 
 # .env — only touch our keys, keep the rest
 touch "$HERMES_ENV"; chmod 600 "$HERMES_ENV"
