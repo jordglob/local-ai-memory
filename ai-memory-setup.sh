@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.7
+#  ai-memory-setup.sh  v8.8
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.7"
+VERSION="8.8"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.7"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.8"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -448,7 +448,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.7 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.8 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -613,10 +613,28 @@ fi
 hdr "Step 0/7  System requirements"
 
 APT_UPDATED=false
+# §4.1 (WSL apt-lock finding): a fresh system runs unattended-upgrades in the
+# background and holds the apt/dpkg lock, so a bare `apt-get` fails immediately.
+# apt_get() asks apt to WAIT for the lock (DPkg::Lock::Timeout, apt 1.9.11+;
+# older apt simply ignores the unknown option) and prints a friendly heads-up
+# when the lock is visibly held. All apt calls in this script go through it.
+apt_lock_note() {
+  [[ "$PKG_MANAGER" == "apt" ]] || return 0
+  if { command -v fuser &>/dev/null && sudo fuser /var/lib/dpkg/lock-frontend &>/dev/null; } \
+     || pgrep -x unattended-upgr &>/dev/null || pgrep -x apt &>/dev/null \
+     || pgrep -x apt-get &>/dev/null || pgrep -x dpkg &>/dev/null; then
+    warn "Package manager is busy (background updates / unattended-upgrades)."
+    info "Waiting up to 5 min for the apt lock to free — this is normal on a fresh system."
+  fi
+}
+apt_get() {  # sudo apt-get that waits for the lock instead of failing on it
+  apt_lock_note
+  sudo apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
 apt_update_once() {
   if [[ "$PKG_MANAGER" == "apt" ]] && ! $APT_UPDATED; then
     start_spinner "apt-get update..."
-    sudo apt-get update -qq 2>/dev/null || warn "apt-get update had errors (a stale third-party repo?) — continuing"
+    apt_get update -qq 2>/dev/null || warn "apt-get update had errors (a stale third-party repo?) — continuing"
     stop_spinner
     APT_UPDATED=true
   fi
@@ -629,7 +647,7 @@ install_pkg() {
   info "Installing $binary..."
   case "$OS-$PKG_MANAGER" in
     macos-*)      brew install "$brew_pkg" ;;
-    linux-apt)    apt_update_once; sudo apt-get install -y -qq "$apt_pkg" ;;
+    linux-apt)    apt_update_once; apt_get install -y -qq "$apt_pkg" ;;
     linux-dnf)    sudo dnf install -y -q "$dnf_pkg" ;;
     linux-pacman) sudo pacman -S --noconfirm "$pacman_pkg" ;;
     *) die "$binary is missing and cannot be installed automatically.\nInstall manually and re-run." ;;
@@ -704,7 +722,7 @@ if [[ "$OS" == "linux" ]]; then
       if ! dpkg -l build-essential &>/dev/null 2>&1; then
         info "Installing build tools..."
         apt_update_once
-        sudo apt-get install -y -qq build-essential python3-dev 2>/dev/null
+        apt_get install -y -qq build-essential python3-dev 2>/dev/null
         ok "build-essential installed"
       else
         skip "build-essential"
@@ -733,6 +751,10 @@ fi
 install_pkg curl  curl  curl  curl  curl
 install_pkg git   git   git   git   git
 install_pkg python3 python@3 python3 python3 python
+# §4.1: do NOT assume these exist — a clean WSL/Ubuntu has neither. `unzip` for
+# unpacking exports; `zstd` is required by the Ollama installer's bundle.
+install_pkg unzip unzip unzip unzip unzip
+install_pkg zstd  zstd  zstd  zstd  zstd
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 install_node() {
@@ -763,7 +785,7 @@ install_node() {
           | sudo -E bash - 2>/dev/null \
           || die "Could not reach NodeSource. Check internet/proxy."
         stop_spinner
-        sudo apt-get install -y -qq nodejs
+        apt_get install -y -qq nodejs
       elif [[ "$PKG_MANAGER" == "dnf" ]]; then
         curl -fsSL --max-time 60 https://rpm.nodesource.com/setup_22.x \
           | sudo bash - 2>/dev/null \
