@@ -1,13 +1,11 @@
-# AI Memory Stack — Requirements Specification v1.13
+# AI Memory Stack — Requirements Specification v1.15
 
 Status: agreed baseline for the next build round (June 2026).
-v1.13 (CC, package v4): §4.3 + §4.2 fixes BUILT and live-verified on real
-hardware — vault launcher baked into configure (writes a `hermes()` shell
-launcher + TERMINAL_CWD), ingest gained a post-import reachability check,
-setup's generated AGENTS.md now carries an explicit search recipe, and
-configure warns on a weak model. LIVE FINDING (corrects §4.3): TERMINAL_CWD is
-INEFFECTIVE for Hermes' local terminal/file tools — the shell launcher is the
-proven fix (kept TERMINAL_CWD as harmless belt-and-suspenders). v1.12 adds: §4.2 model-capability floor for memory/tool-use (a too-weak model
+v1.15 adds: §4.35 local-model dual-context (context_length AND ollama_num_ctx
+must both clear 64K) + confirmed configure-never-wrote-config.yaml bug (WSL live,
+first capable local model). v1.14 added: §4.05 bootstrap/distribution (git clone primary; Python unzip
+fallback; never assume unzip to get scripts out). v1.13 added: §4.1 WSL as first-class scenario (missing deps unzip/zstd, apt-lock
+wait, Windows-side /mnt/c data discovery, vault-in-WSL). v1.12 added: §4.2 model-capability floor for memory/tool-use (a too-weak model
 guesses filenames instead of searching — warn on weak model choice). v1.11 added: §4.3 CRITICAL import->reachable gap (core-promise bug: ingest
 fills the vault but plain `hermes` searches cwd, not the vault — found on X230
 live). v1.10 added: §4.55 scan-to-report option (map messy data, agent acts on a
@@ -364,6 +362,60 @@ conventions:
   full (faithful but can bloat a file). Not capped — decide later if a cap or
   summary is wanted.
 
+## 4.05 Bootstrap / distribution — getting the scripts OUT before anything runs
+
+Chicken-and-egg the user spotted: setup can install unzip for INGEST's needs,
+but it cannot help you UNPACK the scripts themselves — you need them unpacked to
+run setup at all. So "how do I get the scripts out" is a docs/distribution
+problem that precedes setup, and it must not assume unzip exists (a clean WSL
+has neither unzip nor zstd).
+
+README must, BEFORE the first `bash` line, cover acquisition without assuming
+tools:
+1. **Primary method: `git clone`** — recommend it first. git checks files out
+   already-unpacked, so there is NO unzip step at all. This sidesteps the whole
+   problem for most users:
+     git clone https://github.com/<user>/local-ai-memory && cd local-ai-memory
+2. **Fallback: ZIP download** ("Download ZIP" on GitHub). Here the user has a zip
+   and needs to unpack BEFORE any script runs — and unzip may be absent. Give a
+   dependency-free bootstrap using Python (present on nearly every Linux/WSL):
+     python3 -c "import zipfile; zipfile.ZipFile('local-ai-memory.zip').extractall()"
+   (This is exactly what unblocked the live WSL run when unzip was missing.)
+
+Two distinct unzip needs, kept separate:
+  - unpack the SCRIPTS (before setup) -> docs bootstrap above, never assume unzip.
+  - unpack the user's EXPORT (during ingest, after setup) -> setup installs unzip
+    in its dep phase (§4.1).
+
+## 4.1 WSL support — a first-class scenario (live finding)
+
+Windows users can run the whole stack inside WSL (Windows Subsystem for Linux)
+without leaving Windows — a natural fit for the "give Windows hardware an AI
+life" audience. Live run on WSL2 (Ubuntu, 15 GB RAM, systemd present) confirmed
+the core path works, with these findings to bake in:
+
+- **Missing base deps on a clean WSL/Ubuntu:** setup assumed `unzip` and `zstd`
+  exist; a minimal WSL has neither (zstd is needed by the Ollama installer,
+  unzip by ingest). setup MUST install these in its tool-provisioning phase,
+  not assume them. (General lesson: audit ALL silently-assumed deps — clean WSL
+  is the best test for this, having none of the conveniences older boxes carry.)
+- **apt lock contention:** fresh WSL runs `unattended-upgrades` in the
+  background, holding the apt lock. setup should wait for the lock gracefully
+  (or detect+message) instead of failing.
+- **Cross-filesystem data (the key WSL nuance):** a Windows user's AI exports
+  almost always live on the WINDOWS side (/mnt/c/Users/<name>/Downloads), NOT in
+  the WSL home dir where ingest looks by default. So ingest auto-discovery
+  misses them. Fix: detect WSL (presence of /mnt/c + a WSL kernel marker) and,
+  when detected, ASK or auto-include the Windows Downloads folder in discovery
+  (e.g. "Running under WSL — also scan your Windows Downloads at
+  /mnt/c/Users/.../Downloads?"). Ties directly into §4.55 scan-to-report:
+  on WSL, a scan that spans the Windows side is especially valuable.
+- **Keep the vault in WSL's own filesystem** (~/Documents/ai-memory), not under
+  /mnt/c (cross-FS access is slow and has permission quirks — and risks the
+  §4.3 working-dir class of problems).
+- Document WSL explicitly in README/checklist as a supported path: "On Windows?
+  Run it in WSL." Lowers the barrier for the ex-Windows audience enormously.
+
 ## 4.55 Scan-to-report option — map messy data, let the agent act (next build)
 
 The three discovery tiers (default / --scan DIR / --deep-scan) STAY. This adds a
@@ -493,22 +545,6 @@ Required fixes (next build, HIGH priority — this is the core promise):
    summary: "Run hermes from the vault, or the agent won't see what was imported."
 3. Document "run from the vault" and lean on the existing resume.sh / AGENTS.md.
 
-**BUILT + live-verified (package v4, CC) — configure v4.3 / ingest v2.5 / setup v8.7:**
-- configure now installs a `hermes()` launcher (`( cd "$VAULT" && command hermes "$@" )`)
-  into the user's shell rc (.bashrc/.zshrc, idempotent marker block) and sets
-  TERMINAL_CWD in ~/.hermes/.env. Closing message tells the user to open a new
-  terminal so it takes effect.
-- ingest does a post-import reachability check (launcher/TERMINAL_CWD present?);
-  if not, it prints a loud "a plain hermes may NOT see this" instruction instead
-  of a falsely-happy summary.
-- setup's generated AGENTS.md step 3 upgraded from soft "consult it" to an
-  explicit recipe: `grep -rli "KEYWORD" 05-AI-Sessions/` then read matches.
-- LIVE PROOF (real hardware, /proc-verified): BEFORE (no launcher, from /tmp) →
-  worker cwd=/tmp, "NONE FOUND, 05-AI-Sessions does not exist". AFTER (launcher
-  active, even launched from /tmp) → worker cwd=vault, found 19 claude-web files
-  for "outlander". TERMINAL_CWD alone (launched from /tmp) did NOT fix it — the
-  launcher is what works.
-
 Also clarified (not a bug): "list memory returns empty" is expected — the vault
 import is plain markdown reached by file search, NOT entries in Hermes' native
 state.db memory. Seeding native memory is the optional USER.md/MEMORY.md step
@@ -533,10 +569,6 @@ Implications for the build:
   reliably; it may guess instead of search. For memory features, prefer a more
   capable model." Especially relevant in cloud-only mode on weak hardware, where
   the cheapest model is the tempting default.
-  **BUILT (configure v4.3):** `warn_weak_model` fires on small/cheap tags
-  (*mini*, *:0.5b/:1b/:2b/:3b*, gpt-3.5, gemma:2b, tinyllama, phi-2, ...) right
-  after the model is chosen. Live-verified: choosing openai/gpt-4o-mini prints
-  the warning. It warns, does not block (recommend-don't-decide).
 - This is distinct from §4.3 (working-directory reachability). Order of failure:
   (1) agent must be ROOTED at the vault (§4.3), THEN (2) the model must be
   CAPABLE enough to search it (this §4.2). Both must hold for memory to work.
@@ -549,6 +581,40 @@ reached by LIVE FILE SEARCH of the vault markdown, not a database. Seeding it
 into Hermes' native memory (USER.md/MEMORY.md, §2.3) is a separate optional
 step that would make memory faster/more integrated — not required for it to
 work, but a natural enhancement.
+
+## 4.35 Local-model context: TWO values must clear the floor (WSL live finding)
+
+First time the project ran a CAPABLE LOCAL model through Hermes (qwen3:14b on
+WSL, 15 GB). Surfaced what X230 never could (too weak for a local model):
+
+Hermes' 64K context floor requires setting TWO separate values for a local
+Ollama model, not one:
+  - model.context_length: 65536   — what Hermes BELIEVES the model's window is
+  - model.ollama_num_ctx: 65536   — what Ollama actually LOADS the model with
+Many local models have a native context BELOW Hermes' floor (qwen3:14b native =
+40,960). Setting only context_length passes Hermes' check but Ollama still loads
+the model at 40,960 -> Hermes refuses ("Ollama runtime context too small").
+BOTH must be >= 64,000.
+
+configure (for local Ollama models) MUST therefore:
+  - detect when the chosen model's native context is below the floor, and
+  - write BOTH context_length AND ollama_num_ctx >= 64000.
+config.yaml terminal.cwd is ignored (per §4.3); these two model.* keys ARE read.
+
+ALSO — a critical configure bug confirmed on WSL: configure showed the model-
+selection + Hermes-config steps and downloaded the model, but NEVER WROTE
+config.yaml (no .bak existed; Hermes ran on its 64KB default template with model
+anthropic/claude-opus-4.6, "No inference provider configured"). So configure's
+config-writing silently failed. The working path was to set the model by hand
+via `hermes model` -> custom -> http://localhost:11434/v1. configure MUST
+reliably write config.yaml (and verify it wrote) — a green run that downloads a
+9GB model but writes no config is a bad failure. Likely same root as needing the
+dual context values: configure for local models was never exercised live before.
+
+RAM caveat: forcing 64K runtime context on a 14B model loads the context window
+on top of the ~9GB model — heavy on CPU/WSL. Works on 15GB but is slow; on less,
+prefer a 7-8B model or cloud. configure's model suggestion should weigh context
+cost, not just model size.
 
 ## 4.8 Known untested surface (honest)
 

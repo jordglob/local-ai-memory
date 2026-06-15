@@ -42,3 +42,11 @@ History:
                           for the local terminal tool — the launcher is the fix.
                           Before: plain hermes from /tmp -> "NONE FOUND". After:
                           launcher -> hermes roots at vault -> found 19 files.
+  v5  WEB  2026-06-15  — merge: CC's v4 live-verified code (§4.3 vault launcher +
+                          ingest reachability check, §4.2 weak-model warning;
+                          configure v4.3 / ingest v2.5 / setup v8.7) UNIFIED with
+                          spec v1.15 (adds the WSL live-run findings: §4.1 WSL deps
+                          unzip/zstd + apt-lock + /mnt/c data, §4.05 bootstrap,
+                          §4.35 local dual-context context_length+ollama_num_ctx,
+                          configure-never-wrote-config.yaml). NEXT CODE JOB: apply
+                          §4.1/§4.05/§4.35 to the scripts (CC built §4.3/§4.2 only).
