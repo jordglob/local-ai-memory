@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.2
+#  ai-memory-remote.sh  v2.3
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.2"
+VERSION="2.3"
 
 case "${1:-}" in
   -h|--help)
@@ -104,7 +104,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.2          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.3          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -200,7 +200,13 @@ fi
 
 # ── NODE role from here on ────────────────────────────────────────────────────
 info "sudo is needed for: SSH service, sshd config, power settings."
-sudo -v || die "sudo required."
+# Accept already-available sudo (cached timestamp or NOPASSWD) without forcing a
+# prompt that aborts when sudo can't read one; only prompt interactively if able.
+if sudo -n true 2>/dev/null; then
+  ok "sudo access already available (cached or passwordless)"
+else
+  sudo -v || die "sudo required."
+fi
 ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
 SUDO_PID=$!
 trap 'kill $SUDO_PID 2>/dev/null || true' EXIT
