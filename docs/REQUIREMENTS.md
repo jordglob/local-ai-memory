@@ -1,7 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.10
+# AI Memory Stack — Requirements Specification v1.11
 
 Status: agreed baseline for the next build round (June 2026).
-v1.10 adds: §4.55 scan-to-report option (map messy data, agent acts on a
+v1.11 adds: §4.3 CRITICAL import->reachable gap (core-promise bug: ingest
+fills the vault but plain `hermes` searches cwd, not the vault — found on X230
+live). v1.10 added: §4.55 scan-to-report option (map messy data, agent acts on a
 bridge file). v1.9 added: ingest backlog §4.4, GitHub-sync local-first design §4.6,
 agent-assisted-ingest coupling tension §4.7. v1.8 added: core design principle §4.5 (deterministic work = script, messy
 reality = agent; ingest may need agent/hybrid redesign). v1.7 added: build workflow + pattern-hunt discipline (§5), born from the X230
@@ -452,6 +454,42 @@ is exactly why hybrid (script-first, agent-fallback) is likely the right shape,
 not pure-agent. Decide AFTER we know whether the current script path works on a
 real export (CC is testing that now); this is a next-generation redesign, not a
 rush.
+
+## 4.3 CRITICAL — the import->reachable gap (core-promise bug, X230 live)
+
+The single most important finding so far. ingest faithfully writes 102
+conversations into the vault, prints a green "imported!" summary, and points to
+`hermes chat` — but a plain `hermes chat` started from $HOME searches its
+CURRENT WORKING DIRECTORY, not the vault, so it finds NOTHING. The core promise
+("import your history, then your agent draws on it") silently breaks on the last
+hop. Our earlier "Hermes can read it" success was luck: that call happened to be
+launched from the vault.
+
+Bug class (§5.3): "pipeline writes artifact to X; consumer is launched/configured
+to look in Y." A green producer summary masks a broken consumer.
+
+Root cause specifics (verified in Hermes source + /proc, not self-report):
+- Hermes' local terminal/file tools root at os.getcwd()/$TERMINAL_CWD, NOT at a
+  vault path in config.yaml. So the launch directory decides everything.
+- IMPORTANT: config.yaml `terminal.cwd` is NOT honored by the local backend.
+  Do not rely on it. What works: TERMINAL_CWD in ~/.hermes/.env, OR a shell
+  launcher/alias that cd's into the vault.
+
+Required fixes (next build, HIGH priority — this is the core promise):
+1. **configure/setup must pin Hermes' workspace to the vault** so plain
+   `hermes` just works. Install a launcher (the proven fix:
+   `hermes() { ( cd "$VAULT" && command hermes "$@" ); }` in the shell rc) and/or
+   set TERMINAL_CWD in ~/.hermes/.env. NOT config.yaml terminal.cwd (ignored).
+2. **ingest must do a post-import reachability check.** After writing files,
+   confirm that hermes-as-it-will-run roots at the vault (launcher/TERMINAL_CWD
+   present); if not, print a loud explicit instruction instead of a falsely-happy
+   summary: "Run hermes from the vault, or the agent won't see what was imported."
+3. Document "run from the vault" and lean on the existing resume.sh / AGENTS.md.
+
+Also clarified (not a bug): "list memory returns empty" is expected — the vault
+import is plain markdown reached by file search, NOT entries in Hermes' native
+state.db memory. Seeding native memory is the optional USER.md/MEMORY.md step
+(§2.3), separate from import.
 
 ## 4.8 Known untested surface (honest)
 
