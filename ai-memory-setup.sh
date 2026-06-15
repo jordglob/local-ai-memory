@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.6
+#  ai-memory-setup.sh  v8.7
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.6"
+VERSION="8.7"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.6"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.7"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -448,7 +448,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.6 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.7 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1076,8 +1076,14 @@ long-term, agent-neutral memory.
 2. When you learn a durable fact (decision, preference, project state),
    write it to the matching file in entities/ — create the file if needed.
    Use wiki-links like [[entities/other-entity.md]] between related entities.
-3. The imported archive in 05-AI-Sessions/ is searchable history from before
-   you were installed. Consult it when the user references past work.
+3. The imported archive in 05-AI-Sessions/ is searchable history from before you
+   were installed. SEARCH it whenever the user references past work or asks
+   "where were we on X", "what do I know about Y", or names any past topic.
+   DO THIS FIRST — do not guess filenames, and do not look only in 01-Projects/.
+   Recipe (run from the vault root via your terminal tool):
+       grep -rli "KEYWORD" 05-AI-Sessions/
+   then read the matching files and answer from them. Try keyword variants.
+   Only say you found nothing AFTER that grep returns nothing.
 4. Keep entity files short and factual. This vault outlives any single agent —
    write for a future reader, not for yourself.
 
