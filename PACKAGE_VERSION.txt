@@ -50,3 +50,14 @@ History:
                           §4.35 local dual-context context_length+ollama_num_ctx,
                           configure-never-wrote-config.yaml). NEXT CODE JOB: apply
                           §4.1/§4.05/§4.35 to the scripts (CC built §4.3/§4.2 only).
+  v6  CC   2026-06-15  — §4.1 + §4.05 + §4.35 BUILT (WSL/portability layer).
+                          configure v4.4: local models get BOTH context_length
+                          and ollama_num_ctx; config.yaml written atomically +
+                          read-back VERIFIED (catches the never-wrote-config bug).
+                          setup v8.8: installs unzip+zstd, all apt calls wait for
+                          the lock (DPkg::Lock::Timeout). ingest v2.6: detects WSL
+                          and offers Windows /mnt/c Downloads in discovery.
+                          remote v2.4: apt lock-timeout (pattern-hunt). README:
+                          git-clone-first + Python-unzip fallback + WSL. spec
+                          v1.16. Live-verified on the non-WSL box; the /mnt/c WSL
+                          scan path is written-but-unproven (no WSL hardware).
