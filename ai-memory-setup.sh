@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.5
+#  ai-memory-setup.sh  v8.6
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.5"
+VERSION="8.6"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.5"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.6"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -141,7 +141,7 @@ MCP_DIR="$VAULT/.mcp"
 CHECKPOINT_DIR="$VAULT/.tools/.checkpoints"
 SKILL_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/commands"
 # Log goes to /tmp until vault exists, then moves
-LOG_FILE="$TMP_DIR/ai-memory-setup.log"
+LOG_FILE="$TMP_DIR/ai-memory-setup-$(id -u).log"   # per-user: avoid a stale root-owned file in a shared TMPDIR
 
 # ── OS detection ──────────────────────────────────────────────────────────────
 OS="linux"
@@ -184,7 +184,12 @@ err() { echo -e "${RED}✗${NC}  $*" >&2; ERRORS=$(( ERRORS + 1 )); }
 # LOGGING — writes to /tmp first, switches to vault once vault exists
 # ─────────────────────────────────────────────────────────────────────────────
 start_logging() {
-  # Spinner writes to /dev/tty directly, bypassing tee — so spinner is clean
+  # Spinner writes to /dev/tty directly, bypassing tee — so spinner is clean.
+  # If the chosen log path isn't writable (e.g. a stale root-owned file left in
+  # a shared TMPDIR), fall back to a private temp file so logging never aborts.
+  if ! ( : >> "$LOG_FILE" ) 2>/dev/null; then
+    LOG_FILE="$(mktemp "${TMP_DIR}/ai-memory-setup.XXXXXX.log" 2>/dev/null)" || LOG_FILE="/dev/null"
+  fi
   exec > >(tee -a "$LOG_FILE") 2>&1
 }
 
@@ -443,7 +448,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.5 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.6 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -503,24 +508,43 @@ fi
 # SUDO EXPLANATION + ONE-TIME PROMPT (Linux only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$OS" == "linux" ]] && [[ "$PKG_MANAGER" != "none" ]]; then
-  blank
-  echo -e "${BOLD}  About sudo (Linux only)${NC}"
-  echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo "  This script runs as YOU, not as root."
-  echo "  It needs your password once to install system packages"
-  echo "  (Node.js, git, etc.) via $PKG_MANAGER."
-  echo "  Everything else — Hermes, vault files, config — goes"
-  echo "  into your home folder and never needs sudo."
-  blank
-  echo "  You will be asked for your password now."
-  echo "  It should not be asked again during the rest of the install."
-  blank
-  sudo -v || die "Password incorrect or sudo not available.\nAsk your system administrator for sudo access."
-  # Keep sudo alive in background — killed naturally when script exits
-  ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
-  SUDO_KEEPALIVE_PID=$!
-  ok "sudo access confirmed"
-  blank
+  # Only acquire sudo if package-install work actually remains. A completed
+  # re-run (all steps done) installs nothing, so it must not demand a password
+  # — otherwise an idempotent re-run aborts on machines where sudo can't prompt.
+  _need_sudo=false
+  for n in 1 2 3 4 5 6; do step_done "$n" || _need_sudo=true; done
+  if ! $_need_sudo; then
+    skip "sudo not needed — all install steps already complete"
+    blank
+  else
+    blank
+    echo -e "${BOLD}  About sudo (Linux only)${NC}"
+    echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "  This script runs as YOU, not as root."
+    echo "  It needs your password once to install system packages"
+    echo "  (Node.js, git, etc.) via $PKG_MANAGER."
+    echo "  Everything else — Hermes, vault files, config — goes"
+    echo "  into your home folder and never needs sudo."
+    blank
+    # Accept already-available sudo (cached timestamp or NOPASSWD) without a
+    # prompt; only fall back to an interactive prompt when we can actually read
+    # one. Fail only when sudo is genuinely unavailable and we need it.
+    if sudo -n true 2>/dev/null; then
+      ok "sudo access already available (cached or passwordless)"
+    elif $CAN_PROMPT; then
+      echo "  You will be asked for your password now."
+      echo "  It should not be asked again during the rest of the install."
+      blank
+      sudo -v || die "Password incorrect or sudo not available.\nAsk your system administrator for sudo access."
+      ok "sudo access confirmed"
+    else
+      die "sudo is required to install system packages but no password can be\n  read in this non-interactive session. Re-run in a terminal, or install\n  Node.js/git/Ollama first so no system packages are needed."
+    fi
+    # Keep sudo alive in background — killed naturally when script exits
+    ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+    SUDO_KEEPALIVE_PID=$!
+    blank
+  fi
 fi
 
 # macOS: no sudo explanation needed — Homebrew/Ollama don't require it
