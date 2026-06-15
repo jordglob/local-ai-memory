@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.1
+#  ai-memory-configure.sh  v4.2
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.1 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.2 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -256,10 +256,10 @@ PYSEL
 sget() { echo "$SELECTED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"; }
 MODEL_TAG=$(sget model); SOURCE=$(sget source); DESC=$(sget desc); REASON=$(sget reason)
 
-# Hermes Agent refuses any model below this context floor (learned on the X230).
+# Hermes Agent refuses any model below this context floor.
 HERMES_CTX_FLOOR=64000
 
-# Is this machine too weak for a useful local model? (X230 case)
+# Is this machine too weak for a useful local model?
 # Heuristic: under ~6 GB RAM, a local model is either too small to be useful
 # (0.5b) or too slow (3b). Offer cloud-only instead of forcing a local model.
 RAM_INT="${RAM_GB%.*}"; [[ "$RAM_INT" =~ ^[0-9]+$ ]] || RAM_INT=0
@@ -372,7 +372,7 @@ if $ASSUME_YES; then OR_KEY=""; AN_KEY=""; else
   ask "Anthropic API key (paste = set, ENTER = keep/skip; input hidden):"
   read -r -s AN_KEY; echo ""
 fi
-# Confirm a paste landed without echoing the secret (feedback fix from X230 run).
+# Confirm a paste landed without echoing the secret.
 [[ -n "$OR_KEY" ]] && ok "OpenRouter key received (${#OR_KEY} chars) — looks set."
 [[ -n "$AN_KEY" ]] && ok "Anthropic key received (${#AN_KEY} chars) — looks set."
 # In cloud mode, a usable key (new or existing) is required — fail clearly if none.

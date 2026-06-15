@@ -9,7 +9,7 @@ Plain markdown on your own disk.
 ```
 bash ai-memory-setup.sh        # installs everything on a blank machine
 bash ai-memory-configure.sh    # picks the best model for YOUR hardware
-bash ai-memory-ingest.sh       # imports your history from 10 sources
+bash ai-memory-ingest.sh       # imports your history from 11 sources
 bash ai-memory-remote.sh       # optional: SSH/Tailscale/RustDesk node setup
 hermes chat                    # talk to an agent that knows your past
 ```
@@ -19,17 +19,44 @@ idempotent re-runs, and on first run they install themselves to
 `~/Documents/ai-memory/.tools/` — delete the downloads afterwards.
 
 ```
-git clone https://github.com/jordglob/local-ai-memory
+git clone https://github.com/YOUR-USERNAME/local-ai-memory
 ```
+
+## Who it's for
+
+Anyone who wants to put **old or new hardware to work** — give a 15-year-old
+laptop a second life, or run a serious local stack on a capable machine. The
+tool adapts to what you have:
+
+- **Weak/old machine?** It detects low memory and sets up **cloud-only** mode —
+  your old ThinkPad talks to a cloud model and works fine, nothing heavy runs
+  locally.
+- **Capable machine?** It runs a real local model — your conversations and your
+  agent stay entirely on your own disk, no cloud, no accounts.
+
+Same tool, same vault format, both ends of the hardware spectrum. It is generic
+and machine-agnostic by design — it adapts to the box it finds itself on.
+
+## Design philosophy
+
+- **Local-first.** Your data lives on your disk as plain markdown. Cloud is
+  optional spillover, never the source of truth.
+- **Deterministic work is a script; messy reality is an agent.** Install,
+  configure, back up — predictable, so they're plain bash you can read and
+  trust. Interpreting the messy zoo of AI export formats is better suited to an
+  agent. The dividing line keeps each part honest. (See docs/REQUIREMENTS.md §4.5.)
+- **No lock-in, no BigTech assumptions.** No required cloud accounts; GitHub,
+  OpenRouter, etc. are opt-in, never assumed.
 
 ## What it does
 
 - **Vault** — an Obsidian-compatible folder of plain markdown: your imported
   history, distilled entity files, and an inbox the agent reads at startup.
 - **Local model** — [Ollama](https://ollama.com) with a model matched to your
-  RAM/GPU (3B on 8 GB up to 35B on 48 GB). On low-RAM machines configure
-  detects this and offers **cloud-only** mode (Hermes via OpenRouter), so an
-  old laptop works without running anything heavy locally.
+  RAM/GPU — roughly a 3B model at 8 GB up to a 35B model at 48 GB. Below
+  ~6 GB RAM, configure automatically switches to **cloud-only** mode (Hermes
+  via OpenRouter) instead of a local model, so an old or low-memory machine
+  still works — nothing heavy runs locally.
 - **Agent** — [Hermes Agent](https://github.com/NousResearch/hermes-agent)
   (optional), auto-configured for your local Ollama, with workspace
   instructions that make it actively maintain the vault — including a

@@ -187,7 +187,7 @@ Optional final step: distill imported history into a `USER.md` /
 - README: what/why, minimum requirements, quick start, screenshot.
 - License: **[OPEN]** MIT proposed.
 - Versioned releases; parser architecture documented to invite contributions.
-- Repo: `github.com/jordglob/local-ai-memory` (decided).
+- Repo: `github.com/<your-username>/local-ai-memory` (publisher fills in).
 
 ### 2.7 `ai-memory-remote.sh` (remote access — role-aware, standalone)
 
@@ -452,6 +452,14 @@ is exactly why hybrid (script-first, agent-fallback) is likely the right shape,
 not pure-agent. Decide AFTER we know whether the current script path works on a
 real export (CC is testing that now); this is a next-generation redesign, not a
 rush.
+
+## 4.8 Known untested surface (honest)
+
+Of the four scripts, **remote.sh is the only one never run on real hardware.**
+Its sudo/WireGuard/Cloudflare/RustDesk paths are syntax-checked and
+sandbox-reasoned only. setup, configure, and ingest have all had real live
+runs (X230). Before remote.sh is relied on, it needs a live test on a real
+node — treat its current state as "written carefully, unproven."
 
 ## 5. Build-round working agreements
 

@@ -146,7 +146,7 @@ S.append(Paragraph(
     "Three scripts, run in order. They handle the classic beginner traps (PATH, sudo, "
     "dependencies, interruptions) — your job is: run, read, tick.", BODY))
 S.append(Paragraph("2.1 Get the scripts and start — exactly like this", H2))
-S.append(step("In the machine's web browser, open the project page (github.com/jordglob/local-ai-memory) → green <b>Code</b> button → <b>Download ZIP</b>. It lands in <b>Downloads</b>"))
+S.append(step("In the machine's web browser, open the project page (github.com/YOUR-USERNAME/local-ai-memory) → green <b>Code</b> button → <b>Download ZIP</b>. It lands in <b>Downloads</b>"))
 S.append(step("Double-click the ZIP in Downloads so a folder appears (macOS does this automatically)"))
 S.append(step("In the terminal, go to that folder:&nbsp;&nbsp;<b>cd ~/Downloads/local-ai-memory-main</b>&nbsp;&nbsp;<i>(cd = change directory; press Tab to auto-complete the name)</i>"))
 S.append(step("Sanity check — type:&nbsp;&nbsp;<b>ls ai-memory-*.sh</b>&nbsp;&nbsp;You should see the script files listed. If 'No such file or directory': you are in the wrong folder — run the cd line again"))
