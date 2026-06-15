@@ -1,6 +1,13 @@
-# AI Memory Stack — Requirements Specification v1.15
+# AI Memory Stack — Requirements Specification v1.16
 
 Status: agreed baseline for the next build round (June 2026).
+v1.16 (CC, package v6): §4.1 + §4.05 + §4.35 BUILT. configure v4.4 (local
+dual-context ollama_num_ctx + atomic write + read-back verify), setup v8.8
+(apt lock-timeout wrapper on every apt call, installs unzip+zstd), ingest v2.6
+(WSL detect + offer Windows /mnt/c Downloads), remote v2.4 (apt lock-timeout),
+README git-clone-first + Python-unzip fallback + WSL note. Live-verified on the
+non-WSL box (dual-context write+verify, dep install via apt_get, WSL no-op);
+the WSL /mnt/c scan path is written-but-unproven (no WSL hardware this round).
 v1.15 adds: §4.35 local-model dual-context (context_length AND ollama_num_ctx
 must both clear 64K) + confirmed configure-never-wrote-config.yaml bug (WSL live,
 first capable local model). v1.14 added: §4.05 bootstrap/distribution (git clone primary; Python unzip
@@ -387,6 +394,10 @@ Two distinct unzip needs, kept separate:
   - unpack the user's EXPORT (during ingest, after setup) -> setup installs unzip
     in its dep phase (§4.1).
 
+**BUILT (README):** the README now LEADS with `git clone` (no unzip step), gives
+the Python `zipfile` fallback for the ZIP-download path, and adds an explicit
+"On Windows? Run it in WSL" section — all BEFORE the first `bash` line.
+
 ## 4.1 WSL support — a first-class scenario (live finding)
 
 Windows users can run the whole stack inside WSL (Windows Subsystem for Linux)
@@ -415,6 +426,17 @@ the core path works, with these findings to bake in:
   §4.3 working-dir class of problems).
 - Document WSL explicitly in README/checklist as a supported path: "On Windows?
   Run it in WSL." Lowers the barrier for the ex-Windows audience enormously.
+
+**BUILT (setup v8.8 / ingest v2.6 / remote v2.4):** every apt call now goes
+through an `apt_get` wrapper that passes `-o DPkg::Lock::Timeout=300` (waits for
+the unattended-upgrades lock instead of failing) and prints a heads-up when the
+lock is held; setup installs `unzip` + `zstd` in its core-tools phase (idempotent
+skip if present); ingest detects WSL (/mnt/c + kernel marker) and offers/auto-
+includes each `/mnt/c/Users/<name>/Downloads` in discovery (skips Public/Default).
+Live-verified on the NON-WSL box: apt_get really installed a missing package,
+unzip/zstd skipped as present, WSL detection returned [] (clean no-op), glob/
+filter logic proven on a synthetic tree. The real /mnt/c scan on WSL is
+written-but-unproven (no WSL hardware this round).
 
 ## 4.55 Scan-to-report option — map messy data, let the agent act (next build)
 
@@ -610,6 +632,13 @@ via `hermes model` -> custom -> http://localhost:11434/v1. configure MUST
 reliably write config.yaml (and verify it wrote) — a green run that downloads a
 9GB model but writes no config is a bad failure. Likely same root as needing the
 dual context values: configure for local models was never exercised live before.
+
+**BUILT (configure v4.4):** local mode writes BOTH context_length and
+ollama_num_ctx (both >= floor); config.yaml is written atomically (temp +
+os.replace) then VERIFIED by reading it back — a missing/empty config now fails
+loudly instead of running green. Live-verified: local run emitted both keys +
+"Verified config.yaml on disk"; cloud run wrote only context_length; the verify
+path dies non-zero when a key is missing.
 
 RAM caveat: forcing 64K runtime context on a 14B model loads the context window
 on top of the ~9GB model — heavy on CPU/WSL. Works on 15GB but is slow; on less,
