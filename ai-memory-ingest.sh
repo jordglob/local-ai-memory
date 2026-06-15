@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.4
+#  ai-memory-ingest.sh  v2.5
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.4"
+VERSION = "2.5"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.4          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.5          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -664,6 +664,38 @@ def main():
     else:
         info("Nothing found. Try --scan <dir>, --deep-scan, or --list-sources")
     print()
+    # §4.3 post-import reachability check — a green "imported!" line is misleading
+    # if a plain `hermes` can't reach the vault. Hermes' file tools root at the
+    # directory it is LAUNCHED from, not at a path in config.yaml. Verify the
+    # vault is pinned (launcher / TERMINAL_CWD); if not, say so loudly.
+    def _memory_reachable(vault):
+        vs = str(vault).rstrip("/")
+        try:
+            for line in (HOME / ".hermes" / ".env").read_text().splitlines():
+                if line.strip().startswith("TERMINAL_CWD="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if os.path.expanduser(val).rstrip("/") == vs:
+                        return True
+        except OSError:
+            pass
+        for rc in (".bashrc", ".zshrc", ".profile"):
+            try:
+                t = (HOME / rc).read_text()
+            except OSError:
+                continue
+            if "ai-memory hermes launcher" in t and str(vault) in t:
+                return True
+        return False
+    if tot["new"] or tot["skipped"]:
+        if _memory_reachable(vault):
+            ok("Reachability OK — a plain `hermes` is set to run from your vault.")
+        else:
+            warn("Heads-up: a plain `hermes` may NOT see what was just imported.")
+            print("  Hermes searches the directory it is LAUNCHED from, not the vault.")
+            print(f"  Fix once:  {c('1', 'bash ' + str(vault / '.tools' / 'ai-memory-configure.sh') + ' ' + str(vault))}")
+            print("  (installs a vault launcher + TERMINAL_CWD in ~/.hermes/.env), or always")
+            print(f"  start from the vault:  cd {vault} && hermes chat   (or .tools/resume.sh hermes)")
+        print()
     hdr("Next steps")
     import shutil, subprocess
     have_hermes = shutil.which("hermes") is not None
