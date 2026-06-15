@@ -1,7 +1,10 @@
-# AI Memory Stack — Requirements Specification v1.7
+# AI Memory Stack — Requirements Specification v1.10
 
 Status: agreed baseline for the next build round (June 2026).
-v1.7 adds: build workflow + pattern-hunt discipline (§5), born from the X230
+v1.10 adds: §4.55 scan-to-report option (map messy data, agent acts on a
+bridge file). v1.9 added: ingest backlog §4.4, GitHub-sync local-first design §4.6,
+agent-assisted-ingest coupling tension §4.7. v1.8 added: core design principle §4.5 (deterministic work = script, messy
+reality = agent; ingest may need agent/hybrid redesign). v1.7 added: build workflow + pattern-hunt discipline (§5), born from the X230
 live run. v1.6 added: LiteLLM self-hosted gateway as sovereign routing option (§2.11),
 plus X230 live-run findings (cloud-only path, context_length=model max,
 exit-status-1 fix, guided-mode clarity fixes). v1.5 added: reassurance & feedback layer (§2.9) — bandwidth probe (default,
@@ -336,6 +339,119 @@ conventions:
 | Network | needed for install only | — |
 
 ---
+
+## 4.4 Backlog — flagged from the ingest live run (X230)
+
+- **§B1 Re-import / upgrade path (low-med prio).** Idempotency is by output
+  filename, so a TOOL UPGRADE does not re-clean already-imported files — a user
+  who upgrades keeps old, noisier files unless they wipe 05-AI-Sessions first.
+  Fix options: a `--reimport/--force` flag, or embed a parser-version in each
+  file and re-emit when it changes. Flagged by CC, not built.
+- **§B2 ChatGPT attachment parity (low prio).** The ChatGPT parser drops
+  attachment/non-text content the same way the Claude parser did before
+  Finding 2. Same CLASS, left untouched because no ChatGPT export was available
+  to test. Mirror the Claude fix when a real export exists.
+- **§B3 Attachment bloat (low prio).** Large extracted_content is embedded in
+  full (faithful but can bloat a file). Not capped — decide later if a cap or
+  summary is wanted.
+
+## 4.55 Scan-to-report option — map messy data, let the agent act (next build)
+
+The three discovery tiers (default / --scan DIR / --deep-scan) STAY. This adds a
+fourth MODE that maps instead of imports — a clean §4.5 split:
+
+- **`--scan-report`**: scan (optionally deep), import NOTHING, write a neutral
+  file (e.g. ai-scan-report.md in the vault) listing what was found:
+    - recognized exports ready to import (with the exact import command),
+    - UNKNOWN candidates that looked AI-ish but whose format the script doesn't
+      recognize (path, size, a hint of why it matched),
+    - a docs-pointer: "your agent can read this report and help you decide /
+      collect / convert the unknown items."
+- **Why this is the right shape (§4.5 + §4.7):** scanning/listing is
+  deterministic -> script. Judging what an unknown file is, or whether it's
+  worth importing -> interpretation -> agent. The report file is the BRIDGE
+  between the durable script and the volatile agent; the agent-facing prompt
+  lives in docs (per §4.7), updatable independently. The script never needs to
+  understand a format it doesn't recognize — it just reports "found something
+  AI-ish here, don't know the format" and delegates judgement.
+- **Default = off.** For most users "find Claude export in Downloads -> import"
+  is enough. --scan-report is for users with SPRETIG data spread across old
+  exports / multiple tools / unknown formats who want a map first. Option, not
+  default (user's explicit ask).
+
+## 4.6 GitHub — low-key, opt-in, NOT a daily-flow feature
+
+Correction to earlier over-scoping: GitHub is NOT something the script pushes
+into the user's daily workflow. It belongs in the setup moment only because the
+user is already sitting there with pen and paper wiring things up, so it's
+reasonable to let them OPTIONALLY handle the GitHub bits at the same time —
+publishing the tool, or mirroring their vault. If it doesn't fit naturally as a
+quiet optional step, it goes in the end-of-checklist TIPS instead.
+
+- GitHub is third-party (Microsoft) cloud: never assumed, never required,
+  default = skip, local copy is always the source of truth.
+- Keep it SMALL: a quiet "have a GitHub account you'd like to wire up? (optional,
+  third-party cloud — skip to stay fully local)" — or just a Tips note. Do NOT
+  build it into the core flow or imply it's expected.
+- This is about the END-USER product. It is SEPARATE from how WE sync the repo
+  during development (that's a build-process concern, not a product feature).
+
+## 4.7 The agent-assisted-ingest tension (IMPORTANT — and self-limiting)
+
+User idea: ingest could warn "if you have valuable conversations on cloud AI
+services, I can give you a starter prompt for your Hermes that will help you
+collect that data into local Hermes memory." This is attractive — it uses the
+agent (Hermes) to gather the messy, hard-to-export stuff a script can't reach,
+which is exactly the §4.5 spirit (messy reality -> agent).
+
+BUT the user spotted the trap themselves: **baking a Hermes-specific prompt into
+the script couples a deterministic, long-lived script to a fast-moving agent
+that may be outdated in months.** If Hermes' interface/skills change, a
+hardcoded prompt rots — the same hardcoding-ages-badly problem as the format
+parsers (§4.5), one level up.
+
+Resolution (design rule): the script may POINT to agent-assisted collection but
+must not EMBED agent-specific instructions. Options that respect §4.5:
+  - The script prints a generic pointer ("your agent can help collect cloud
+    history — see docs/collect-with-agent.md"), and the actual prompt lives in
+    a DOCS file that's easy to update independently of the script.
+  - Or the starter prompt ships as a separate, versioned skill/template the
+    agent loads — not as a string frozen inside bash.
+Keep the durable script and the volatile agent-prompt in SEPARATE artifacts so
+each can age on its own schedule. Flagged for the build; the docs-pointer
+approach is the low-risk default.
+
+## 4.5 Core design principle — deterministic work is a script, messy reality is an agent
+
+(Surfaced by a sharp user question: is ingest even the right *kind* of thing?)
+
+The parts of the stack that meet **predictable, deterministic** work — install,
+configure, back up, set up remote access — should stay **bash scripts**:
+fast, free, reviewable, repeatable, no tokens, no surprises.
+
+The parts that meet **messy, unpredictable, changing reality** — parsing the
+spretig zoo of AI export formats that each vendor changes on its own schedule —
+are a poor fit for a hardcoded script. A script that hardcodes 10 formats is
+always behind reality on at least one, and ages badly. That kind of work suits
+an **agent**: an LLM can *interpret* an unknown export instead of needing a
+fixed schema. Interpretation of messy input is exactly what models are good at.
+
+The dividing line for every future feature:
+- Deterministic / stable / must-be-exact  -> script.
+- Messy / variable / needs interpretation  -> agent (or a hybrid that scripts
+  the known-stable formats fast and falls back to an agent for the unknown).
+
+**Ingest implication (backlog, large):** ingest currently sits on the wrong
+side of this line — a deterministic script doing a non-deterministic job
+(10 hardcoded format parsers). Reconsider as **agent-driven or hybrid**: keep
+the fast script path for known-good formats (e.g. Claude export is
+well-structured), fall back to an agent for anything the script doesn't
+recognize. Caveats to weigh: agent ingest is slower, costs tokens, and is
+non-deterministic (same export may convert slightly differently twice) — which
+is exactly why hybrid (script-first, agent-fallback) is likely the right shape,
+not pure-agent. Decide AFTER we know whether the current script path works on a
+real export (CC is testing that now); this is a next-generation redesign, not a
+rush.
 
 ## 5. Build-round working agreements
 
