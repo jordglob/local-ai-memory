@@ -24,7 +24,7 @@ History:
                           revival) + 'Design philosophy' to README, fixed source
                           count (11), clarified RAM->cloud transition, noted
                           remote.sh as the untested surface (§4.8).
-  v3  WEB  2026-06-15  — spec brought up to date with the X230 live-run findings:
+  v3  WEB  2026-06-15  — spec brought up to date with live-run findings:
                           §4.3 (import->reachable: plain hermes searches cwd not
                           vault — CRITICAL core-promise bug), §4.2 (model-capability
                           floor: weak models guess filenames instead of searching),
