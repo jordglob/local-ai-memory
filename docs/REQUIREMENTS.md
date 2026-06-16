@@ -1,6 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.18
+# AI Memory Stack — Requirements Specification v1.19
 
 Status: agreed baseline for the next build round (June 2026).
+v1.19 (CC): §4.55 `--scan-report` BUILT (ingest v2.8) — first increment of the
+§4.5 hybrid decision; maps recognized + unknown candidates to a vault bridge
+file, imports nothing, agent prompt in docs/collect-with-agent.md (§4.7).
 v1.18 (CC): §4.5 ingest-architecture question RESOLVED — DECIDED hybrid
 (deterministic script first, agent fallback), realized via §4.55 `--scan-report`;
 agent-prompt kept in docs (§4.7), never embedded. See §4.5 "DECIDED".
@@ -462,7 +465,7 @@ would false-negative. Fix = also read `/proc/sys/kernel/osrelease` and accept
 still fires). Pattern-hunt: the Windows-profile denylist is the only such
 construct in the four scripts — class is localized.
 
-## 4.55 Scan-to-report option — map messy data, let the agent act (next build)
+## 4.55 Scan-to-report option — map messy data, let the agent act (BUILT)
 
 The three discovery tiers (default / --scan DIR / --deep-scan) STAY. This adds a
 fourth MODE that maps instead of imports — a clean §4.5 split:
@@ -485,6 +488,20 @@ fourth MODE that maps instead of imports — a clean §4.5 split:
   is enough. --scan-report is for users with SPRETIG data spread across old
   exports / multiple tools / unknown formats who want a map first. Option, not
   default (user's explicit ask).
+
+**BUILT (ingest v2.8, 2026-06-16):** `--scan-report` scans (`~/Downloads` + any
+`--scan`/`--deep-scan`/WSL Windows-Downloads roots), imports NOTHING, and writes
+`<vault>/ai-scan-report.md` listing recognized exports (with the exact import
+command) and unknown AI-ish candidates (matched a specific stem — data-*/
+*chatgpt*/*conversations*/takeout-* — but failed content-sniff; the generic
+*.zip catch-all is deliberately NOT treated as AI-ish, so random archives are
+not flagged). The agent-facing prompt lives in `docs/collect-with-agent.md`, NOT
+in the script (§4.7). This is the first increment of the §4.5 hybrid decision:
+the recognized/unknown split IS the script-lane/agent-lane boundary. Sandbox-
+verified on the non-WSL box (recognized export + import cmd emitted, decoy listed
+unknown, non-AI driver excluded, 0 imported, exit 0); the WSL Windows-Downloads
+inclusion in report mode reuses the already-live-verified scan_roots path (not
+separately re-fired on WSL in report mode).
 
 ## 4.6 GitHub — low-key, opt-in, NOT a daily-flow feature
 
