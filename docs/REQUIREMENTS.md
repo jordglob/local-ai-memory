@@ -1,6 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.17
+# AI Memory Stack — Requirements Specification v1.18
 
 Status: agreed baseline for the next build round (June 2026).
+v1.18 (CC): §4.5 ingest-architecture question RESOLVED — DECIDED hybrid
+(deterministic script first, agent fallback), realized via §4.55 `--scan-report`;
+agent-prompt kept in docs (§4.7), never embedded. See §4.5 "DECIDED".
 v1.17 (CC): §4.1 WSL /mnt/c scan path LIVE-VERIFIED on real WSL2 (was
 written-but-unproven) — detection fires, Windows-side export discovered +
 imported (102 convs), idempotent. ingest v2.7 fixes BUG-1 (DefaultAppPool
@@ -556,6 +559,31 @@ is exactly why hybrid (script-first, agent-fallback) is likely the right shape,
 not pure-agent. Decide AFTER we know whether the current script path works on a
 real export (CC is testing that now); this is a next-generation redesign, not a
 rush.
+
+**DECIDED (2026-06-16, CC): HYBRID — deterministic script first, agent fallback.**
+The gate ("decide after the script path is proven on a real export") is now met:
+the §4.1 live run imported 102 real conversations, correctly and idempotently
+(0 new / 102 skipped on re-run). That determinism + zero token cost + reviewable
+output is a property to KEEP, not discard — so NOT pure-agent (which §4.5 itself
+notes is slower, costs tokens, and is non-deterministic). And NOT pure-script
+(ages badly — always behind on one vendor format). Chosen shape:
+  - Script keeps recognition + import + idempotency for KNOWN-GOOD formats
+    (unchanged; the proven path). The recognition seam already exists:
+    sniff_zip() returns a source for known signatures and None otherwise, and
+    find_export_zips() currently DROPS the None set silently.
+  - The hybrid boundary = that dropped set: recognized -> fast script lane;
+    unrecognized-but-AI-ish -> agent lane.
+  - Realized via §4.55 `--scan-report`: capture (don't drop) unknown candidates
+    and write a neutral bridge file (recognized+import-cmd / unknown+why-matched /
+    docs pointer); import nothing in report mode.
+  - Agent-prompt decoupling (§4.7 hard rule): the script writes the neutral
+    bridge file and points to docs/collect-with-agent.md; it NEVER embeds an
+    agent-specific prompt. Durable script <-> volatile prompt, separated by the
+    bridge artifact.
+  Consequence: a new vendor format is useful immediately (surfaces in the report,
+  agent handles it) without a code release; a hardcoded parser is added only when
+  a format is common enough to deserve the fast lane. #1 (this decision) and
+  §4.55 are therefore the SAME work — the spike below is the first increment.
 
 ## 4.3 CRITICAL — the import->reachable gap (core-promise bug, X230 live)
 
