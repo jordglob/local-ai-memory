@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.6
+#  ai-memory-ingest.sh  v2.7
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.6"
+VERSION = "2.7"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.6          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.7          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -638,15 +638,25 @@ def main():
         import glob
         if not Path("/mnt/c").is_dir():
             return []
-        try:
-            marker = Path("/proc/version").read_text().lower()
-        except OSError:
-            marker = ""
-        if "microsoft" not in marker and "wsl" not in marker:
+        # WSL marker: /proc/version usually carries "microsoft", but custom WSL
+        # kernels may not — also check osrelease and $WSL_DISTRO_NAME so a clean
+        # WSL never silently no-ops (BUG-2, live round 2026-06-16).
+        marker = ""
+        for _p in ("/proc/version", "/proc/sys/kernel/osrelease"):
+            try:
+                marker += Path(_p).read_text().lower()
+            except OSError:
+                pass
+        if ("microsoft" not in marker and "wsl" not in marker
+                and not os.environ.get("WSL_DISTRO_NAME")):
             return []
-        skip = {"Public", "Default", "Default User", "All Users"}
+        # Skip Windows system/service profiles (not human users). Denylist,
+        # case-insensitive — a real WSL run surfaced DefaultAppPool (IIS) slipping
+        # through the original four (BUG-1, live round 2026-06-16).
+        skip = {"public", "default", "default user", "all users",
+                "defaultapppool", "wdagutilityaccount"}
         return [Path(d) for d in sorted(glob.glob("/mnt/c/Users/*/Downloads"))
-                if Path(d).is_dir() and Path(d).parent.name not in skip]
+                if Path(d).is_dir() and Path(d).parent.name.lower() not in skip]
     for _wd in _wsl_windows_downloads():
         if _wd in scan_roots:
             continue
