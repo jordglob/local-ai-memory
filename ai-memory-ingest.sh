@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.7
+#  ai-memory-ingest.sh  v2.8
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.7"
+VERSION = "2.8"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -508,6 +508,76 @@ def find_export_zips(roots, max_depth=2):
                     if src: found.append((p, src))
     return found
 
+# ── §4.55 scan-to-report (hybrid boundary, see §4.5 DECIDED) ─────────────────
+# AI-ish stems only — deliberately NOT the generic "*.zip" catch-all, so random
+# archives (drivers, app bundles) are not flagged as unknown AI candidates.
+SPECIFIC_ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*"]
+
+def _human_size(p):
+    try: n = float(p.stat().st_size)
+    except OSError: return "?"
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024: return f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.0f} TB"
+
+def scan_for_report(roots, max_depth=2):
+    """Classify export candidates WITHOUT importing. Returns (recognized, unknown):
+      recognized = [(path, source)]  sniff_zip identified a known format -> fast lane
+      unknown    = [(path, pattern)] matched an AI-ish stem but unrecognized -> agent lane
+    """
+    recognized, unknown, seen = [], [], set()
+    for root in roots:
+        root = Path(root).expanduser()
+        if not root.is_dir(): continue
+        for dirpath, dirs, files in os.walk(root):
+            depth = len(Path(dirpath).relative_to(root).parts)
+            if depth >= max_depth: dirs[:] = []
+            for f in files:
+                p = Path(dirpath) / f
+                if p in seen: continue
+                matched = next((pat for pat in SPECIFIC_ZIP_PATTERNS
+                                if fnmatch.fnmatch(f, pat)), None)
+                # recognise any .zip by content; only specific-pattern misses are "unknown".
+                if not matched and not f.lower().endswith(".zip"): continue
+                seen.add(p)
+                src = sniff_zip(p)
+                if src:           recognized.append((p, src))
+                elif matched:     unknown.append((p, matched))
+    return recognized, unknown
+
+def write_scan_report(vault, roots):
+    recognized, unknown = scan_for_report(roots)
+    report = vault / "ai-scan-report.md"
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    L = [f"# AI Memory — Scan Report", "",
+         f"Generated {now}. This scan imported **nothing** — it is a map so you (or",
+         "your agent) can decide what to import, collect, or convert. See",
+         "`docs/collect-with-agent.md` for how an agent can act on this file.", "",
+         "## Recognized exports — ready to import"]
+    if recognized:
+        for p, src in recognized:
+            L.append(f"- **{SOURCES[src]['desc']}** — `{p}` ({_human_size(p)})")
+            L.append(f"  - import: `bash ai-memory-ingest.sh \"{vault}\" "
+                     f"--source {src} --path \"{p}\"`")
+    else:
+        L.append("- (none found)")
+    L += ["", "## Unknown candidates — looked AI-ish, format not recognized"]
+    if unknown:
+        for p, pat in unknown:
+            L.append(f"- `{p}` ({_human_size(p)}) — matched `{pat}` but no "
+                     "recognizable export inside.")
+        L += ["", "Your agent can inspect these and help convert/import them — "
+              "see `docs/collect-with-agent.md`."]
+    else:
+        L.append("- (none found)")
+    report.write_text("\n".join(L) + "\n", encoding="utf-8")
+    hdr("Scan report")
+    ok(f"Wrote {report}")
+    info(f"Recognized: {len(recognized)}   Unknown AI-ish: {len(unknown)}   Imported: 0")
+    info("scan-report mode: nothing was imported — review the file above.")
+    return 0
+
 def find_files(roots, pattern, max_depth=6, shallow=False):
     out = []
     for root in roots:
@@ -580,6 +650,7 @@ def main():
     ap.add_argument("--list-sources", action="store_true")
     ap.add_argument("--scan", action="append", default=[])
     ap.add_argument("--deep-scan", action="store_true")
+    ap.add_argument("--scan-report", action="store_true")
     ap.add_argument("--yes", "-y", action="store_true")
     ap.add_argument("--help", "-h", action="store_true")
     ap.add_argument("--version", "-V", action="store_true")
@@ -591,7 +662,9 @@ def main():
     if a.help:
         print("Usage: ai-memory-ingest.sh [vault] [export.zip] "
               "[--source NAME] [--path P] [--scan DIR] [--deep-scan] "
-              "[--list-sources] [--yes]\nSee script header for details.")
+              "[--scan-report] [--list-sources] [--yes]\n"
+              "--scan-report: map exports/unknowns to <vault>/ai-scan-report.md, "
+              "import nothing.\nSee script header for details.")
         return 0
     if a.list_sources:
         print(f"\n{'source':<16} description")
@@ -616,7 +689,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.7          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.8          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -663,6 +736,9 @@ def main():
         if ASSUME_YES or ask_yn(f"Running under WSL — also scan your Windows Downloads at {_wd}?"):
             scan_roots.append(_wd)
             ok(f"Including Windows Downloads in discovery: {_wd}")
+
+    if a.scan_report:                              # §4.55 map, don't import
+        return write_scan_report(vault, [HOME / "Downloads"] + scan_roots)
 
     results = {}
     if zip_arg:                                   # backward compatible: sniff & route
