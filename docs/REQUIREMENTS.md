@@ -1,6 +1,15 @@
-# AI Memory Stack — Requirements Specification v1.20
+# AI Memory Stack — Requirements Specification v1.21
 
 Status: agreed baseline for the next build round (June 2026).
+v1.21 (CC): remote.sh live-test round PLANNED (not yet run). §4.8 expanded with
+the staging plan (acceptable target = snapshot VM / console-backed sacrificial
+node; low-blast-radius-first sequence; machine-checked acceptance; rehearsed
+recovery) and four code-review findings F1-F4 (self-attested+possibly-ignored
+sshd hardening; broken Cloudflare-DDNS JSON; WG private key in a sed argv;
+firewall claim milder than feared). §4.9 added: NAT-friendly fallback ladder
+(WireGuard -> Tailscale -> Cloudflare Tunnel; NEVER a hand-rolled relay). §3:
+scope guard for the upcoming, unrelated Mac project. Nothing in remote.sh has
+been run live or changed this round.
 v1.20 (CC): §4.55 `--scan-report` now ALSO live-verified on real WSL2 (Windows-
 side export mapped via /mnt/c, decoy=unknown, 0 imported) — closes the
 report-mode-on-WSL gap noted in v1.19.
@@ -354,6 +363,9 @@ conventions:
   memory) — pursue as upstream contribution; open a GitHub issue first.
 - Vault-backed Hermes **Memory Provider plugin** (vault *as* memory backend).
 - Whole-disk scanning, auto-updates, any self-modifying behavior.
+- **A separate Mac project (its own machine, unrelated work) is forthcoming.**
+  It is NOT part of local-ai-memory — do not let a build round bleed into it.
+  (macOS *support inside this product* stays in scope as it always was.)
 
 ---
 
@@ -716,13 +728,98 @@ on top of the ~9GB model — heavy on CPU/WSL. Works on 15GB but is slow; on les
 prefer a 7-8B model or cloud. configure's model suggestion should weigh context
 cost, not just model size.
 
-## 4.8 Known untested surface (honest)
+## 4.8 Known untested surface (honest) + remote.sh live-test staging plan
 
 Of the four scripts, **remote.sh is the only one never run on real hardware.**
 Its sudo/WireGuard/Cloudflare/RustDesk paths are syntax-checked and
 sandbox-reasoned only. setup, configure, and ingest have all had real live
 runs (X230). Before remote.sh is relied on, it needs a live test on a real
 node — treat its current state as "written carefully, unproven."
+
+**Why this script earns extra ceremony.** Its bad outcomes are silent lockouts
+of a possibly-headless box, not red errors: it edits sshd, can disable password
+login, brings up a WireGuard hub with IP-forwarding, and touches the firewall
+and boot behaviour. §5 ("the sandbox lies") applies hardest here.
+
+**Code-review findings (2026-06-16, CC) — UNVERIFIED LIVE; they set the test
+focus and where to snapshot:**
+- **F1 (highest risk): sshd hardening is self-attested AND the drop-in may be
+  ignored.** §3 disables password auth on the strength of `ask_yn "Did key
+  login work?"` (the user's word, not a machine check) and writes
+  `/etc/ssh/sshd_config.d/99-ai-memory.conf` + restarts sshd WITHOUT confirming
+  `sshd_config` actually `Include`s that dir (Debian/Ubuntu/Fedora do; Arch's
+  stock config does NOT) and WITHOUT `sshd -t`. Two opposite failures: (a)
+  no-Include box -> green "Password login disabled" that changed nothing
+  (false-success, the §5.3 anti-pattern); (b) any box -> a key that doesn't
+  really work + a "yes" = permanent SSH lockout. FIX (R3): machine-verify a
+  keys-only login (`ssh -o BatchMode=yes -o PasswordAuthentication=no`) BEFORE
+  flipping the switch; ensure the drop-in is honored (check/append the Include
+  or write the main config); `sshd -t` before restart; confirm via `sshd -T`.
+- **F2: the generated Cloudflare-DDNS script has a JSON-quoting bug** (the
+  `BODY="{"type":"A",...}"` line in the `<<'DDNS'` heredoc): at runtime bash
+  strips the inner quotes and POSTs invalid JSON, so option 2 has never updated
+  a record. FIX (R3): single-quote / printf-build the JSON; add a real
+  first-update success check.
+- **F3: the WireGuard hub private key is passed through a `sudo sed` argv**
+  (line ~496) — briefly visible in `ps`, a nick in the secrets model (§2.7).
+  FIX (R3): write the key via a shell-owned redirect, not argv.
+- **F4 (reassuring): the firewall claim is milder than feared.** The script
+  never ENABLES ufw and never sets default-deny — it only adds `allow` rules to
+  an already-active ufw. So the firewall path cannot by itself lock you out.
+
+**Acceptable target machine (hard gate):**
+- BEST — a disposable VM with snapshots + an out-of-band console (hypervisor or
+  cloud serial console = the GUARANTEED second way in, independent of sshd/the
+  network path being changed). Spin an Arch VM specifically to exercise F1's
+  no-Include outcome.
+- ACCEPTABLE — a sacrificial, backed-up physical node with a PHYSICAL/serial
+  console next to the operator (X230-class qualifies only as throwaway).
+- NOT ACCEPTABLE — the dev box itself; any machine whose only access is the SSH
+  about to be hardened; anything anyone relies on with no console fallback.
+- NON-NEGOTIABLE: do not execute §3 (hardening) or §4 (WireGuard/firewall) until
+  an out-of-band console is confirmed and a snapshot taken. Never as root.
+
+**Test sequence (low blast-radius first; snapshot before steps 4-5):**
+0 static + read-only (`bash -n`, --help/--version, ROLE=solo exits, ROLE=main
+  keypair on a scratch user). 1 NODE network-analysis block (read-only; put one
+  VM behind CGNAT-like NAT to confirm IS_CGNAT fires + recommendation flips).
+2 SSH server enable (revert: disable service). 3 install pubkey + THE GATE:
+machine-verify keys-only login from the client, don't trust the script.
+4 HARDENING on Debian/Ubuntu AND Arch; verify with `sshd -T`, not the green
+line; rehearse recovery (rm drop-in + restart) every time before trusting.
+5 WireGuard option 1; verify handshake from a real external client, home-dir
+wg0.conf has no private key, watch `ps` for F3. 6 Cloudflare DDNS only with a
+throwaway zone (expect F2). 7 RustDesk (no lockout risk). 8 power profile +
+pull-the-plug test. Each step records a machine-checked acceptance + a revert.
+
+**Round sequencing:** R1 plan+capture (this round, no live run); R2 live-test
+the CURRENT script through 0-8 on Debian/Ubuntu + Arch to confirm F1/F2/F3 and
+catch what review missed (fix nothing yet); R3 pattern-hunt fix bundle (F1/F2/F3
++ the "self-attested / green-but-did-nothing" class across all four scripts) and
+re-live-test; R4 add Cloudflare Tunnel (§4.9) as its own later build+test.
+
+## 4.9 NAT-friendly remote fallback ladder (decision)
+
+When the normal local path (WireGuard-direct) cannot be reached — CGNAT, no
+public IP, no router control — the fallback must be a MANAGED, NAT-traversing
+tunnel, never a hand-rolled relay. The script should recommend in this order:
+
+  1. **WireGuard fully-local** — nothing leaves the user's control (default when
+     a reachable public IP + router exist).
+  2. **Tailscale** — zero-config, beats CGNAT (already in the script).
+  3. **Cloudflare Tunnel (`cloudflared`) [NEW, R4]** — no inbound port at all,
+     outbound-only daemon; for users who can't open ports or already live on
+     Cloudflare. COMPLEMENTS, does not replace, the existing Cloudflare **DDNS**
+     (§2.7), which serves the WireGuard-direct path. Keep them distinct: DDNS =
+     keep a name pointed at your IP for direct WG; Tunnel = no inbound port.
+  NEVER — a custom SSH relay / reverse-tunnel through our own server.
+
+Why not a relay: the relay used to drive the WSL live test is a DEVELOPMENT
+device for a one-off, not a product feature. Baking a hand-rolled relay into the
+product would make US run security-sensitive infrastructure and own a hop in the
+user's auth path. Managed tunnels (Tailscale / Cloudflare) are the correct
+abstraction — NAT-friendly, audited, nothing for us to operate. Adding
+cloudflared is a small, self-contained build with its own live test (R4).
 
 ## 5. Build-round working agreements
 
