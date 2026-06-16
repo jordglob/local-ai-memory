@@ -1,6 +1,14 @@
-# AI Memory Stack — Requirements Specification v1.24
+# AI Memory Stack — Requirements Specification v1.25
 
 Status: agreed baseline for the next build round (June 2026).
+v1.25 (CC): §2.11 refined — the "self-deciding gateway" decision policy was an
+open gap (named the chain, never said who/when). Now pinned: Level A = rule-based
+fallback (deterministic triggers: backend error / context overflow / rate-limit /
+manual tag), user owns the rules + gateway executes them — THE COMMITTED, medium-
+effort target. Level B = semantic/quality-aware per-request routing = OUT OF
+SCOPE (agent territory, open problem). Delivered reality restated: configure
+picks ONE model, no runtime decider yet.
+v1.24 (CC): remote.sh R2+R3 CLOSED OUT. Pull-the-plug test PASSED (abrupt
 v1.24 (CC): remote.sh R2+R3 CLOSED OUT. Pull-the-plug test PASSED (abrupt
 SIGKILL power-cut + cold boot: VM recovered unattended; pwauth=no, linger=yes,
 sleep masked, wg-quick@wg0 auto-started — all persisted). F1 proven on BOTH
@@ -371,6 +379,39 @@ LOCAL gateway the user owns.
   user's own infrastructure rather than as config pointing at one aggregator.
 - LiteLLM already listed in Tips; this promotes it from "nice tool" to
   "the recommended sovereign routing layer."
+
+**Decision policy — WHO decides and WHEN (refinement, was an open gap).**
+The earlier text named the gateway and the `local -> cheap cloud -> premium`
+chain but never said what TRIGGERS each hop or who owns the decision. Pinning it
+down so a build doesn't guess. Two distinct levels:
+
+- **Level A — rule-based fallback. THE COMMITTED TARGET (medium effort).**
+  Routing is DETERMINISTIC and the hops fire only on measurable conditions:
+    - chosen backend is unavailable / errors out  -> next tier
+    - request exceeds the local model's context window  -> a larger cloud model
+    - rate-limit / timeout / quota hit  -> spill over
+    - an explicit MANUAL tag/alias ("use premium for this one")
+  WHO decides: the USER owns the rules; `configure` proposes a default policy and
+  the user approves it (recommend-don't-decide, §1). The GATEWAY then EXECUTES
+  those rules — it does not judge intent. This stays on the deterministic side of
+  §4.5 (rules = script-like), realized via LiteLLM's `fallbacks`/retries/routing.
+  Default policy on capable hardware: local Ollama primary -> cheap cloud ->
+  premium, hops triggered ONLY by the conditions above. A manual escalation alias
+  covers cases rules can't judge.
+
+- **Level B — semantic / quality-aware routing. OUT OF SCOPE (not medium effort).**
+  "Read the request, judge whether it's hard enough to need the premium model,
+  decide per query." That is interpretation -> agent territory (§4.5): slow,
+  token-costing, non-deterministic, and an open problem. Explicitly NOT promised.
+  Do not let a build slide Level B in under the "self-deciding gateway" banner.
+
+Build shape (when this round happens): `configure` detects capable hardware,
+installs LiteLLM as a LOCAL service, writes a `config.yaml` encoding the Level-A
+default policy (keys from `~/.hermes/.env`, never logged), points Hermes'
+`base_url` at the gateway, and documents the manual-escalation alias. Its own
+build round + live test (per §5). Until then, the delivered reality stands:
+`configure` picks ONE model and there is NO runtime decider — the user decides
+once, at config time.
 
 ### 2.8 Script family conventions (what lets the family grow)
 
