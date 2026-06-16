@@ -1,6 +1,9 @@
-# AI Memory Stack — Requirements Specification v1.19
+# AI Memory Stack — Requirements Specification v1.20
 
 Status: agreed baseline for the next build round (June 2026).
+v1.20 (CC): §4.55 `--scan-report` now ALSO live-verified on real WSL2 (Windows-
+side export mapped via /mnt/c, decoy=unknown, 0 imported) — closes the
+report-mode-on-WSL gap noted in v1.19.
 v1.19 (CC): §4.55 `--scan-report` BUILT (ingest v2.8) — first increment of the
 §4.5 hybrid decision; maps recognized + unknown candidates to a vault bridge
 file, imports nothing, agent prompt in docs/collect-with-agent.md (§4.7).
@@ -499,9 +502,11 @@ not flagged). The agent-facing prompt lives in `docs/collect-with-agent.md`, NOT
 in the script (§4.7). This is the first increment of the §4.5 hybrid decision:
 the recognized/unknown split IS the script-lane/agent-lane boundary. Sandbox-
 verified on the non-WSL box (recognized export + import cmd emitted, decoy listed
-unknown, non-AI driver excluded, 0 imported, exit 0); the WSL Windows-Downloads
-inclusion in report mode reuses the already-live-verified scan_roots path (not
-separately re-fired on WSL in report mode).
+unknown, non-AI driver excluded, 0 imported, exit 0). ALSO live-verified on real
+WSL2 (2026-06-16): a real export + decoy staged on the Windows side were mapped
+via the /mnt/c Windows-Downloads path (recognized: 1 with /mnt/c import cmd,
+unknown: 1 decoy, imported: 0); DefaultAppPool correctly absent (BUG-1 fix holds
+in v2.8).
 
 ## 4.6 GitHub — low-key, opt-in, NOT a daily-flow feature
 
