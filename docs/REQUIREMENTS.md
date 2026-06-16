@@ -766,6 +766,17 @@ focus and where to snapshot:**
 - **F4 (reassuring): the firewall claim is milder than feared.** The script
   never ENABLES ufw and never sets default-deny — it only adds `allow` rules to
   an already-active ufw. So the firewall path cannot by itself lock you out.
+- **F5 (VERIFIED live, R2 STEP 0, 2026-06-16): the CAN_PROMPT probe is
+  incomplete.** `CAN_PROMPT=false; [[ -r /dev/tty && -w /dev/tty ]] &&
+  CAN_PROMPT=true` (remote.sh:35) passes whenever the device node exists with
+  perms, but `open(/dev/tty)` fails with ENXIO when there is no controlling
+  terminal. So CAN_PROMPT can be true while the tty is unusable, and MAIN-role
+  keypair creation (remote.sh:154, `ssh-keygen ... < /dev/tty ... || die`) DIES
+  instead of falling back to the non-interactive `-N ""` branch just below it.
+  Same probe in setup.sh:78-79 -> pattern-class (2 of 4 scripts). FIX (R3):
+  probe by actually opening /dev/tty (e.g. `{ : >/dev/tty; } 2>/dev/null`), not
+  just `-r/-w`; pattern-hunt the class. Found WITHOUT a target (STEP 0 is
+  target-free); the rest of R2 (STEPS 1-8) is blocked on an acceptable target.
 
 **Acceptable target machine (hard gate):**
 - BEST — a disposable VM with snapshots + an out-of-band console (hypervisor or
