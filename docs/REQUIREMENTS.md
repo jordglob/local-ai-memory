@@ -1,6 +1,19 @@
-# AI Memory Stack — Requirements Specification v1.23
+# AI Memory Stack — Requirements Specification v1.24
 
 Status: agreed baseline for the next build round (June 2026).
+v1.24 (CC): remote.sh R2+R3 CLOSED OUT. Pull-the-plug test PASSED (abrupt
+SIGKILL power-cut + cold boot: VM recovered unattended; pwauth=no, linger=yes,
+sleep masked, wg-quick@wg0 auto-started — all persisted). F1 proven on BOTH
+paths: Path A (drop-in) on Ubuntu + Arch; Path B (no-Include -> main config)
+validated on Arch (selector picks B, sed+append, sshd -t VALID, sshd -T flipped
+yes->no, key login intact). Findings: (a) modern Arch cloud images now ship the
+`Include` line, so the no-Include case is rare (fallback still correct); (b) the
+Ollama install step's silence + the autostart [Y/n] prompt are easily mistaken
+for a hang (WSL live) — reinforces §2.9 progress-visibility. Two minor items
+remain OPEN, low prio: F3 sed-argv ps-exposure; F2 full-live (needs a CF token).
+Tooling note: driving the interactive script through a TCG pty (ssh -tt / script)
+is flaky — deterministic command-level tests were used to validate Path B.
+v1.23 (CC): R3 FIX BUNDLE built + re-tested on the QEMU VM (package v9; remote
 v1.23 (CC): R3 FIX BUNDLE built + re-tested on the QEMU VM (package v9; remote
 v2.5, setup v8.9). F1 FIXED — hardening now writes `00-ai-memory-hardening.conf`
 (beats cloud-init's `50-` under sshd first-match-wins), falls back to the main
