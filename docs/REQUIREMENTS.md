@@ -1,6 +1,14 @@
-# AI Memory Stack — Requirements Specification v1.21
+# AI Memory Stack — Requirements Specification v1.22
 
 Status: agreed baseline for the next build round (June 2026).
+v1.22 (CC): remote.sh R2 LIVE-TESTED on a local QEMU VM (Ubuntu 24.04 cloud
+image). §4.8 "R2 LIVE RESULTS" added. F1 CONFIRMED and worse than predicted —
+sshd first-match-wins means cloud-init's 50-cloud-init.conf (PasswordAuth yes)
+beats our 99-drop-in even WITH Include present, so hardening silently no-ops on
+the most common headless-node OS while reporting success. F6 NEW: `grep -q
+active` matches `inactive` (remote.sh:499) -> ufw rule + success message on an
+OFF firewall. F3 cleared (on-disk secret separation is correct). F2/F5 stand.
+PASSED: key-append, network analysis, WireGuard bring-up, secret separation.
 v1.21 (CC): remote.sh live-test round PLANNED (not yet run). §4.8 expanded with
 the staging plan (acceptable target = snapshot VM / console-backed sacrificial
 node; low-blast-radius-first sequence; machine-checked acceptance; rehearsed
@@ -777,6 +785,51 @@ focus and where to snapshot:**
   probe by actually opening /dev/tty (e.g. `{ : >/dev/tty; } 2>/dev/null`), not
   just `-r/-w`; pattern-hunt the class. Found WITHOUT a target (STEP 0 is
   target-free); the rest of R2 (STEPS 1-8) is blocked on an acceptable target.
+
+**R2 LIVE RESULTS (2026-06-16, CC) — ran on a local QEMU VM (Ubuntu 24.04.4,
+TCG/no-KVM, host=X230; serial-console + monitor-socket as the second way in;
+sshd pre-existed so STEP 1 took the idempotent-skip path).** Drove NODE through
+key-install -> harden -> WireGuard via a scripted `ssh -tt` session.
+
+PASSED (verified): key APPEND path (`Key added to authorized_keys`); network
+analysis (detected real public IP + reverse-DNS, correctly NOT flagged dynamic
+-> recommended WireGuard); WireGuard hub came up (`wg show` interface wg0, key
+loaded); secret separation CORRECT (system /etc/wireguard/wg0.conf holds the
+private key, the home copy holds only an explanatory comment -> **F3's on-disk
+worry is unfounded**; only the transient `sed`-argv ps-exposure remains, minor);
+key login survives hardening.
+
+FAILED (the headline):
+- **F1 is CONFIRMED and WORSE than predicted — it is the DEFAULT outcome on
+  cloud-init Ubuntu, not just no-Include systems.** After hardening, the script
+  printed `✓ Password login disabled` and the drop-in existed, yet `sshd -T`
+  reported `passwordauthentication yes`. Root cause: sshd is FIRST-MATCH-WINS,
+  and `/etc/ssh/sshd_config.d/` loads alphabetically — `50-cloud-init.conf`
+  (`PasswordAuthentication yes`, written because ssh_pwauth was set) sorts
+  BEFORE our `99-ai-memory.conf` (`no`) and wins. The `Include` line being
+  present did not help. So on the most common headless-node OS (any cloud-init
+  box) the hardening SILENTLY DOES NOTHING while reporting success — a security
+  false-success. FIX (R3): after writing the drop-in, VERIFY the effective value
+  with `sshd -T | grep -i passwordauthentication` and only claim success if it
+  is actually `no`; if an earlier/lower-numbered drop-in (e.g. cloud-init's)
+  overrides it, neutralize or supersede it; `sshd -t` before restart. This is
+  the §5.3 assume-without-verify class — the real bug is "wrote config, never
+  checked the receiver's effective state."
+- **F6 (NEW, found live): `grep -q active` matches `inactive`.** remote.sh:499
+  (WireGuard branch) gates the ufw rule on `sudo ufw status | grep -q active`,
+  which is TRUE even when ufw is INACTIVE -> it ran `ufw allow 51820/udp` and
+  printed `✓ ufw: UDP 51820 opened` on a firewall that is OFF (verified `Status:
+  inactive`). The SSH branch at remote.sh:242 does it correctly
+  (`grep -q "Status: active"`). FIX (R3): use the precise match in both; pattern-
+  hunt loose `grep` substring gates across all four scripts.
+
+NOT YET RUN: STEP 8 power profile (the `ssh -tt` feed hung at the RustDesk
+prompt — a pty never EOFs so a short-fed `read </dev/tty` blocks instead of
+taking its default; a test-harness limitation, not a script bug). The
+no-Include/Arch case for F1 is still worth a separate VM, but F1 is already
+proven by the cloud-init path. STEP 6 DDNS / F2 confirmed separately (host-side
+repro of the generated JSON). Live VM snapshots were unavailable (the raw
+cloud-init seed disk is unsnapshottable) -> per-step reverts used instead.
 
 **Acceptable target machine (hard gate):**
 - BEST — a disposable VM with snapshots + an out-of-band console (hypervisor or
