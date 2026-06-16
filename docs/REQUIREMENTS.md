@@ -1,6 +1,11 @@
-# AI Memory Stack — Requirements Specification v1.16
+# AI Memory Stack — Requirements Specification v1.17
 
 Status: agreed baseline for the next build round (June 2026).
+v1.17 (CC): §4.1 WSL /mnt/c scan path LIVE-VERIFIED on real WSL2 (was
+written-but-unproven) — detection fires, Windows-side export discovered +
+imported (102 convs), idempotent. ingest v2.7 fixes BUG-1 (DefaultAppPool
+slipped the skip set; now case-insensitive + system profiles added) and hardens
+BUG-2 (WSL gate now also checks osrelease + $WSL_DISTRO_NAME). See §4.1.
 v1.16 (CC, package v6): §4.1 + §4.05 + §4.35 BUILT. configure v4.4 (local
 dual-context ollama_num_ctx + atomic write + read-back verify), setup v8.8
 (apt lock-timeout wrapper on every apt call, installs unzip+zstd), ingest v2.6
@@ -437,6 +442,22 @@ Live-verified on the NON-WSL box: apt_get really installed a missing package,
 unzip/zstd skipped as present, WSL detection returned [] (clean no-op), glob/
 filter logic proven on a synthetic tree. The real /mnt/c scan on WSL is
 written-but-unproven (no WSL hardware this round).
+
+**LIVE-VERIFIED + FIXED (ingest v2.7, 2026-06-16):** the §4.1 /mnt/c path is now
+PROVEN end-to-end on real WSL2 (6.18-microsoft-standard-WSL2, Ubuntu). Detection
+fired, `/mnt/c/Users/*/Downloads` was discovered, a REAL Claude.ai export staged
+on the Windows side was auto-discovered and imported (102 conversations, files
+real on disk, re-run idempotent at 0 new/102 skipped), vault stayed in WSL home.
+Two bugs found and fixed: **BUG-1** — the skip set
+`{Public,Default,Default User,All Users}` let `DefaultAppPool` (IIS system
+profile) through on every run; fix = case-insensitive set + `defaultapppool`
+and `wdagutilityaccount` added (re-verified live: DefaultAppPool now absent,
+real users still included, import still 102). **BUG-2 (latent, hardened)** — the
+WSL gate keyed only on `/proc/version`; a custom WSL kernel lacking that string
+would false-negative. Fix = also read `/proc/sys/kernel/osrelease` and accept
+`$WSL_DISTRO_NAME` (additive; cannot break the working path; live detection
+still fires). Pattern-hunt: the Windows-profile denylist is the only such
+construct in the four scripts — class is localized.
 
 ## 4.55 Scan-to-report option — map messy data, let the agent act (next build)
 
