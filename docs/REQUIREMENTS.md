@@ -1,6 +1,12 @@
-# AI Memory Stack — Requirements Specification v1.25
+# AI Memory Stack — Requirements Specification v1.26
 
 Status: agreed baseline for the next build round (June 2026).
+v1.26 (CC): §4.10 added from user feedback — §B4: the closing screen must END on
+the explicit next action (setup buries the configure pointer under identity/tips,
+so a beginner lands at the terminal confused); §B5: configure.sh is the thinnest-
+tested script — fold a thorough live-test into the macOS round. UX/clarity
+backlog, not yet built.
+v1.25 (CC): §2.11 refined — the "self-deciding gateway" decision policy was an
 v1.25 (CC): §2.11 refined — the "self-deciding gateway" decision policy was an
 open gap (named the chain, never said who/when). Now pinned: Level A = rule-based
 fallback (deterministic triggers: backend error / context overflow / rate-limit /
@@ -960,6 +966,33 @@ product would make US run security-sensitive infrastructure and own a hop in the
 user's auth path. Managed tunnels (Tailscale / Cloudflare) are the correct
 abstraction — NAT-friendly, audited, nothing for us to operate. Adding
 cloudflared is a small, self-contained build with its own live test (R4).
+
+## 4.10 End-of-run hand-off + configure live-coverage (user feedback, 2026-06-17)
+
+Three items raised by the user from real runs; flagged for a coming build, NOT
+yet built.
+
+- **§B4 The closing screen must END on the NEXT ACTION (beginner clarity).**
+  setup.sh DOES chain to configure (a "Next steps" block ~L1414 and a "continue
+  here? [y/N]" offer ~L1433), but the pointer is BURIED: after that prompt the
+  script still prints the identity block + Tips, so the LAST thing a beginner
+  sees is tips / identity / file-paths (incl. `~/.hermes` key/.env mentions),
+  NOT "what to type now." A confused beginner who declines the offer is dropped
+  back at the terminal with the next command scrolled off-screen. FIX (next
+  build): make the FINAL lines of every chain script the explicit next action —
+  restate the literal command as the very last thing on screen, e.g.
+  `▶ NEXT: open a new terminal and run:  bash <configure> <vault>`, printed
+  AFTER identity/tips. Honor the §2.8 chain convention at the BOTTOM of output,
+  not mid-flow. Apply across setup→configure→ingest→remote (the last one ends
+  with "you're done"). This is the §2.9 reassurance layer realized at the exit.
+- **§B5 configure.sh needs more LIVE coverage.** It is the thinnest-tested of the
+  four: exercised only as cloud-only on the X230 (§1.6 findings) and dual-context
+  on WSL (§4.35); the full local-model selection table, key-writing, and
+  capable-hardware paths are under-exercised. Fold a thorough configure live-test
+  into the **macOS live-test round** (capable hardware naturally exercises the
+  local-first / future-LiteLLM paths that weak hardware cannot).
+- Both sit alongside the existing backlog (§B1–B3, §2.9). §B4 is small and
+  high-delight; do it early in the next UX-focused round.
 
 ## 5. Build-round working agreements
 
