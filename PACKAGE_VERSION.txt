@@ -61,3 +61,12 @@ History:
                           git-clone-first + Python-unzip fallback + WSL. spec
                           v1.16. Live-verified on the non-WSL box; the /mnt/c WSL
                           scan path is written-but-unproven (no WSL hardware).
+  v7  CC   2026-06-16  — §4.1 /mnt/c path LIVE-VERIFIED on real WSL2 (was
+                          unproven): detection fires, Windows-side export
+                          discovered + imported (102 convs), idempotent. ingest
+                          v2.7: BUG-1 (DefaultAppPool slipped the skip set) +
+                          BUG-2 (WSL marker hardened to osrelease/$WSL_DISTRO_NAME)
+                          fixed and re-verified live. spec v1.17 (records both) +
+                          v1.18 (§4.5 RESOLVED: hybrid ingest, script-first/
+                          agent-fallback, via §4.55 --scan-report). Consolidation
+                          only — no new features in this bundle.
