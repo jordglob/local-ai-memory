@@ -77,7 +77,7 @@ History:
                           (§4.7). Live-verified on real WSL2 (Windows-side export
                           mapped via /mnt/c, decoy=unknown, 0 imported). spec v1.19
                           (§4.55 BUILT) + v1.20 (WSL live-verify). Supersedes v7.
-  v9  CC   2026-06-16  — remote.sh FIRST live-tested (QEMU Ubuntu 24.04 VM) +
+  v9  CC   2026-06-17  — remote.sh FIRST live-tested (QEMU Ubuntu 24.04 VM) +
                           R3 fix bundle. remote v2.5: F1 sshd-hardening false-
                           success FIXED (sshd is first-match-wins; cloud-init's
                           50-conf beat our 99- -> now writes 00-, no-Include
