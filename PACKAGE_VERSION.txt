@@ -70,3 +70,10 @@ History:
                           v1.18 (§4.5 RESOLVED: hybrid ingest, script-first/
                           agent-fallback, via §4.55 --scan-report). Consolidation
                           only — no new features in this bundle.
+  v8  CC   2026-06-16  — ingest v2.8: §4.55 --scan-report BUILT (first increment
+                          of the §4.5 hybrid decision) — maps recognized exports +
+                          unknown AI-ish candidates to <vault>/ai-scan-report.md,
+                          imports nothing; agent prompt in docs/collect-with-agent.md
+                          (§4.7). Live-verified on real WSL2 (Windows-side export
+                          mapped via /mnt/c, decoy=unknown, 0 imported). spec v1.19
+                          (§4.55 BUILT) + v1.20 (WSL live-verify). Supersedes v7.
