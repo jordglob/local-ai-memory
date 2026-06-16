@@ -1,6 +1,17 @@
-# AI Memory Stack — Requirements Specification v1.22
+# AI Memory Stack — Requirements Specification v1.23
 
 Status: agreed baseline for the next build round (June 2026).
+v1.23 (CC): R3 FIX BUNDLE built + re-tested on the QEMU VM (package v9; remote
+v2.5, setup v8.9). F1 FIXED — hardening now writes `00-ai-memory-hardening.conf`
+(beats cloud-init's `50-` under sshd first-match-wins), falls back to the main
+config when there is no drop-in Include, runs `sshd -t`, and VERIFIES the
+effective setting with `sshd -T` before claiming success (live: sshd -T flipped
+yes->no). F5 FIXED — CAN_PROMPT now probes by opening /dev/tty (live: a
+non-interactive NODE run completes instead of dying at `>/dev/tty`); same fix in
+setup.sh. F6 FIXED — `grep -q "Status: active"` (live: inactive ufw correctly
+skipped). F2 FIXED — DDNS JSON built with printf (valid JSON; full live needs a
+CF token). F3 cleared earlier; only its minor sed-argv residual remains open.
+v1.22 (CC): remote.sh R2 LIVE-TESTED on a local QEMU VM (Ubuntu 24.04 cloud
 v1.22 (CC): remote.sh R2 LIVE-TESTED on a local QEMU VM (Ubuntu 24.04 cloud
 image). §4.8 "R2 LIVE RESULTS" added. F1 CONFIRMED and worse than predicted —
 sshd first-match-wins means cloud-init's 50-cloud-init.conf (PasswordAuth yes)

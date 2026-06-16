@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.8
+#  ai-memory-setup.sh  v8.9
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.8"
+VERSION="8.9"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -69,14 +69,16 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.8"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.9"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
 IS_TTY=false
 [[ -t 1 ]] && IS_TTY=true
 CAN_PROMPT=false
-[[ -r /dev/tty && -w /dev/tty ]] && CAN_PROMPT=true
+# Probe by actually OPENING /dev/tty: the node exists with rw mode even when there
+# is no controlling terminal, so `[[ -r/-w ]]` is a false positive (open ENXIOs).
+{ : >/dev/tty; } 2>/dev/null && CAN_PROMPT=true
 
 # ── Colors (only when stdout is a terminal) ───────────────────────────────────
 if $IS_TTY; then
@@ -448,7 +450,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.8 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.9 — Setup         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"

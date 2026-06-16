@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.4
+#  ai-memory-remote.sh  v2.5
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.4"
+VERSION="2.5"
 
 case "${1:-}" in
   -h|--help)
@@ -32,7 +32,9 @@ esac
 
 # ── TTY / colors ──────────────────────────────────────────────────────────────
 IS_TTY=false; [[ -t 1 ]] && IS_TTY=true
-CAN_PROMPT=false; [[ -r /dev/tty && -w /dev/tty ]] && CAN_PROMPT=true
+# Probe by actually OPENING /dev/tty: the node exists with rw mode even when there
+# is no controlling terminal, so `[[ -r/-w ]]` is a false positive (open ENXIOs).
+CAN_PROMPT=false; { : >/dev/tty; } 2>/dev/null && CAN_PROMPT=true
 if $IS_TTY; then
   RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
   CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -104,7 +106,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.4          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.5          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -311,16 +313,42 @@ if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
   echo "  It must log in WITHOUT asking for the account password"
   echo "  (a key passphrase prompt is fine — that is your key, not the account)."
   if ask_yn "Did key login work, and do you want to disable password login?" n; then
-    SSHD_DROPIN="/etc/ssh/sshd_config.d/99-ai-memory.conf"
-    sudo mkdir -p /etc/ssh/sshd_config.d 2>/dev/null || true
-    printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee "$SSHD_DROPIN" >/dev/null
-    if [[ "$OS" == "macos" ]]; then
-      sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+    # sshd is FIRST-MATCH-WINS and reads sshd_config.d/*.conf alphabetically, so a
+    # distro drop-in like 50-cloud-init.conf (PasswordAuthentication yes) beats a
+    # 99- file. We therefore sort FIRST (00-) to win, fall back to the main config
+    # when there is no Include, and ALWAYS verify the EFFECTIVE setting with
+    # `sshd -T` instead of trusting that the file took effect.
+    SSHD_DIR="/etc/ssh/sshd_config.d"
+    SSHD_DROPIN="$SSHD_DIR/00-ai-memory-hardening.conf"
+    if sudo grep -qiE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config 2>/dev/null; then
+      sudo mkdir -p "$SSHD_DIR" 2>/dev/null || true
+      printf '# ai-memory: sorts before distro drop-ins (sshd uses the first match)\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee "$SSHD_DROPIN" >/dev/null
+      sudo rm -f "$SSHD_DIR/99-ai-memory.conf" 2>/dev/null || true   # drop the old-named file from earlier versions
     else
-      sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || true
+      # No drop-in Include (e.g. stock Arch) — a drop-in would be ignored.
+      warn "sshd_config has no drop-in Include — writing into the main config instead"
+      SSHD_DROPIN="/etc/ssh/sshd_config"
+      sudo sed -i -E 's/^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication)[[:space:]].*/# &  (superseded by ai-memory)/I' /etc/ssh/sshd_config 2>/dev/null || true
+      printf '\n# ai-memory hardening\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee -a /etc/ssh/sshd_config >/dev/null
     fi
-    ok "Password login disabled ($SSHD_DROPIN)"
-    warn "Keep your key safe — it is now the only way in over SSH"
+    if ! sudo sshd -t 2>/dev/null; then
+      warn "sshd config test failed — NOT restarting. Password login left ON; fix sshd_config first."
+    else
+      if [[ "$OS" == "macos" ]]; then
+        sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+      else
+        sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || true
+      fi
+      EFF="$(sudo sshd -T 2>/dev/null | awk '$1=="passwordauthentication"{print $2}')"
+      if [[ "$EFF" == "no" ]]; then
+        ok "Password login disabled and VERIFIED (sshd -T: passwordauthentication no) — $SSHD_DROPIN"
+        warn "Keep your key safe — it is now the only way in over SSH"
+      else
+        warn "Tried to disable password login, but sshd still reports passwordauthentication=${EFF:-unknown}."
+        warn "Password login is STILL ON (so you are not locked out). A higher-priority setting overrides ours."
+        warn "Inspect: sudo sshd -T | grep -i passwordauthentication   and the files in $SSHD_DIR"
+      fi
+    fi
   else
     info "Password login kept (you can re-run this script later)"
   fi
@@ -496,7 +524,7 @@ WG
     sudo sed -i "/^\[Interface\]/a PrivateKey = $(cat "$HUB_PRIV_REF")" /etc/wireguard/wg0.conf 2>/dev/null
     sudo chmod 600 /etc/wireguard/wg0.conf
     sudo systemctl enable --now wg-quick@wg0 2>/dev/null && ok "WireGuard hub running (wg-quick@wg0)"       || warn "Start manually: sudo wg-quick up wg0"
-    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q active; then
+    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
       sudo ufw allow 51820/udp >/dev/null 2>&1 && ok "ufw: UDP 51820 opened"
     fi
   else
@@ -532,7 +560,7 @@ api() { curl -fsS -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: app
 ZID="$(api "https://api.cloudflare.com/client/v4/zones?name=$ZONE" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"][0]["id"])')"
 REC="$(api "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records?name=$CF_RECORD&type=A")"
 RID="$(printf '%s' "$REC" | python3 -c 'import sys,json;r=json.load(sys.stdin)["result"];print(r[0]["id"] if r else "")')"
-BODY="{"type":"A","name":"$CF_RECORD","content":"$IP","ttl":120,"proxied":false}"
+BODY="$(printf '{"type":"A","name":"%s","content":"%s","ttl":120,"proxied":false}' "$CF_RECORD" "$IP")"
 if [[ -n "$RID" ]]; then
   api -X PUT "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records/$RID" --data "$BODY" >/dev/null
 else

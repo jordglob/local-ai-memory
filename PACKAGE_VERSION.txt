@@ -77,3 +77,14 @@ History:
                           (§4.7). Live-verified on real WSL2 (Windows-side export
                           mapped via /mnt/c, decoy=unknown, 0 imported). spec v1.19
                           (§4.55 BUILT) + v1.20 (WSL live-verify). Supersedes v7.
+  v9  CC   2026-06-16  — remote.sh FIRST live-tested (QEMU Ubuntu 24.04 VM) +
+                          R3 fix bundle. remote v2.5: F1 sshd-hardening false-
+                          success FIXED (sshd is first-match-wins; cloud-init's
+                          50-conf beat our 99- -> now writes 00-, no-Include
+                          fallback to main config, sshd -t, VERIFY via sshd -T);
+                          F6 `grep -q active` matched `inactive` FIXED; F2
+                          Cloudflare-DDNS invalid-JSON FIXED (printf-built).
+                          setup v8.9 + remote v2.5: F5 CAN_PROMPT tty probe FIXED
+                          (open /dev/tty, not -r/-w; was dying at `>/dev/tty`).
+                          F1/F5/F6 re-verified live on the VM; F2 at source.
+                          spec v1.23 (R2 live results + R3 fixes). Supersedes v8.
