@@ -823,13 +823,24 @@ FAILED (the headline):
   (`grep -q "Status: active"`). FIX (R3): use the precise match in both; pattern-
   hunt loose `grep` substring gates across all four scripts.
 
-NOT YET RUN: STEP 8 power profile (the `ssh -tt` feed hung at the RustDesk
-prompt — a pty never EOFs so a short-fed `read </dev/tty` blocks instead of
-taking its default; a test-harness limitation, not a script bug). The
-no-Include/Arch case for F1 is still worth a separate VM, but F1 is already
-proven by the cloud-init path. STEP 6 DDNS / F2 confirmed separately (host-side
-repro of the generated JSON). Live VM snapshots were unavailable (the raw
+STEP 8 power profile: PASSED — `sleep/suspend/hibernate/hybrid-sleep.target`
+all `masked`, `loginctl` Linger=yes (linger file present), BIOS warning printed.
+
+**F5 UPGRADED (severe): it also kills every non-interactive NODE run.** A
+`</dev/null` run (no controlling terminal) wrongly set CAN_PROMPT=true (the
+`[[ -r/-w /dev/tty ]]` node-mode check passes) and then DIED at remote.sh:272
+(`echo ... > /dev/tty` -> "No such device or address", ENXIO) under `set -e`.
+So F5 breaks not just MAIN keygen but ANY automated/cron/curl|bash-without-tty
+NODE run, dying at the STEP 2 key menu. The guarded `read ... < /dev/tty || x=""`
+lines survive; the unguarded `> /dev/tty` writes do not. FIX (R3): make
+CAN_PROMPT actually open /dev/tty; guard or avoid `> /dev/tty`.
+
+STEP 6 DDNS / F2 confirmed separately (host-side repro of the generated JSON).
+The no-Include/Arch case for F1 is still worth a separate VM, but F1 is already
+proven by the cloud-init path. Live VM snapshots were unavailable (the raw
 cloud-init seed disk is unsnapshottable) -> per-step reverts used instead.
+NOT RUN: the actual pull-the-plug reboot (VM reset under TCG is ~10 min) —
+recommended as a quick follow-up to confirm linger services return on boot.
 
 **Acceptable target machine (hard gate):**
 - BEST — a disposable VM with snapshots + an out-of-band console (hypervisor or
