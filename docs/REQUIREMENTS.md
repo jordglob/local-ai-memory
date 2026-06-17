@@ -858,6 +858,19 @@ silent miss.
    half: the handover instruction must explicitly say to run the search tool with
    keyword variants and read matches — never fabricate filenames — so the routine
    survives a weak local model.
+8. **Per-door verification must confirm ACTUAL TOOL USE, not just a plausible
+   reply.** Live (2026-06-18, browser dashboard, ABSOLUTE-path prompt): qwen3.5
+   FALSELY claimed "I don't have filesystem access" and refused — though `file`
+   and `code_execution` tools were registered (28 tools in its own startup
+   banner) — then recited wrong generic paths (`~/.hermes/session/`). So even a
+   perfect handover + absolute paths fail if the model won't CALL the tool.
+   Ground truth at that moment: 8 imported conversations sat in the vault (6
+   lmstudio + 2 openclaw, e.g. "OpenClaw på Mac Mini"). Therefore: (a) the fix's
+   verification must force and CONFIRM a real tool invocation that returns vault
+   content, not accept a worded answer; (b) reliability ultimately needs a
+   capable-enough model (§4.2) — when the local model balks, a cloud fallback key
+   is what makes recall dependable. The dashboard's wrong cwd AND the model's
+   tool-refusal are independent failures; the fix must beat both.
 
 **Status: NEXT-SESSION TOP PRIORITY. Live-testable on the Mac now** (the dashboard
 there currently exhibits the bug — a perfect before/after rig). This is the
