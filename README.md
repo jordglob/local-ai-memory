@@ -6,6 +6,19 @@ Consolidate your scattered AI conversations into one local vault you own —
 and run a persistent local agent on top of it. No cloud accounts. No lock-in.
 Plain markdown on your own disk.
 
+> ## Status — read this first
+>
+> Source-available, **works-for-me**, *not* a polished consumer product. Built for
+> people who are comfortable **reading bash and fixing their own machine**.
+>
+> - **Unsupported — GitHub issues are off** (on purpose). It's MIT: fork it, adapt
+>   it, no expectations either way.
+> - **Some paths have run on real hardware** (Linux + WSL2). **Others have not** —
+>   in particular **macOS has never run on a real Mac**, and **`ai-memory-remote.sh`
+>   has only run in a VM and can silently lock you out of a headless box.**
+> - **Read the code before you run it**, especially anything touching SSH, keys, or
+>   power settings. See *What's proven vs. unproven* below — it's specific and honest.
+
 ## Get the scripts (no `unzip` required)
 
 **Recommended — `git clone`.** git checks the files out already unpacked, so
@@ -34,31 +47,33 @@ where your AI exports usually live.
 ## Quick start
 
 ```
-bash ai-memory-setup.sh        # installs everything on a blank machine
-bash ai-memory-configure.sh    # picks the best model for YOUR hardware
-bash ai-memory-ingest.sh       # imports your history from 11 sources
-bash ai-memory-remote.sh       # optional: SSH/Tailscale/RustDesk node setup
+bash ai-memory-setup.sh        # installs the stack (Node, Ollama, Hermes, vault)
+bash ai-memory-configure.sh    # picks a model for YOUR hardware, writes Hermes config
+bash ai-memory-ingest.sh       # imports your AI history from local exports
+bash ai-memory-remote.sh       # optional: SSH/WireGuard/Tailscale node setup
+bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
 hermes chat                    # talk to an agent that knows your past
 ```
 
 The scripts are a family: same flags everywhere (`--help` `--version` `--yes`),
 idempotent re-runs, and on first run they install themselves to
-`~/Documents/ai-memory/.tools/` — delete the downloads afterwards.
+`~/Documents/ai-memory/.tools/` — delete the downloads afterwards. Each script
+ends by pointing at the next one, so you're never left guessing what to type.
 
 ## Who it's for
 
-Anyone who wants to put **old or new hardware to work** — give a 15-year-old
-laptop a second life, or run a serious local stack on a capable machine. The
-tool adapts to what you have:
+People who want to **own their AI memory** and are happy to read and adapt bash to
+do it. This is not a click-to-install consumer app: there is no support line, and
+you are expected to understand what each script does before running it.
 
-- **Weak/old machine?** It detects low memory and sets up **cloud-only** mode —
-  an old laptop talks to a cloud model and works fine, nothing heavy runs
-  locally.
-- **Capable machine?** It runs a real local model — your conversations and your
+The engine adapts to the hardware it finds itself on:
+
+- **Weak/old machine** → it detects low memory and sets up **cloud-only** mode (an
+  old laptop talks to a cloud model; nothing heavy runs locally).
+- **Capable machine** → it runs a real local model; your conversations and your
   agent stay entirely on your own disk, no cloud, no accounts.
 
-Same tool, same vault format, both ends of the hardware spectrum. It is generic
-and machine-agnostic by design — it adapts to the box it finds itself on.
+Same tool, same vault format, both ends of the hardware spectrum.
 
 ## Design philosophy
 
@@ -67,9 +82,11 @@ and machine-agnostic by design — it adapts to the box it finds itself on.
 - **Deterministic work is a script; messy reality is an agent.** Install,
   configure, back up — predictable, so they're plain bash you can read and
   trust. Interpreting the messy zoo of AI export formats is better suited to an
-  agent. The dividing line keeps each part honest. (See docs/REQUIREMENTS.md §4.5.)
+  agent. The dividing line keeps each part honest. (See `docs/REQUIREMENTS.md` §4.5.)
 - **No lock-in, no BigTech assumptions.** No required cloud accounts; GitHub,
   OpenRouter, etc. are opt-in, never assumed.
+- **Verify against the source; the sandbox lies.** Real behaviour on real hardware
+  is the bar — and where that bar hasn't been cleared, it's said plainly (below).
 
 ## What it does
 
@@ -91,10 +108,15 @@ and machine-agnostic by design — it adapts to the box it finds itself on.
   remote-access path — **WireGuard (fully local) first**, with Tailscale
   offered for convenience or behind CGNAT, and an optional Cloudflare DNS
   updater for dynamic IPs. Plus no-sleep + auto-restart power profile and a
-  printed identity block for the checklist.
-- **Ingest** — importers for **10 sources**: Claude.ai, ChatGPT, Claude Code,
-  Codex CLI, Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI,
-  and Google Takeout (Gemini). Idempotent — re-run any time.
+  printed identity block. *(See the maturity note — this script is the least
+  proven and the most dangerous to get wrong.)*
+- **Ingest** — importers for Claude.ai, ChatGPT, Claude Code, Codex CLI,
+  Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, and Google
+  Takeout (Gemini). Idempotent — re-run any time. A `--scan-report` mode maps
+  unknown/messy exports to a bridge file your agent can act on.
+- **Uninstall / backup** — `ai-memory-uninstall.sh` is **export-first** (it
+  archives your vault, with a migration manifest, *before* removing anything)
+  and **dry-run by default**. Also the clean way to reset between trial runs.
 
 ## Requirements
 
@@ -109,21 +131,43 @@ python3, git and Ollama itself, asks before anything opinionated
 (Hermes install, login autostart), and is safe to re-run — completed steps
 are skipped, interrupted ones resume.
 
-## Installing on a brand-new machine
+## What's proven vs. unproven (honest)
 
-Print **installation-checklist.pdf** (7 pages) — a tick-box walkthrough from
-blank hardware (clean macOS reinstall or Linux Mint USB, no cloud accounts)
-to a running agent: every security popup the scripts trigger, power settings
-that would otherwise kill downloads, a headless-node page with a mandatory
-pull-the-plug test, and an identity box per machine.
+**Run and verified on real hardware:** `setup`; `configure` (cloud-only path);
+`ingest` (including real WSL2 importing a real Claude.ai export, idempotently);
+and `uninstall`'s **export/backup** path.
+
+**Not yet run on real hardware — treat as unproven:**
+
+- **macOS, all of it.** The code is cross-platform but the macOS branches have
+  never executed on a real Mac.
+- **`ai-memory-remote.sh`.** Validated only in a local VM. It edits `sshd`, can
+  disable password login, and brings up a WireGuard hub — a mistake here is a
+  *silent lockout of a possibly-headless box*, not a red error. First-run it with
+  a screen/console attached and keep a second way in.
+- **`configure`'s local-model selection** on capable hardware, and **`uninstall`'s
+  actual removal** (its export path is tested; the teardown is not).
+- Several `ingest` parsers (Cursor, LM Studio, Open WebUI, Codex CLI, Gemini CLI,
+  Takeout) are written defensively against known on-disk layouts but are unverified
+  against current app versions.
+
+Because of the above this is published **as-is, unsupported, issues off**. If you
+fork it and prove out the macOS / remote paths, all the better — but nothing here
+expects you to, and nothing expects me to answer for it.
+
+`docs/installation-checklist.pdf` is a tick-box walkthrough from blank hardware to
+a running agent. It targets non-experts, but its macOS track shares the
+unproven-on-real-Mac caveat above — read it as a draft for a technical reader.
 
 ## Flags worth knowing
 
 ```
-setup:   --no-hermes  --no-autostart  --yes
-ingest:  --list-sources  --source NAME --path FILE  --scan DIR  --deep-scan  --yes
-remote:  --yes
-all:     --help  --version
+setup:      --no-hermes  --no-autostart  --yes
+configure:  --yes
+ingest:     --list-sources  --source NAME  --scan DIR  --deep-scan  --scan-report  --yes
+remote:     --yes
+uninstall:  --export-only  --no-export  --remove-ollama  --yes   (dry-run unless --yes)
+all:        --help  --version
 ```
 
 ## Privacy posture
@@ -132,19 +176,9 @@ all:     --help  --version
   scan of `~/Downloads` for export ZIPs (it asks before importing anything).
 - `--deep-scan` is opt-in, limited to your home directory, and warns first.
 - API keys (optional, for cloud fallback) live in `~/.hermes/.env`
-  (chmod 600) — never in the vault.
+  (chmod 600) — never in the vault, never in an export.
 - The vault is yours: plain `.md` files readable by any tool, forever.
-
-## Status & honesty notes
-
-Tested end-to-end with synthetic fixtures for all ten sources and on
-Linux + (mocked) macOS paths. `ai-memory-remote.sh` is the least-tested
-artifact (it is interactive and touches system services by nature) — run it
-while you still have a screen attached the first time. The parsers for Cursor, LM Studio, Open WebUI,
-Codex CLI, Gemini CLI and Takeout are written defensively against multiple
-known on-disk layouts but have not yet been verified against every current
-app version — issues and PRs with real-world samples are very welcome.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Published unsupported; fork freely.
