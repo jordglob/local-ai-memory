@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.6
+#  ai-memory-configure.sh  v4.7
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.6"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.7"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.6 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.7 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -494,6 +494,9 @@ out = [f"{k}={v}" if l.startswith(f"{k}=") else l for l in lines]
 open(p,"w").write("\n".join(out) + "\n")
 PYENV
   [[ -z "$(grep "^${k}=" "$HERMES_ENV" 2>/dev/null)" ]] && echo "${k}=${v}" >> "$HERMES_ENV"
+  return 0   # setter succeeds whether it replaced or appended; without this the
+             # "key already present" path returns the failed [[ -z ]] test (1) and
+             # a bare `set_env …` call trips set -e on every RE-RUN (idempotency bug)
 }
 [[ -n "$OR_KEY" ]] && { set_env OPENROUTER_API_KEY "$OR_KEY"; ok "OpenRouter key saved"; }
 [[ -n "$AN_KEY" ]] && { set_env ANTHROPIC_API_KEY "$AN_KEY"; ok "Anthropic key saved"; }

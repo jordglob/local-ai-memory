@@ -147,7 +147,7 @@ History:
                           + LM Studio history) → Hermes talking via local Ollama
                           qwen3.5, reachable on the LAN and in a browser (the
                           `hermes dashboard --tui` over an SSH tunnel). MACOS
-                          HARDENING (configure v4.6 / remote v2.7 / setup v8.12):
+                          HARDENING (configure v4.7 / remote v2.7 / setup v8.12):
                           the blocker was configure's `[[ -f .env ]] && VAR=$(grep
                           OPENROUTER_API_KEY|cut)` — under `set -euo pipefail` a
                           no-match aborts the script BEFORE config.yaml is written
@@ -155,7 +155,13 @@ History:
                           LIVE-PROVEN on the Mac. Pattern-hunt (§5.3) found 6 more
                           pipefail siblings (remote.sh — several genuinely macOS:
                           `ip`/`hostname -I` absent → crash; setup Linux-branch) +
-                          3 read EOF-guards (configure/remote). NOTE: the remote.sh
+                          3 read EOF-guards (configure/remote). Re-run verification
+                          (before finalizing) then caught a 2nd configure bug:
+                          set_env returned 1 when a key already existed → bare
+                          `set_env TERMINAL_CWD` tripped set -e on every RE-RUN
+                          (idempotent only on first install). Fixed (return 0);
+                          PROVEN idempotent (configure twice → both exit 0).
+                          configure v4.7. NOTE: the remote.sh
                           fixes are STATIC-ONLY (syntax) — the remote/WireGuard
                           round was deferred (user not yet ready; box is behind
                           NAT → Tailscale is the recommended path). spec v1.31.
