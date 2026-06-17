@@ -99,3 +99,15 @@ History:
                           Footers print only when the script doesn't itself launch
                           the next stage. spec v1.27. Render-verified on this box.
                           §B5 (configure live coverage) still deferred to macOS.
+  v11 CC   2026-06-17  — §2.9 first slice BUILT (reassurance layer). New `calm()`
+                          helper in setup v8.11 prints BEFORE each previously-silent
+                          download (Ollama, Node.js, mcpvault): what's happening +
+                          why, "Safe to Ctrl+C — re-running resumes where it
+                          stopped", and a "tail -f <log>" live-log hint. Targets the
+                          live finding that silent installs read as a hang and
+                          provoke Ctrl+C. Pairs with the existing interrupt trap
+                          (which promised the same only AFTER the fact). Hermes left
+                          as-is (already had a time estimate + source). spec v1.28.
+                          Render-verified under set -e. Still open in §2.9: bandwidth
+                          probe, two-stage size estimate in configure, closing
+                          summary, hardware rating, anchoring comparisons.

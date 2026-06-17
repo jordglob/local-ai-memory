@@ -1,6 +1,15 @@
-# AI Memory Stack — Requirements Specification v1.27
+# AI Memory Stack — Requirements Specification v1.28
 
 Status: agreed baseline for the next build round (June 2026).
+v1.28 (CC): §2.9 FIRST SLICE BUILT — the reassurance layer's top-priority items
+(safe-to-interrupt line + what/why before a slow step + live-log hint), realized
+as a `calm()` helper in setup.sh printed BEFORE each previously-silent download
+(Ollama, Node.js, mcpvault). Pairs with the existing interrupt trap (which made
+the same promise only AFTER a Ctrl+C). Hermes already had a time estimate + source
+so it was left as-is. setup v8.11, package v11. STILL OPEN in §2.9: bandwidth probe
+(needs new curl+timing code), two-stage download-size estimate in configure (needs
+a model-size lookup), closing summary with personality, hardware rating, anchoring
+comparisons. Render-verified under set -e on this box.
 v1.27 (CC): §4.10 §B4 BUILT — every chain script now ENDS on the literal next
 command, printed AFTER identity/tips as a bold "▶ NEXT" footer. setup → configure
 (open a new terminal), configure → ingest, ingest → "talk to your memory: hermes
@@ -333,7 +342,10 @@ Opt-in. Never part of setup.sh. First question: machine role.
   GUI permissions) — the script's job is to make it a 10-minute checklist
   and everything after 100% remote.
 
-### 2.9 Reassurance & feedback layer (next build) — "they thought of everything"
+### 2.9 Reassurance & feedback layer (PARTIAL — first slice built) — "they thought of everything"
+
+**Status (CC, 2026-06-17, spec v1.28):** the three top-priority items below are
+BUILT in setup v8.11 via a `calm()` helper (marked ✅). The rest remain open.
 
 Goal: a user who trusts the script does not Ctrl+C mid-download, so calm IS
 stability. All of the following are messaging/feedback, not new behavior:
@@ -345,15 +357,17 @@ stability. All of the following are messaging/feedback, not new behavior:
   ("~2–3 GB tools + the model you pick later"); configure, AFTER hardware
   analysis, prints the exact figure ("your machine → qwen3:35b, 20 GB;
   at ~50 Mbit ≈ 55 min").
-- **Per-step "safe to interrupt" line:** every long step states
+- **✅ Per-step "safe to interrupt" line:** every long step states
   "Safe to Ctrl+C — re-running resumes where it stopped." (We already have
-  checkpoints; this just communicates them.)
-- **"What's happening and why" before slow steps:** e.g. "Apple is
+  checkpoints; this just communicates them.) BUILT via `calm()`.
+- **✅ "What's happening and why" before slow steps:** e.g. "Apple is
   downloading ~700 MB of developer tools, no progress shown — this is normal."
+  BUILT for Ollama/Node/mcpvault (the previously-silent downloads).
 - **Surface real progress:** stop hiding Ollama's own download percentage
-  behind the spinner; show step counter ("step 3 of 7").
-- **Optional live log hint:** "want to watch? open another terminal:
-  tail -f <log>".
+  behind the spinner; show step counter ("step 3 of 7"). (Step counter already
+  exists as `Step N/7` headers; the in-spinner percentage is still hidden.)
+- **✅ Optional live log hint:** "want to watch? open another terminal:
+  tail -f <log>". BUILT into `calm()`.
 - **Closing summary with personality (the fun bit):** time taken, model size
   running locally (zero cloud), conversations imported + approximate word
   count ("≈ 3.2M words — about 40 novels"), all on your own disk.

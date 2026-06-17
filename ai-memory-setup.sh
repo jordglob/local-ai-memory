@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.10
+#  ai-memory-setup.sh  v8.11
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.10"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.11"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -110,6 +110,16 @@ die()   { echo -e "\n${RED}${BOLD}✗  ERROR: $*${NC}\n" >&2; exit 1; }
 hdr()   { echo -e "\n${BOLD}── $* ──${NC}"; }
 skip()  { echo -e "${DIM}↷  $* (already done)${NC}"; }
 blank() { echo ""; }
+# calm() — §2.9 reassurance printed BEFORE a slow step so a trusting user does
+# not Ctrl+C mid-download (calm IS stability). $1 = one line on what/why.
+# Pairs with the interrupt trap, which makes the same promise after the fact.
+calm() {
+  [[ -n "${1:-}" ]] && echo -e "  ${DIM}$1${NC}"
+  echo -e "  ${DIM}Safe to Ctrl+C — re-running resumes where it stopped.${NC}"
+  [[ -n "${LOG_FILE:-}" && "${LOG_FILE:-}" != "/dev/null" ]] \
+    && echo -e "  ${DIM}Watch it live in another terminal:  tail -f $LOG_FILE${NC}"
+  return 0
+}
 
 # ── Absolute script directory ─────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -450,7 +460,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.10 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.11 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -775,6 +785,7 @@ install_node() {
     info "Installing Node.js 22..."
   fi
 
+  calm "Installing Node.js 22 (runtime for the agent tools, ~30 MB plus packages)."
   case "$OS" in
     macos)
       brew install node@22
@@ -817,6 +828,7 @@ export PATH="$NPM_PREFIX/bin:$PATH"
 if ! command -v ollama &>/dev/null; then
   info "Installing Ollama..."
   check_disk_space 5 "$HOME"
+  calm "Fetching the Ollama runtime (~30 MB). The AI model itself is a separate, larger download you choose later in configure."
   case "$OS" in
     macos)
       brew install ollama 2>/dev/null || \
@@ -1135,6 +1147,7 @@ else
   if npm list -g @bitbonsai/mcpvault &>/dev/null 2>&1; then
     skip "mcpvault"
   else
+    calm "Installing mcpvault from npm (small, but npm can sit quietly for a bit)."
     start_spinner "Installing mcpvault..."
     npm install -g @bitbonsai/mcpvault --no-audit --no-fund --silent 2>/dev/null \
       && { stop_spinner; ok "mcpvault installed"; } \
