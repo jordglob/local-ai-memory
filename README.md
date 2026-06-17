@@ -25,7 +25,7 @@ Plain markdown on your own disk.
 there is no extract step at all:
 
 ```
-git clone https://github.com/YOUR-USERNAME/local-ai-memory
+git clone https://github.com/jordglob/local-ai-memory
 cd local-ai-memory
 ```
 
