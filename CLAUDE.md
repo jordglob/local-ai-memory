@@ -39,8 +39,11 @@ the family conventions before adding to any of them; match the surrounding code.
 ## Shipping conventions (match what's there; don't reinvent)
 - **Versioning:** bump the changed script's version (header + `--version` +
   banner) *and* `PACKAGE_VERSION.txt`. Package zips are
-  `local-ai-memory-repo_v<N>_<WEB|CC>_<date>.zip`. When you (Claude Code) ship a
-  bundle, you are **CC**.
+  `local-ai-memory-repo_v<N>_<WEB|CC>_<date>_<main-build-event>.zip` (from v12 on,
+  the kebab-case `<main-build-event>` suffix names the headline change so the
+  filename alone says what shipped). When you (Claude Code) ship a bundle, you are
+  **CC**. Bundle = `zip -r` the clean working tree (no `.git`) from the parent dir,
+  then set the archive comment to the HEAD commit hash (`zip -z`).
 - **Keep shipped scripts + README generic** — no machine names, personal paths,
   or one-box specifics. `REQUIREMENTS.md` may keep live-run lessons as history.
 - **When a live test contradicts the spec, fix the code AND correct the spec**

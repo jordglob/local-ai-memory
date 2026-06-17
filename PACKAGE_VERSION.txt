@@ -4,11 +4,15 @@ The zip filename carries a package-level release number + author + date so the
 newest, authoritative bundle is always obvious and confusions (two near-identical
 zips) can't happen.
 
-Scheme:  local-ai-memory-repo_v<N>_<author>_<YYYY-MM-DD>.zip
+Scheme:  local-ai-memory-repo_v<N>_<author>_<YYYY-MM-DD>_<main-build-event>.zip
   <N>       running package release number, +1 each consolidated zip
   <author>  who produced it: "WEB" (Claude in chat), "CC" (Claude Code). Nothing
             machine-specific — the tool is generic, not tied to any one box.
   <date>    build date
+  <main-build-event>  short kebab-case description of the headline change in this
+            bundle (from v12 on), so the filename alone says WHAT shipped — e.g.
+            "uninstall-script-export-first-reversal". Keeps near-identical zips
+            self-describing at a glance, not just by number.
 
 This is SEPARATE from the per-script versions (setup v8.6, ingest v2.4, spec
 v1.10 ...) which move independently. The package number just answers
@@ -111,3 +115,28 @@ History:
                           Render-verified under set -e. Still open in §2.9: bandwidth
                           probe, two-stage size estimate in configure, closing
                           summary, hardware rating, anchoring comparisons.
+  v12 CC   2026-06-17  — §4.11 BUILT: ai-memory-uninstall.sh v1.0 — the 5th family
+                          script. EXPORT-FIRST (tar.gz of the vault to ~/Downloads,
+                          + a secret-free migration manifest at the archive root)
+                          and DRY-RUN by default (changes nothing; prints the full
+                          export+removal plan, ends on ▶ NEXT `--yes`). Reverses the
+                          core stack: Claude-Desktop MCP entry (surgical — removes
+                          only our obsidian-vault server, backup saved; NOT a stale-
+                          .bak restore), mcpvault, Ollama autostart unit (runtime
+                          kept), session skill, shell-rc hermes() launcher, /tmp
+                          logs/checkpoints, ~/.hermes, and the vault LAST (only after
+                          a verified export). Flags --yes/--export-only/--no-export/
+                          --remove-ollama (opt-in models)/--remote (=increment 2,
+                          not built). Plan and act share one detector set (no plan/
+                          act drift); never root, never sudo, guards on vault/hermes/
+                          paperclip. Export path LIVE-verified on this box (archive +
+                          manifest land, vault untouched); destructive removal path
+                          render-but-unproven (held for a hands-on look-and-feel run
+                          on this backed-up box). spec v1.30. ALSO recorded for a
+                          FUTURE build (not built): §4.12 hardware-migration /
+                          vault-portability (restore in setup; the manifest is its
+                          first increment) and §4.13 guided/expert verbosity mode
+                          (explicit --expert flag only, default guided; "when you
+                          hand the user a real command, state the honest why").
+                          New zip-naming convention: filename now carries a
+                          <main-build-event> suffix (see Scheme above).

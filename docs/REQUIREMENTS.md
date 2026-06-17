@@ -1,6 +1,18 @@
-# AI Memory Stack — Requirements Specification v1.29
+# AI Memory Stack — Requirements Specification v1.30
 
 Status: agreed baseline for the next build round (June 2026).
+v1.30 (CC): §4.11 BUILT — `ai-memory-uninstall.sh` v1.0 (pkg v12), the 5th family
+script: EXPORT-FIRST (vault → tar.gz + a secret-free migration manifest) and
+DRY-RUN by default. Export path LIVE-verified on this box; destructive removal
+render-but-unproven (held for a hands-on look-and-feel run). One spec deviation,
+deliberate: the Claude-Desktop reversal SURGICALLY removes only our `obsidian-vault`
+MCP server (backup saved) instead of restoring a stale `.bak` — a stale restore
+could clobber unrelated servers the user added since. Also RECORDED (not built):
+§4.12 hardware-migration / vault-portability (the manifest is its first increment;
+restore lands in setup) and §4.13 guided/expert verbosity mode (explicit `--expert`
+only, default guided; the "state the honest reason when you hand the user a real
+command" rule). New zip-naming convention: a `<main-build-event>` suffix on the
+bundle filename.
 v1.29 (CC): §4.11 added — `ai-memory-uninstall.sh`, a 5th family script (clean
 reversal with EXPORT-FIRST of the vault). User-requested as the NEXT BUILD so the
 real scripts can be run + reset between manual look-and-feel passes. Backlog only,
@@ -1027,7 +1039,30 @@ yet built.
 - Both sit alongside the existing backlog (§B1–B3, §2.9). §B4 is small and
   high-delight; do it early in the next UX-focused round.
 
-## 4.11 `ai-memory-uninstall.sh` — clean reversal + export-first (NEXT BUILD)
+## 4.11 `ai-memory-uninstall.sh` — clean reversal + export-first (BUILT v1.0)
+
+**BUILT (CC, 2026-06-17, uninstall v1.0, pkg v12).** Increment 1 (core stack) ships.
+Export-first + dry-run-default as specified below, with these realized details:
+the export writes a `tar.gz` to `~/Downloads` (else `~/`) PLUS a secret-free
+migration manifest (`ai-memory-export-manifest.json`, §4.12) at the archive root;
+the vault is removed LAST and only after a verified export. Flags as spec'd:
+`--yes`, `--export-only`, `--no-export` (types `DELETE`), `--remove-ollama`
+(opt-in model wipe via `ollama rm`, runtime kept), `--remote` (recognized but
+increment 2 — prints a deferral, acts on nothing). Plan and act share ONE set of
+detector predicates so the preview can't drift from what's removed (the §5.3
+producer/consumer class). Never root, never sudo (the Ollama autostart unit is a
+`systemctl --user` / launchd user agent — no sudo needed), path guards on
+vault/`~/.hermes`/`~/.paperclip`. **Deviation from the reverse map below, on
+purpose:** the Claude-Desktop step SURGICALLY removes only our `obsidian-vault`
+server entry (whose args reference this vault), saving a backup first — NOT the
+"restore the saved backup" written below, because restoring a stale `.bak` would
+clobber any MCP servers the user added since setup ran. **Verification:** `bash -n`
++ `--help/--version` clean; dry-run render-verified; the EXPORT path LIVE-verified
+on this box (`--export-only` produced a valid archive with the manifest at root and
+the vault dir inside, vault left intact, test archive removed). The DESTRUCTIVE
+removal path is render-but-UNPROVEN — deliberately left for a hands-on look-and-feel
+run on this backed-up box (the rare round runnable for real here). ORIGINAL SPEC
+BELOW (still the requirement; remote layer = increment 2, not yet built):
 
 A 5th family script (§2.8), requested 2026-06-17. Primary near-term purpose: let
 the user RUN the real scripts to judge look-and-feel, then RESET between runs
@@ -1062,6 +1097,82 @@ act; only remove paths WE created (check ownership/markers, never `$HOME` or
 unrelated dirs); **NEVER touch `~/.paperclip`**; never `sudo` itself beyond what
 reversal genuinely needs (the Ollama unit). Runs from anywhere (no self-copy).
 First-build scope: export + core-stack reversal + dry-run; remote layer = increment 2.
+
+## 4.12 Hardware migration / vault portability (RECORDED — restore not yet built)
+
+Surfaced 2026-06-17: the §4.11 export-first archive is, by accident of good
+design, the MIGRATION primitive. `--export-only` = "back up my memory without
+tearing down the old box yet" — exactly what moving to new hardware needs (keep
+the old machine running until the new one works). The architecture already
+supports this because the vault is agent-neutral plain markdown (§1) — that is the
+unit that moves. What does NOT move VALIDATES the design and must stay out of the
+archive:
+- **Vault (memory)** → moves. Portable, hardware-independent, cross-OS. ✓
+- **`~/.hermes/config.yaml`** → do NOT move. It is tuned to the OLD hardware
+  (context_length, model choice, §4.35). The new box must RE-DERIVE it — that is
+  configure's job. An upgrade (weak→capable) should flip cloud→local; carrying old
+  config across fights that.
+- **`~/.hermes/.env` (API keys)** → do NOT auto-bundle. Secrets in a tarball is the
+  exact smell §2.7 forbids. Re-enter on the new box, or a separate explicit opt-in.
+- **Hermes native `state.db`** → drop. Binary, version-coupled; the markdown vault
+  is the durable layer by design. Do not oversell migration as "everything moves".
+
+**BUILT increment (the manifest, §4.11):** every export now carries
+`ai-memory-export-manifest.json` at the archive root (schema_version, created_utc,
+source os/host/user, vault_dir, exported_by, and explicit includes/excludes +
+restore_hint). This is the forward-compat hook so a future restore can recognize
+v1 archives — cheap now, awkward to retrofit.
+
+**NOT yet built (next round):**
+- **Restore in setup** — auto-detect an `ai-memory-export-*.tar.gz` in Downloads and
+  offer "Found an AI-memory export — restore it as your vault? [Y/n]", mirroring
+  ingest's existing "found an export, import it?" discovery (consistent idiom, not a
+  new one). Prefer auto-detect over a bare `--restore` flag; keep both possible.
+- **Discoverability front door** — a user thinking "I got a new Mac, how do I move my
+  AI memory?" will never guess `ai-memory-uninstall.sh --export-only`. Document the
+  migration narrative (README/Tips) pointing at it; do NOT duplicate the export code
+  into a 6th script.
+- **configure migration-awareness** — when it detects a restored/populated vault on
+  NEW hardware, frame config as a migration ("new machine detected") and actively
+  suggest the cloud→local upgrade when the hardware now allows it (ties to §2.11).
+Its own design+build round + live test (§5). Keep export (in uninstall) and restore
+(in setup) as the two ends; migration is the docs narrative that joins them.
+
+## 4.13 Guided / Expert verbosity mode + the "honest reason" rule (RECORDED — future build)
+
+Revived 2026-06-17 from an earlier suggestion (it was never built — only spec v1.6's
+"guided-mode clarity fixes", i.e. rewordings, landed). Today the family has ONE
+voice (beginner-leaning, plus the §2.9 reassurance layer) and a SEPARATE
+non-interactive axis (`CAN_PROMPT`/`--yes`). The missing piece is an explicit
+expert/terse path.
+
+**The rule it carries (this is the point, agreed with the user):** when a script
+hands the user a REAL command to type — instead of doing it for them — it must, in
+guided mode, state the HONEST REASON, framed as intentional, not as a limitation. The
+worked example is the setup→configure boundary: chaining there is NOT forced (correct
+— freshly-installed tools aren't on `$PATH` in the current shell; auto-exec would
+manufacture an "ollama not found" failure, §4.10/§B4). So setup hands over a real
+command — and should say, in guided mode, roughly: "We give you the real command on
+purpose: (1) a NEW terminal is how your shell picks up the tools we just installed
+(this avoids a real failure), and (2) now you know the actual command, not a magic
+button." Honest why + a little dignity for the beginner = trust (§2.9).
+
+**Design (decided with the user; explicit flag only, start narrow):**
+- **Guided (DEFAULT)** — audience is beginners. Full "why am I typing this"
+  explanations + reassurance + `calm()` lines.
+- **Expert (`--expert`, explicit flag ONLY)** — trims the rationale paragraphs but
+  KEEPS the `▶ NEXT` command and every safety guard. No auto-detection of skill
+  level (guessing annoys both sides — user's call).
+- **Auto / non-interactive** — already exists via `CAN_PROMPT`/`--yes` (CI, piped);
+  that is the orthogonal third "mode", just not named.
+- A family-wide convention (§2.8): one verbosity notion every script reads, so the
+  guided explanations live uniformly, not hand-tuned per script.
+- **Start narrow:** first pass covers only the "forced real command" hand-off moments
+  (setup→configure, new-terminal/PATH cases) — prove the convention, then widen
+  (§5.2 "fix what's broken before going broad"). Principle to bake in: guided, never
+  TRAPPED — every step keeps the "Ctrl+C anytime, re-run to resume" escape.
+Not built; its own round. ASCII-art polish (small, shared motif, TTY-guarded) is
+explicitly LOW priority / end polish, parked alongside this.
 
 ## 5. Build-round working agreements
 
