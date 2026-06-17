@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.4
+#  ai-memory-configure.sh  v4.5
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.4"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.5"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.4 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.5 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -617,9 +617,7 @@ echo -e "  Model report:  ${CYAN}$REPORT${NC}"
 echo ""
 echo -e "${BOLD}Start a session:${NC}  ${CYAN}hermes chat${NC}   or   ${CYAN}bash $VAULT/.tools/resume.sh hermes${NC}"
 INGEST="$VAULT/.tools/ai-memory-ingest.sh"
-if $ASSUME_YES; then
-  echo -e "${BOLD}Next — import your history:${NC} ${CYAN}bash $INGEST $VAULT${NC}"
-else
+if ! $ASSUME_YES; then
   echo -e "${BOLD}Next step — import your AI conversation history.${NC}"
   echo -e "  ${DIM}If your export ZIP is in Downloads, it will be found automatically.${NC}"
   ask "Import history now? [Y/n]"
@@ -628,6 +626,9 @@ else
     echo -e "${CYAN}→ Launching ingest...${NC}"
     exec bash "$INGEST" "$VAULT"
   fi
-  echo -e "  Run later: ${CYAN}bash $INGEST $VAULT${NC}"
 fi
+# ── §B4: the LAST thing on screen is the literal next command ────────────────
+echo ""
+echo -e "${GREEN}${BOLD}▶ NEXT — import your AI history:${NC}"
+echo -e "     ${CYAN}${BOLD}bash $INGEST $VAULT${NC}"
 echo ""

@@ -88,3 +88,14 @@ History:
                           (open /dev/tty, not -r/-w; was dying at `>/dev/tty`).
                           F1/F5/F6 re-verified live on the VM; F2 at source.
                           spec v1.23 (R2 live results + R3 fixes). Supersedes v8.
+  v10 CC   2026-06-17  — §4.10 §B4 BUILT (UX: end-of-run hand-off). Every chain
+                          script now ENDS on the literal next command as a bold
+                          "▶ NEXT" footer printed AFTER identity/tips — fixes the
+                          buried-pointer bug that strands beginners at the terminal.
+                          setup v8.10 → configure (new terminal); configure v4.5 →
+                          ingest; ingest v2.9 → "hermes chat"; remote v2.6 MAIN →
+                          run on each NODE, NODE → reordered to end on the mandatory
+                          pull-the-plug test (was buried under "Remote setup done").
+                          Footers print only when the script doesn't itself launch
+                          the next stage. spec v1.27. Render-verified on this box.
+                          §B5 (configure live coverage) still deferred to macOS.

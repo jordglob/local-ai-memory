@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.5
+#  ai-memory-remote.sh  v2.6
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.5"
+VERSION="2.6"
 
 case "${1:-}" in
   -h|--help)
@@ -106,7 +106,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.5          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.6          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -196,7 +196,12 @@ if [[ "$ROLE" == "main" ]]; then
   echo -e "    ${DIM}Nothing secret to note. RustDesk on this machine is just the"
   echo -e "    client app — install when needed, no setup.${NC}"
   echo ""
-  ok "Main machine done. Now run this script on each NODE."
+  ok "Main machine done."
+  # ── §B4: the LAST thing on screen is the literal next command ──────────────
+  echo ""
+  echo -e "${GREEN}${BOLD}▶ NEXT — on each always-on NODE machine, run:${NC}"
+  echo -e "     ${CYAN}${BOLD}bash ai-memory-remote.sh${NC}"
+  echo ""
   exit 0
 fi
 
@@ -666,10 +671,12 @@ if command -v tailscale &>/dev/null; then
 fi
 echo -e "    RustDesk ID: see the RustDesk main window"
 echo ""
-echo -e "${BOLD}Final step (mandatory for nodes):${NC} the pull-the-plug test."
-echo "  Shut down → pull the power cord → wait 1 min → plug back in."
-echo "  The machine must boot, log in, and be reachable over SSH by itself."
-echo "  If it does not power on: see the checklist (BIOS setting on PCs;"
-echo "  on Apple Silicon minis autorestart is known to be unreliable)."
+ok "Remote NODE configured — this completes the setup chain."
+# ── §B4: end on the one mandatory action, not on "done" ──────────────────────
 echo ""
-ok "Remote setup done"
+echo -e "${GREEN}${BOLD}▶ NEXT (mandatory for nodes) — the pull-the-plug test:${NC}"
+echo "     Shut down → pull the power cord → wait 1 min → plug back in."
+echo "     The machine must boot, log in, and be reachable over SSH by itself."
+echo -e "     ${DIM}If it does not power on: see the checklist (BIOS setting on PCs;"
+echo -e "     on Apple Silicon minis autorestart is known to be unreliable).${NC}"
+echo ""

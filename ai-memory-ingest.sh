@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.8
+#  ai-memory-ingest.sh  v2.9
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.8"
+VERSION = "2.9"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -689,7 +689,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.8          ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.9          ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -816,6 +816,11 @@ def main():
         else:
             print(f"  Install/relaunch a shell, then: {c('1', 'hermes chat')}")
         print(f"  Optional headless node: {c('1', 'bash ' + str(remote))}")
+        # §B4: the LAST thing on screen is the literal next command
+        print()
+        print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
+              + c("1;36", "hermes chat") + f"   (from {vault})")
+        print()
         return 0
     # Offer to launch hermes right here
     if have_hermes:
@@ -830,6 +835,11 @@ def main():
         info("Open a new terminal, then run:  hermes chat   (from the vault)")
     print()
     info(f"Optional — set up a headless/remote node later: bash {remote}")
+    # §B4: the LAST thing on screen is the literal next command
+    print()
+    print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
+          + c("1;36", "hermes chat") + f"   (from {vault})")
+    print()
     return 0
 
 try:

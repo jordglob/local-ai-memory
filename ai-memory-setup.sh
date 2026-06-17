@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.9
+#  ai-memory-setup.sh  v8.10
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.9"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.10"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -450,7 +450,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.9 — Setup         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.10 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1463,6 +1463,11 @@ if [[ $ERRORS -eq 0 ]]; then
   blank
   echo -e "  ${DIM}Tip: once everything works — see the Tips & Tricks page in the"
   echo -e "  checklist: cmux for agent workflows (macOS), Syncthing for vault sync.${NC}"
+  blank
+  # ── §B4: the LAST thing on screen is the literal next command ──────────────
+  echo -e "${GREEN}${BOLD}▶ NEXT — open a NEW terminal and run:${NC}"
+  echo -e "     ${CYAN}${BOLD}bash $CONFIGURE $VAULT${NC}"
+  echo -e "  ${DIM}(a fresh terminal so freshly-installed tools are on PATH)${NC}"
   blank
 else
   echo -e "${RED}${BOLD}══════════════════════════════════════════${NC}"

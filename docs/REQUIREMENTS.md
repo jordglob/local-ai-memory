@@ -1,6 +1,13 @@
-# AI Memory Stack — Requirements Specification v1.26
+# AI Memory Stack — Requirements Specification v1.27
 
 Status: agreed baseline for the next build round (June 2026).
+v1.27 (CC): §4.10 §B4 BUILT — every chain script now ENDS on the literal next
+command, printed AFTER identity/tips as a bold "▶ NEXT" footer. setup → configure
+(open a new terminal), configure → ingest, ingest → "talk to your memory: hermes
+chat", remote MAIN → run on each NODE, remote NODE → ends on the mandatory pull-
+the-plug test (was buried above "Remote setup done"). setup v8.10 / configure v4.5
+/ ingest v2.9 / remote v2.6, package v10. Render-verified on this box; §B5 (more
+configure live coverage) still deferred to the macOS round.
 v1.26 (CC): §4.10 added from user feedback — §B4: the closing screen must END on
 the explicit next action (setup buries the configure pointer under identity/tips,
 so a beginner lands at the terminal confused); §B5: configure.sh is the thinnest-
@@ -972,7 +979,15 @@ cloudflared is a small, self-contained build with its own live test (R4).
 Three items raised by the user from real runs; flagged for a coming build, NOT
 yet built.
 
-- **§B4 The closing screen must END on the NEXT ACTION (beginner clarity).**
+- **§B4 The closing screen must END on the NEXT ACTION (beginner clarity). —
+  BUILT (CC, 2026-06-17, spec v1.27).** Every chain script now ends on a bold
+  green "▶ NEXT" footer whose last line is the literal command, printed AFTER the
+  identity/tips blocks: setup → `bash <configure> <vault>` (open a new terminal);
+  configure → `bash <ingest> <vault>`; ingest → `hermes chat` ("talk to your
+  memory"); remote MAIN → `bash ai-memory-remote.sh` on each node; remote NODE →
+  reordered so the mandatory pull-the-plug test is the final block (it had been
+  buried above the old "Remote setup done" line). Each footer prints only when the
+  script does NOT exec/launch the next stage itself. ORIGINAL FINDING BELOW:
   setup.sh DOES chain to configure (a "Next steps" block ~L1414 and a "continue
   here? [y/N]" offer ~L1433), but the pointer is BURIED: after that prompt the
   script still prints the identity block + Tips, so the LAST thing a beginner
