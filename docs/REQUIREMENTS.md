@@ -1,6 +1,10 @@
-# AI Memory Stack — Requirements Specification v1.28
+# AI Memory Stack — Requirements Specification v1.29
 
 Status: agreed baseline for the next build round (June 2026).
+v1.29 (CC): §4.11 added — `ai-memory-uninstall.sh`, a 5th family script (clean
+reversal with EXPORT-FIRST of the vault). User-requested as the NEXT BUILD so the
+real scripts can be run + reset between manual look-and-feel passes. Backlog only,
+not yet built; core-stack reversal first, remote layer as increment 2.
 v1.28 (CC): §2.9 FIRST SLICE BUILT — the reassurance layer's top-priority items
 (safe-to-interrupt line + what/why before a slow step + live-log hint), realized
 as a `calm()` helper in setup.sh printed BEFORE each previously-silent download
@@ -1022,6 +1026,42 @@ yet built.
   local-first / future-LiteLLM paths that weak hardware cannot).
 - Both sit alongside the existing backlog (§B1–B3, §2.9). §B4 is small and
   high-delight; do it early in the next UX-focused round.
+
+## 4.11 `ai-memory-uninstall.sh` — clean reversal + export-first (NEXT BUILD)
+
+A 5th family script (§2.8), requested 2026-06-17. Primary near-term purpose: let
+the user RUN the real scripts to judge look-and-feel, then RESET between runs
+(render-tests don't show the live feel; this is the rare round that can be run
+for real on the backed-up test box). Also a real end-user feature.
+
+**Export FIRST — non-negotiable.** The vault holds the user's irreplaceable
+imported memory (`05-AI-Sessions/`, notes). Before removing anything, the script
+EXPORTS it to a timestamped portable archive (`tar.gz`/`zip`) in a safe dir
+(`~/` or `~/Downloads`), and says where. Flags: export default-ON; `--export-only`
+backs up WITHOUT removing; `--no-export` skips (with a loud confirm). Never let an
+uninstall destroy memory.
+
+**Reverse map (what each installer left):**
+- *setup:* vault tree (GUARDED — user data; only after export + explicit confirm),
+  `~/.hermes`, `mcpvault` npm global, the Ollama systemd user unit / launchd plist,
+  the Claude-Desktop MCP-config merge (restore the saved backup), the
+  session-continuity skill, `/tmp` checkpoints + logs, and the `hermes()` launcher
+  + `TERMINAL_CWD` lines in the shell rc.
+- *configure:* `~/.hermes/config.yaml` + `.env`, same rc launcher lines.
+- *ingest:* imported sessions live in the vault (covered by export); `ai-scan-report.md`.
+- *Ollama itself + pulled models:* explicit OPT-IN prompt only (shared tool, GB of
+  models — never silent). Node.js: do NOT remove (too shared).
+- *remote.sh* system changes (sshd drop-in, WireGuard `wg0`, linger, sleep-mask /
+  power profile, RustDesk, cloudflare-ddns): security-sensitive — defer to a 2nd
+  increment behind a `--remote` flag; first build covers the core stack only.
+
+**Safety (§2.8 + hard rules):** `--help/--version/--yes`, self-contained, idempotent,
+bash 3.2, secrets never logged, TTY/non-interactive detection. Default to a DRY-RUN
+preview (list exactly what would be exported + removed) and require confirmation to
+act; only remove paths WE created (check ownership/markers, never `$HOME` or
+unrelated dirs); **NEVER touch `~/.paperclip`**; never `sudo` itself beyond what
+reversal genuinely needs (the Ollama unit). Runs from anywhere (no self-copy).
+First-build scope: export + core-stack reversal + dry-run; remote layer = increment 2.
 
 ## 5. Build-round working agreements
 
