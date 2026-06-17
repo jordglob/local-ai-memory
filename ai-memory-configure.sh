@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.5
+#  ai-memory-configure.sh  v4.6
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.5"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.6"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.5 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.6 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -304,7 +304,7 @@ ensure_model_present() {  # ensure_model_present <tag>
     return 1
   fi
   ask "Download it now with 'ollama pull $tag'? (Y/n)"
-  local dl; read -r dl
+  local dl; read -r dl || dl=""   # EOF-safe: don't let set -e abort on closed stdin
   if [[ "$(lc "${dl:-y}")" != "n" ]]; then
     if ollama pull "$tag"; then ok "Model downloaded: $tag"; return 0
     else warn "Download failed — run later: ollama pull $tag"; return 1; fi
@@ -383,7 +383,7 @@ echo ""
 echo -e "  Keys are stored in ${CYAN}$HERMES_ENV${NC} — never in the vault."
 # (Pattern-hunt fix: read-preserve — detect an existing key and offer to keep it.)
 EXISTING_OR=""
-[[ -f "$HERMES_ENV" ]] && EXISTING_OR="$(grep "^OPENROUTER_API_KEY=" "$HERMES_ENV" 2>/dev/null | cut -d= -f2-)"
+[[ -f "$HERMES_ENV" ]] && EXISTING_OR="$(grep "^OPENROUTER_API_KEY=" "$HERMES_ENV" 2>/dev/null | cut -d= -f2- || true)"  # pipefail-safe: no match must not abort
 if [[ -n "$EXISTING_OR" ]]; then
   echo -e "  ${GREEN}An OpenRouter key is already saved${NC} — press ENTER to keep it."
 fi
@@ -392,9 +392,9 @@ echo ""
 
 if $ASSUME_YES; then OR_KEY=""; AN_KEY=""; else
   ask "OpenRouter API key (paste = set, ENTER = keep/skip; input hidden):"
-  read -r -s OR_KEY; echo ""
+  read -r -s OR_KEY || OR_KEY=""; echo ""   # EOF-safe: closed stdin must not abort
   ask "Anthropic API key (paste = set, ENTER = keep/skip; input hidden):"
-  read -r -s AN_KEY; echo ""
+  read -r -s AN_KEY || AN_KEY=""; echo ""   # EOF-safe: closed stdin must not abort
 fi
 # Confirm a paste landed without echoing the secret.
 [[ -n "$OR_KEY" ]] && ok "OpenRouter key received (${#OR_KEY} chars) — looks set."

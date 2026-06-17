@@ -140,3 +140,33 @@ History:
                           hand the user a real command, state the honest why").
                           New zip-naming convention: filename now carries a
                           <main-build-event> suffix (see Scheme above).
+  v13 CC   2026-06-18  — MILESTONE: first-ever LIVE RUN on real Apple Silicon
+                          (M2 Pro / 16GB / macOS 26.3.1). A working local AI now
+                          runs there end-to-end: setup → configure → ingest (8
+                          conversations auto-imported from the box's own OpenClaw
+                          + LM Studio history) → Hermes talking via local Ollama
+                          qwen3.5, reachable on the LAN and in a browser (the
+                          `hermes dashboard --tui` over an SSH tunnel). MACOS
+                          HARDENING (configure v4.6 / remote v2.7 / setup v8.12):
+                          the blocker was configure's `[[ -f .env ]] && VAR=$(grep
+                          OPENROUTER_API_KEY|cut)` — under `set -euo pipefail` a
+                          no-match aborts the script BEFORE config.yaml is written
+                          (silent half-config on any keyless box). Fixed `|| true`,
+                          LIVE-PROVEN on the Mac. Pattern-hunt (§5.3) found 6 more
+                          pipefail siblings (remote.sh — several genuinely macOS:
+                          `ip`/`hostname -I` absent → crash; setup Linux-branch) +
+                          3 read EOF-guards (configure/remote). NOTE: the remote.sh
+                          fixes are STATIC-ONLY (syntax) — the remote/WireGuard
+                          round was deferred (user not yet ready; box is behind
+                          NAT → Tailscale is the recommended path). spec v1.31.
+                          ★★★ THE KEYSTONE recorded as TOP PRIORITY (§4.3.1): the
+                          §4.3 reachability fix hardens only the SHELL door — live
+                          use proved the WEB DASHBOARD chat is memory-BLIND (roots
+                          at ~/.hermes/hermes-agent, can't see the vault). Reframed
+                          (user's sharper take) as a HANDOVER problem like our own
+                          CLAUDE.md+MEMORY.md: an always-loaded ORIENTATION (you
+                          have a vault at /ABS, here's the user, here's the INDEX,
+                          SEARCH before saying you don't know) + working SCAN, for
+                          EVERY entry point, cwd-independent; ingest builds an
+                          import INDEX so "imported-but-not-found" is detectable.
+                          Ships before any new feature. (uninstall v1.0 unchanged.)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.6
+#  ai-memory-remote.sh  v2.7
 #  Remote access & always-on setup for AI Memory Stack nodes
 #
 #  First question: what is this machine?
@@ -22,7 +22,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.6"
+VERSION="2.7"
 
 case "${1:-}" in
   -h|--help)
@@ -106,7 +106,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.6          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.7          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -313,7 +313,7 @@ hdr "3/6  SSH hardening (disable password login)"
 if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
   echo "  Before disabling password login, key login MUST be verified."
   echo "  From your CLIENT machine, open a NEW terminal and run:"
-  IPGUESS="$( [[ "$OS" == "macos" ]] && ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' )"
+  IPGUESS="$( { [[ "$OS" == "macos" ]] && ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}'; } || true )"
   echo -e "    ${CYAN}ssh $REMOTE_USER@${IPGUESS:-<this-machine-ip>}${NC}"
   echo "  It must log in WITHOUT asking for the account password"
   echo "  (a key passphrase prompt is fine — that is your key, not the account)."
@@ -344,7 +344,7 @@ if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
       else
         sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || true
       fi
-      EFF="$(sudo sshd -T 2>/dev/null | awk '$1=="passwordauthentication"{print $2}')"
+      EFF="$(sudo sshd -T 2>/dev/null | awk '$1=="passwordauthentication"{print $2}' || true)"
       if [[ "$EFF" == "no" ]]; then
         ok "Password login disabled and VERIFIED (sshd -T: passwordauthentication no) — $SSHD_DROPIN"
         warn "Keep your key safe — it is now the only way in over SSH"
@@ -375,7 +375,7 @@ case "$PUB4" in
   100.6[4-9].*|100.7[0-9].*|100.8[0-9].*|100.9[0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) IS_CGNAT=true ;;
 esac
 RDNS=""
-[[ -n "$PUB4" ]] && command -v dig &>/dev/null && RDNS="$(dig +short -x "$PUB4" 2>/dev/null | head -1)"
+[[ -n "$PUB4" ]] && command -v dig &>/dev/null && RDNS="$(dig +short -x "$PUB4" 2>/dev/null | head -1 || true)"
 LOOKS_DYNAMIC=false
 echo "$RDNS" | grep -qiE 'dyn|dhcp|pool|cust|client|dsl|cable|broadband' && LOOKS_DYNAMIC=true
 
@@ -390,7 +390,7 @@ if $CAN_PROMPT && ! $ASSUME_YES; then
   echo -e "${BOLD}Already have a domain pointing home (e.g. vpn.example.org)? Enter it, or leave blank:${NC}" > /dev/tty
   read -r USER_DOMAIN < /dev/tty || USER_DOMAIN=""
   if [[ -n "$USER_DOMAIN" ]] && command -v dig &>/dev/null; then
-    RESOLVED="$(dig +short "$USER_DOMAIN" 2>/dev/null | tail -1)"
+    RESOLVED="$(dig +short "$USER_DOMAIN" 2>/dev/null | tail -1 || true)"
     if [[ -n "$RESOLVED" ]]; then
       echo -e "  $USER_DOMAIN → ${BOLD}$RESOLVED${NC}$( [[ "$RESOLVED" == "$PUB4" ]] && echo '  ✓ matches this network' || echo '  ⚠ does not match current IP' )"
     else
@@ -468,7 +468,7 @@ setup_wireguard() {  # $1 = endpoint (domain or IP), may be empty
   CLI_PRIV="$(wg genkey)"; CLI_PUB="$(printf '%s' "$CLI_PRIV" | wg pubkey)"
 
   # Hub config: split tunnel (only the home LAN routes through the tunnel)
-  local LAN_CIDR; LAN_CIDR="$(ip -o -f inet addr show 2>/dev/null | awk '/scope global/{print $4; exit}')"
+  local LAN_CIDR; LAN_CIDR="$(ip -o -f inet addr show 2>/dev/null | awk '/scope global/{print $4; exit}' || true)"  # 'ip' absent on macOS — must not abort
   LAN_CIDR="${LAN_CIDR:-192.168.1.0/24}"
   local HUB_CONF="$WGDIR/wg0.conf"
   if [[ ! -f "$HUB_CONF" ]]; then
@@ -547,7 +547,7 @@ setup_cloudflare_ddns() {
   echo "  → Create → permissions: Zone:DNS:Edit, limited to this zone only."
   if $CAN_PROMPT && ! $ASSUME_YES; then
     echo -e "${BOLD}Paste the API token (stored chmod 600, never logged):${NC}" > /dev/tty
-    read -r -s CF_TOKEN < /dev/tty; echo ""
+    read -r -s CF_TOKEN < /dev/tty || CF_TOKEN=""; echo ""   # EOF-safe (tty may close mid-read)
     if [[ -n "$CF_TOKEN" ]]; then
       local CFDIR="$HOME/.config/ai-memory"; mkdir -p "$CFDIR"; chmod 700 "$CFDIR"
       printf 'CF_API_TOKEN=%s
@@ -658,7 +658,7 @@ IDENT_HOST="$(hostname 2>/dev/null || echo '?')"
 if [[ "$OS" == "macos" ]]; then
   IDENT_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '?')"
 else
-  IDENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"; IDENT_IP="${IDENT_IP:-?}"
+  IDENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"; IDENT_IP="${IDENT_IP:-?}"
 fi
 echo ""
 echo -e "    Role:       ${BOLD}NODE${NC}"

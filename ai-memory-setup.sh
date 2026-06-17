@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.11
+#  ai-memory-setup.sh  v8.12
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.11"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.12"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -460,7 +460,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.11 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.12 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1463,7 +1463,7 @@ if [[ $ERRORS -eq 0 ]]; then
   if [[ "$OS" == "macos" ]]; then
     IDENT_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '?')"
   else
-    IDENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    IDENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
     IDENT_IP="${IDENT_IP:-?}"
   fi
   IDENT_USER="${USER:-$(id -un 2>/dev/null || echo user)}"

@@ -1,4 +1,13 @@
-# AI Memory Stack — Requirements Specification v1.30
+# AI Memory Stack — Requirements Specification v1.31
+
+<!-- v1.31 (2026-06-18): §4.3.1 added — TOP PRIORITY: reachability must hold from
+     EVERY entry point (shell/dashboard/TUI/gateway), cwd-independent. Found by
+     live macOS dashboard use: shell hermes reaches the vault, the web dashboard
+     chat is memory-blind. This is the project's core promise; ships before new
+     features. Also: macOS hardening round — configure pipefail crash (line 386)
+     + 6 pipefail siblings + 3 read EOF-guards fixed (configure live-proven on
+     Apple Silicon; remote.sh fixes static-only pending the deferred remote round). -->
+
 
 Status: agreed baseline for the next build round (June 2026).
 v1.30 (CC): §4.11 BUILT — `ai-memory-uninstall.sh` v1.0 (pkg v12), the 5th family
@@ -770,6 +779,89 @@ Also clarified (not a bug): "list memory returns empty" is expected — the vaul
 import is plain markdown reached by file search, NOT entries in Hermes' native
 state.db memory. Seeding native memory is the optional USER.md/MEMORY.md step
 (§2.3), separate from import.
+
+## 4.3.1 ★★★ TOP PRIORITY — reachability must hold from EVERY entry point, not just the shell (macOS dashboard live finding, 2026-06-18)
+
+**This is the heart of the whole project — the user's stated reason for building
+it: "I always end up here — I imported my history but the AI can't actually reach
+it. Solve it and HARDEN it."** §4.3 fixed exactly ONE door (the shell launcher).
+Live use on a real Mac proved that is not a fix — it is a fix that pretends.
+
+**The live finding (real Mac, real dashboard, not synthetic):** after a clean
+setup → configure → ingest (8 conversations imported, reachability check GREEN),
+the *shell* `hermes chat` reaches the vault — but the *web dashboard* chat
+(`hermes dashboard --tui`, the friendliest door, the one a beginner picks) is
+memory-BLIND. Evidence: the dashboard launches Hermes from
+`~/.hermes/hermes-agent` (the program's OWN dir — visible in the TUI status bar),
+so its file/search tools root there, it loads the Hermes *developer's* AGENTS.md
+instead of the vault's memory routine, and it cannot see `05-AI-Sessions/`. Asked
+"tell me something from your memory," the model itself reasoned (correctly!):
+"I don't have access to your memory… the profile is empty," and recited Hermes
+source-tree docs instead. The §4.3 shell launcher does NOT apply to the
+dashboard/gateway/TUI — they bypass it.
+
+**The generalization (the real bug):** reachability that depends on HOW you launch
+hermes is not reachability. EVERY door to the agent must reach the vault — shell
+`hermes chat`, `hermes dashboard`/`--tui`, `hermes gateway` + messaging channels
+(Telegram/WhatsApp/etc.), `resume.sh`, and any future entry point — or the core
+promise breaks precisely when the least-technical user walks through the nicest
+door. A reachability check that only tests the shell door is itself the §5.3
+producer/consumer anti-pattern (green for one consumer, silently broken for the
+rest).
+
+**The deeper principle (user's sharper framing, 2026-06-18) — this is a HANDOVER
+problem, not a doors problem.** "All doors" is too narrow to catch every
+"imported-but-not-found" edge case. The real cure is the SAME mechanism that lets
+a fresh **Claude Code** session resume reliably after `/clear` (the user lives
+this pain and named it): a small, ALWAYS-LOADED handover that does two things at
+once — (a) **ORIENTS** the agent: "you have a memory vault at /ABSOLUTE/path; it
+holds the user's imported history + profile; before you ever say 'I don't
+remember,' SEARCH it; here is who the user is; here is the INDEX of what's
+imported," and (b) gives it the working **SCAN/search** to act on that
+orientation. **Instructions AND file-scan, together — either alone fails**
+(instructions with no scan = knows it should look but can't; scan with no
+instructions = can look but doesn't know to, or where). This is exactly our own
+stack: `CLAUDE.md` (always-loaded rules) + `MEMORY.md` (always-loaded index that
+says "read X in full, start here") + the memory files (scanned on demand).
+local-ai-memory must hand Hermes the same two layers, so a fresh session — through
+ANY door, from ANY directory, after ANY restart — lands ORIENTED, and
+"imported-but-not-found" becomes a DETECTABLE mismatch against the index, not a
+silent miss.
+
+**Design direction — deliver the HANDOVER (instructions + scan), CWD-INDEPENDENT
+(stop fighting Hermes' launch-dir behavior):**
+1. **Load the memory routine GLOBALLY, not per-cwd.** Install the vault grep
+   recipe into a location Hermes reads for EVERY session regardless of launch dir
+   (Hermes' user-level/global instructions), so shell + dashboard + gateway all
+   inherit it — not only the per-directory AGENTS.md that the launch dir decides.
+2. **Use ABSOLUTE vault paths in the routine** (`grep -rli "X"
+   /ABSOLUTE/VAULT/05-AI-Sessions/`), so finding imported history does NOT depend
+   on cwd. File tools can read absolute paths from any root.
+3. Keep the shell launcher as belt-and-suspenders, but it is no longer the
+   primary mechanism.
+4. **Per-door reachability VERIFICATION at install time** — prove recall from each
+   entry point that exists (shell; and if a dashboard/gateway is set up, those),
+   fail loudly per door. Definition of done: ask the SAME memory question through
+   the BROWSER dashboard and get a grounded answer citing a real imported file —
+   verified, not assumed.
+5. Investigate any Hermes "project/workspace pin" the dashboard honors; but since
+   `config.yaml terminal.cwd` and `TERMINAL_CWD` are already known to be ignored by
+   the local backend (§4.3), assume the global-instructions + absolute-paths
+   approach (1+2) is the robust fix that does not depend on Hermes cooperating.
+6. **ingest builds & maintains an INDEX/manifest of what was imported** (the
+   MEMORY.md analog): source, counts, titles/topics, paths. The handover points
+   the agent at it. This is what turns "imported-but-not-found" from a silent gap
+   into a catchable mismatch — if it's in the index but a search can't surface it,
+   that's a real bug the verification (point 4) must flag, not hide.
+7. **The orientation must teach "search, don't guess," robust to messy names.**
+   The §4.2 weak-model failure (prints/guesses instead of searching) is the other
+   half: the handover instruction must explicitly say to run the search tool with
+   keyword variants and read matches — never fabricate filenames — so the routine
+   survives a weak local model.
+
+**Status: NEXT-SESSION TOP PRIORITY. Live-testable on the Mac now** (the dashboard
+there currently exhibits the bug — a perfect before/after rig). This is the
+project's reason to exist; it ships before any further feature work.
 
 ## 4.2 Model capability floor for tool-use / memory (X230 live finding)
 
