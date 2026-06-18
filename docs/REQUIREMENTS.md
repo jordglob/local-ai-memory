@@ -1,4 +1,20 @@
-# AI Memory Stack — Requirements Specification v1.38
+# AI Memory Stack — Requirements Specification v1.39
+
+<!-- v1.39 (2026-06-18): §4.12 RESTORE-IN-SETUP BUILT (setup v8.14) — the migration
+     loop is now end-to-end (export half already shipped in uninstall). setup gains
+     a self-guarding maybe_restore_vault() + `--restore[=PATH]`: auto-detects the
+     newest ai-memory-export-*.tar.gz in ~/Downloads (or ~), confirms it's an
+     ai-memory export (manifest at archive root), and MERGES the vault tree into
+     $VAULT before scaffolding; configure re-derives config.yaml + the SOUL.md
+     handover afterward (manifest omits config/keys by design). Self-guarding: acts
+     only on explicit --restore, or auto-detect+offer into an EMPTY vault when it can
+     prompt — never surprise-restores on a routine re-run. Live-verified on the Mac:
+     real export (400K + manifest) → restored into a temp vault = 25 convs + entities
+     + INDEX, manifest NOT leaked into the vault. Also recorded the git/Syncthing
+     LIVE-SYNC sibling pattern in §4.12 (plain-markdown vault → standard file-sync
+     "just works" for multi-machine; keep config.yaml/.env per-machine). Still TODO:
+     configure migration-awareness (suggest cloud→local on better HW). -->
+
 
 <!-- v1.38 (2026-06-18): `doctor` per-door reachability verifier BUILT — the keystone
      trio is complete (§4.3.1 pt4, §6 carry-along). New 6th family script
@@ -1370,20 +1386,30 @@ source os/host/user, vault_dir, exported_by, and explicit includes/excludes +
 restore_hint). This is the forward-compat hook so a future restore can recognize
 v1 archives — cheap now, awkward to retrofit.
 
-**NOT yet built (next round):**
-- **Restore in setup** — auto-detect an `ai-memory-export-*.tar.gz` in Downloads and
-  offer "Found an AI-memory export — restore it as your vault? [Y/n]", mirroring
-  ingest's existing "found an export, import it?" discovery (consistent idiom, not a
-  new one). Prefer auto-detect over a bare `--restore` flag; keep both possible.
-- **Discoverability front door** — a user thinking "I got a new Mac, how do I move my
-  AI memory?" will never guess `ai-memory-uninstall.sh --export-only`. Document the
-  migration narrative (README/Tips) pointing at it; do NOT duplicate the export code
-  into a 6th script.
+**BUILT (setup v8.14, 2026-06-18):**
+- **Restore in setup** — `maybe_restore_vault()` + `--restore[=PATH]`: auto-detects the
+  newest `ai-memory-export-*.tar.gz` in `~/Downloads` (or `~`), confirms it's an
+  ai-memory export (manifest at the archive root), and MERGES the vault tree into
+  `$VAULT` before scaffolding. Self-guarding: acts only on explicit `--restore`, or
+  auto-detect+offer into an EMPTY vault when it can prompt — never surprise-restores
+  on a re-run. The manifest stays OUT of the vault (only the inner vault dir is
+  copied). configure re-derives config.yaml + the SOUL.md handover afterward. Both
+  ends now exist: export (uninstall) ↔ restore (setup). Live-verified on the Mac
+  (real 400K export → temp restore = 25 convs + entities + INDEX, no manifest leak).
+
+**LIVE-SYNC sibling pattern (recorded — the "two machines" case, vs one-time move):**
+Because the vault is plain markdown, **standard file-sync just works** for sharing one
+evolving vault across machines: put the vault under `git` (or Syncthing/Dropbox/
+iCloud); each machine runs its own setup+configure pointed at the synced vault. Keep
+`config.yaml`/`.env` per-machine (gitignore them — secrets + hardware-specific).
+markdown + git = clean diffs/merges; `05-AI-Sessions/` is append-only (rarely
+conflicts); only `entities/*.md` can clash on simultaneous edits. So: export/restore
+for "I got a new Mac"; file-sync for "I use two machines." Worth a README note.
+
+**Still TODO:**
 - **configure migration-awareness** — when it detects a restored/populated vault on
   NEW hardware, frame config as a migration ("new machine detected") and actively
   suggest the cloud→local upgrade when the hardware now allows it (ties to §2.11).
-Its own design+build round + live test (§5). Keep export (in uninstall) and restore
-(in setup) as the two ends; migration is the docs narrative that joins them.
 
 ## 4.13 Guided / Expert verbosity mode + the "honest reason" rule (RECORDED — future build)
 

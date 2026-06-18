@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.13
+#  ai-memory-setup.sh  v8.14
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -58,6 +58,9 @@ Flags:
   --hermes         install Hermes without asking
   --autostart      start Ollama at login without asking
   --no-autostart   never install Ollama as a login service
+  --restore[=PATH] restore your vault from an ai-memory export archive
+                   (auto-detects the newest ai-memory-export-*.tar.gz in
+                   ~/Downloads; PATH overrides). For moving to a new machine.
   --yes, -y        assume yes on all prompts (non-interactive)
   --help/--version
 
@@ -69,7 +72,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.13"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.14"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -128,6 +131,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 # ── Vault path ────────────────────────────────────────────────────────────────
 INSTALL_HERMES="ask"; AUTOSTART="ask"; ASSUME_YES=false
 HERMES_SKIPPED=false
+RESTORE=""
 VAULT=""
 for arg in "$@"; do
   case "$arg" in
@@ -135,6 +139,8 @@ for arg in "$@"; do
     --hermes)       INSTALL_HERMES="yes" ;;
     --autostart)    AUTOSTART="yes" ;;
     --no-autostart) AUTOSTART="no" ;;
+    --restore)      RESTORE="auto" ;;
+    --restore=*)    RESTORE="${arg#*=}" ;;
     --yes|-y)       ASSUME_YES=true ;;
     -*)             echo "Unknown flag: $arg (see --help)" >&2; exit 1 ;;
     *)              [[ -z "$VAULT" ]] && VAULT="$arg" ;;
@@ -460,7 +466,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.13 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.14 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -980,6 +986,59 @@ blank
 ok "All system requirements satisfied"
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Migration restore (§4.12): lay a vault down from an export archive before we
+# scaffold. The export (ai-memory-uninstall.sh --export-only) is a tar.gz of the
+# vault tree + a secret-free manifest at the archive root; we MERGE that vault into
+# $VAULT, and configure re-derives config.yaml + the SOUL.md handover afterward (the
+# manifest omits config/keys by design). Self-guarding: acts only on an explicit
+# --restore, or when it auto-detects an archive AND $VAULT is empty AND we can
+# prompt — never surprise-restores on a routine re-run.
+RESTORE_MANIFEST="ai-memory-export-manifest.json"
+find_export_archive() {
+  ls -1t "$HOME"/Downloads/ai-memory-export-*.tar.gz "$HOME"/ai-memory-export-*.tar.gz 2>/dev/null | head -1
+}
+maybe_restore_vault() {
+  local archive=""
+  case "$RESTORE" in
+    "")   $CAN_PROMPT || return 0
+          [[ -n "$(ls -A "$VAULT" 2>/dev/null)" ]] && return 0
+          archive="$(find_export_archive)"; [[ -n "$archive" ]] || return 0 ;;
+    auto) archive="$(find_export_archive)"
+          [[ -n "$archive" ]] || { warn "No ai-memory-export-*.tar.gz found in ~/Downloads or ~"; return 0; } ;;
+    *)    archive="$RESTORE"; [[ -f "$archive" ]] || die "Restore archive not found: $archive" ;;
+  esac
+  tar -tzf "$archive" 2>/dev/null | grep -q "$RESTORE_MANIFEST" \
+    || { warn "$(basename "$archive") has no migration manifest — not an ai-memory export; skipping restore."; return 0; }
+  local sz; sz="$(du -h "$archive" 2>/dev/null | awk '{print $1}')"
+  if [[ "$RESTORE" == "" ]]; then
+    echo -e "${BOLD}Found an AI-memory export: $(basename "$archive") (${sz}).${NC}"
+    echo -e "${BOLD}Restore it as your vault at $VAULT? [Y/n]${NC}"
+    read -r _r < /dev/tty || _r=""
+    [[ "$(lc "${_r:-y}")" == n* ]] && { info "Skipping restore — starting a fresh vault."; return 0; }
+  fi
+  if [[ -n "$(ls -A "$VAULT" 2>/dev/null)" ]]; then
+    warn "Vault $VAULT already has content — restore MERGES (same-named files overwritten)."
+    if $CAN_PROMPT && ! $ASSUME_YES; then
+      echo -e "${BOLD}Merge the export into it? [y/N]${NC}"
+      read -r _m < /dev/tty || _m=""
+      [[ "$(lc "${_m:-n}")" == y* ]] || { info "Restore cancelled."; return 0; }
+    fi
+  fi
+  local stage; stage="$(mktemp -d)" || die "Could not create a temp dir for restore."
+  tar -xzf "$archive" -C "$stage" 2>/dev/null || { rm -rf "$stage"; die "Could not extract $archive."; }
+  local inner; inner="$(find "$stage" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
+  [[ -n "$inner" && -d "$inner" ]] || { rm -rf "$stage"; warn "No vault directory inside the archive — skipping restore."; return 0; }
+  mkdir -p "$VAULT"
+  if cp -R "$inner"/. "$VAULT"/ 2>/dev/null; then
+    ok "Restored your vault from $(basename "$archive") → $VAULT"
+    info "config.yaml + API keys are NOT in the export (by design) — configure re-derives them next."
+  else
+    rm -rf "$stage"; die "Restore copy failed — check permissions on $VAULT."
+  fi
+  rm -rf "$stage"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 # STEP 1 — VAULT STRUCTURE
 # ═════════════════════════════════════════════════════════════════════════════
 if step_done "1"; then
@@ -987,6 +1046,8 @@ if step_done "1"; then
 else
   hdr "Step 1/7  Vault structure"
   step_start "1"
+
+  maybe_restore_vault   # §4.12 — restore from an export first (no-op unless one's found/requested)
 
   CREATED=0
   for d in \
