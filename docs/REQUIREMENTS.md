@@ -1,4 +1,24 @@
-# AI Memory Stack — Requirements Specification v1.32
+# AI Memory Stack — Requirements Specification v1.33
+
+<!-- v1.33 (2026-06-18): §4.3.1 KEYSTONE first slice BUILT + PROVEN end-to-end on
+     the Mac (configure v4.8). The cwd-independent HANDOVER ships: configure writes
+     an orientation block (absolute vault paths + search-don't-guess + "call the
+     tool, don't describe it") into ~/.hermes/SOUL.md, the one file Hermes injects
+     into EVERY system prompt regardless of launch dir/door. TWO live diagnoses
+     CORRECT earlier hypotheses: (1) TERMINAL_CWD is NOT ignored in this Hermes —
+     system_prompt.py + tool_executor.py both read `os.getenv("TERMINAL_CWD") or
+     os.getcwd()`, so it IS a real lever (old §4.3 note was outdated); the dashboard
+     was blind only because it was launched from the install dir, loading the dev
+     AGENTS.md. (2) tool_use_enforcement is NOT the refusal lever — "qwen" is in
+     TOOL_USE_ENFORCEMENT_MODELS so guidance WAS injected; the refusal is the wrong
+     context file + a weak model. PROOF (same wrong cwd $HOME, same vault, same
+     handover, only the model changed): qwen3.5 → 0 tool calls (hallucinated grep,
+     twice); claude-haiku-4.5 via OpenRouter → 6 REAL tool calls, ran the absolute-
+     path grep, cited the real imported OpenClaw files. So the handover is sound AND
+     the model floor (§4.2) is decisive, not optional. SOUL.md is the global-
+     instruction home for handover work. Still TODO (next bundles): model-floor
+     warning in configure, ingest import INDEX, `doctor` per-door verifier. -->
+
 
 <!-- v1.32 (2026-06-18): §6 next-phase plan added (KEYSTONE-FIRST, decided with
      user) + §5.4 gains the re-run/idempotency rule ("the first run lies", from
@@ -878,9 +898,35 @@ silent miss.
    is what makes recall dependable. The dashboard's wrong cwd AND the model's
    tool-refusal are independent failures; the fix must beat both.
 
-**Status: NEXT-SESSION TOP PRIORITY. Live-testable on the Mac now** (the dashboard
-there currently exhibits the bug — a perfect before/after rig). This is the
-project's reason to exist; it ships before any further feature work.
+**Status: FIRST SLICE BUILT + PROVEN end-to-end (2026-06-18, configure v4.8).** The
+cwd-independent HANDOVER ships: `install_soul_handover()` writes a marker-bounded
+orientation block into `~/.hermes/SOUL.md` (always injected, every door, any cwd) —
+absolute vault paths, the search-don't-guess recipe, and explicit "actually CALL
+the tool, don't just describe it" wording (points 6-8). Idempotent; preserves any
+user persona text. Two diagnoses corrected the design's assumptions:
+- **`TERMINAL_CWD` is NOT ignored** in the installed Hermes — `system_prompt.py`
+  (context discovery) and `tool_executor.py` (file tools) both read
+  `os.getenv("TERMINAL_CWD") or os.getcwd()`. The dashboard was blind only because
+  it launched from the install dir (loading the dev `AGENTS.md`), not because cwd is
+  unfixable. So the three layers are: TERMINAL_CWD (.env) → shell launcher → SOUL.md
+  handover (the cwd-independent primary). The old §4.3 "TERMINAL_CWD ineffective"
+  note was outdated and is corrected.
+- **`tool_use_enforcement` is NOT the refusal lever.** `auto` injects the
+  enforcement guidance when the model matches `TOOL_USE_ENFORCEMENT_MODELS =
+  ("gpt","codex","gemini","gemma","grok","glm","qwen","deepseek")` — and `qwen` is
+  in it, so guidance WAS injected. The refusal traced to the wrong context file +
+  the weak model, not enforcement.
+**LIVE PROOF (Mac, same wrong cwd `$HOME`, same vault, same handover — only the model
+varied):** qwen3.5 made **0** tool calls (hallucinated grep, twice); **claude-
+haiku-4.5 via OpenRouter made 6 REAL tool calls**, ran `grep -rli "OpenClaw"
+"/Users/kv/Documents/ai-memory/"` (the handover's absolute path), read and CITED the
+real imported files (`05-AI-Sessions/openclaw/…`, `…/lmstudio/…openclaw-på-mac-mini…`).
+This satisfies the definition of done from the dashboard's failure cwd, and proves
+the model floor (§4.2) is required for reliable recall, not optional.
+**Still TODO (own bundles): model-floor warning in configure (recommend a capable
+cloud fallback for memory), ingest import INDEX (`05-AI-Sessions/INDEX.md`, which the
+handover already points at), and a `doctor` per-door verifier (Hermes has a `doctor`
+subcommand to build on — it would have caught "0 tool calls").**
 
 ## 4.2 Model capability floor for tool-use / memory (X230 live finding)
 

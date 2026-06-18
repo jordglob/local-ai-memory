@@ -176,3 +176,29 @@ History:
                           EVERY entry point, cwd-independent; ingest builds an
                           import INDEX so "imported-but-not-found" is detectable.
                           Ships before any new feature. (uninstall v1.0 unchanged.)
+  v14 CC   2026-06-18  — ★ KEYSTONE first slice BUILT + PROVEN end-to-end on the
+                          Mac (§4.3.1). configure v4.8: new install_soul_handover()
+                          writes a cwd-INDEPENDENT handover into ~/.hermes/SOUL.md —
+                          the one file Hermes injects into EVERY system prompt no
+                          matter which door (shell/dashboard/gateway) or launch dir.
+                          It carries the ABSOLUTE vault path, the search-don't-guess
+                          recipe, and "actually CALL the tool, don't describe it"
+                          (counters the weak-model refusal). Idempotent; preserves
+                          any user persona text. Two live diagnoses CORRECTED earlier
+                          assumptions: (1) TERMINAL_CWD is NOT ignored in this Hermes
+                          (system_prompt.py + tool_executor.py both read
+                          `os.getenv("TERMINAL_CWD") or os.getcwd()`) — the dashboard
+                          was blind only because it launched from the install dir and
+                          loaded the dev AGENTS.md; the §4.3 "ineffective" note was
+                          outdated, now corrected. (2) tool_use_enforcement is NOT the
+                          refusal lever — "qwen" IS in TOOL_USE_ENFORCEMENT_MODELS so
+                          guidance was injected; refusal = wrong context file + weak
+                          model. LIVE PROOF (same wrong cwd $HOME, same vault, same
+                          handover, only the model changed): qwen3.5 → 0 tool calls
+                          (hallucinated grep, twice); claude-haiku-4.5 via OpenRouter
+                          → 6 REAL tool calls, ran the absolute-path grep, cited the
+                          real imported OpenClaw files. Handover is sound AND the
+                          model floor (§4.2) is decisive, not optional. spec v1.33.
+                          NEXT bundles (own rounds): model-floor warning in configure,
+                          ingest import INDEX (05-AI-Sessions/INDEX.md), `doctor`
+                          per-door verifier (Hermes has a `doctor` subcommand).

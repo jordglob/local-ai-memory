@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.7
+#  ai-memory-configure.sh  v4.8
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.7"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.8"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.7 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.8 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -511,14 +511,24 @@ if [[ -z "$OR_KEY" && -z "$AN_KEY" ]]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# §4.3 import->reachable: make a plain `hermes` find the vault
+# §4.3 / §4.3.1 import->reachable: make EVERY door to Hermes find the vault
 # ═════════════════════════════════════════════════════════════════════════════
-# Hermes' local file tools (search/grep) root at the LAUNCH directory, not at a
-# path in config.yaml (terminal.cwd is ignored by the local backend — verified on
-# real hardware). So a plain `hermes` started from $HOME can't see the imported
-# history in the vault. Two belt-and-suspenders fixes, both aimed at the vault:
-#   (1) TERMINAL_CWD in ~/.hermes/.env (honored by some Hermes paths), and
-#   (2) a shell launcher that cd's into the vault (the proven, reliable fix).
+# Hermes discovers context (which AGENTS.md it loads) and roots its file/search
+# tools at TERMINAL_CWD if set, else the launch directory's os.getcwd()
+# (verified in the installed Hermes: system_prompt.py + tool_executor.py both read
+# `os.getenv("TERMINAL_CWD") or os.getcwd()`). So a session launched from $HOME or
+# from Hermes' own install dir (the web dashboard / gateway do this) won't see the
+# vault — it loads the wrong AGENTS.md and searches the wrong tree. The fix is
+# THREE layers, weakest→strongest, so reachability never depends on HOW or WHERE
+# Hermes was launched (§4.3.1 — the keystone):
+#   (1) TERMINAL_CWD in ~/.hermes/.env — points context-discovery AND file tools
+#       at the vault for any process that loads .env (incl. the dashboard).
+#   (2) a shell launcher that cd's into the vault — belt-and-suspenders for `hermes
+#       chat` from a terminal.
+#   (3) the HANDOVER in ~/.hermes/SOUL.md — ALWAYS loaded, every door, independent
+#       of cwd (Hermes injects SOUL.md from HERMES_HOME into every system prompt).
+#       It carries ABSOLUTE vault paths + a search-don't-guess routine, so recall
+#       works even if (1) and (2) are bypassed. This is the primary mechanism.
 set_env TERMINAL_CWD "$VAULT"
 ok "TERMINAL_CWD → vault (in .env)"
 
@@ -560,6 +570,59 @@ PYLAUNCH
   done
 }
 install_vault_launcher
+
+# ── (3) The HANDOVER — ~/.hermes/SOUL.md, the cwd-independent keystone ─────────
+# SOUL.md from HERMES_HOME is injected into EVERY Hermes system prompt regardless
+# of launch directory or door (shell / dashboard / gateway), loaded fresh each
+# message. We write a marker-bounded handover block here — orientation + absolute
+# vault paths + a search-don't-guess routine — preserving any persona text the
+# user already has. ABSOLUTE paths mean recall does not depend on cwd; the
+# "run the tool, don't describe it" wording counters weak models that refuse
+# (§4.2 / §4.3.1 points 6-8).
+install_soul_handover() {
+  local soul="$HERMES_HOME/SOUL.md"
+  python3 - "$soul" "$VAULT" << 'PYSOUL'
+import sys, re
+from pathlib import Path
+soul, vault = sys.argv[1], sys.argv[2]
+start = "<!-- >>> ai-memory handover >>> -->"
+end   = "<!-- <<< ai-memory handover <<< -->"
+block = (
+    start + "\n"
+    "## Your memory (available every session, from any working directory)\n\n"
+    "You have a personal memory vault on this machine at:\n"
+    "    " + vault + "\n"
+    "It holds the user's profile and their imported AI-conversation history, and\n"
+    "is your long-term memory — reachable no matter where this session launched.\n\n"
+    "Before you ever say \"I don't have access to that\" or \"I don't remember\":\n"
+    "1. Read the user's profile:              " + vault + "/entities/user.md\n"
+    "2. Consult the import index (if present): " + vault + "/05-AI-Sessions/INDEX.md\n"
+    "3. SEARCH the imported history. Actually CALL your terminal/code tool — do not\n"
+    "   just describe the command — and use ABSOLUTE paths so it works from any cwd:\n"
+    "       grep -rli \"KEYWORD\" \"" + vault + "/05-AI-Sessions/\"\n"
+    "   then read the matching files and answer from them. Try keyword variants\n"
+    "   (synonyms, names, project titles). Never guess or invent filenames. Only\n"
+    "   say you found nothing AFTER that grep has actually run and returned nothing.\n\n"
+    "You DO have filesystem and command tools available — use them. If a search\n"
+    "returns matches, the memory is there; claiming \"no access\" without having run\n"
+    "the tool is a mistake.\n"
+    + end
+)
+p = Path(soul)
+text = p.read_text() if p.exists() else ""
+pat = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+if pat.search(text):
+    text = pat.sub(lambda m: block, text)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += ("\n" if text else "") + block + "\n"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(text)
+PYSOUL
+  ok "Memory handover installed in ${soul/#$HOME/~} (loaded by every Hermes door)"
+}
+install_soul_handover
 
 # ai-config.json for resume.sh and other tooling
 mkdir -p "$MCP_DIR"
