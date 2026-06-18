@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.10
+#  ai-memory-ingest.sh  v2.11
 #  Import scattered AI conversations into the vault — 10 sources
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
@@ -25,7 +25,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
 from pathlib import Path
 
-VERSION = "2.10"
+VERSION = "2.11"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -754,7 +754,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.10         ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.11         ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -882,6 +882,8 @@ def main():
     # --reindex handled above — this is the normal-import path.)
     idx_n = build_index(vault)
     ok(f"Index updated → 05-AI-Sessions/INDEX.md  ({idx_n} conversations)")
+    info(f"Verify memory is reachable from every door:  "
+         f"{c('1', 'bash ' + str(vault / '.tools' / 'ai-memory-doctor.sh'))}")
     print()
 
     hdr("Next steps")

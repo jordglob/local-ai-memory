@@ -274,4 +274,6 @@ History:
                           (not -e) by design. Live-verified on the Mac: 7/7
                           deterministic + --live = 5 tool calls + cited file. Bash-3.2
                           surfaced a parser bug bash-5 missed (literal backtick in a
-                          python regex inside $()) — fixed. spec v1.38.
+                          python regex inside $()) — fixed. spec v1.38. Discoverability:
+                          ingest v2.11 prints a "verify with doctor" tip after import +
+                          README Quick-start lists ai-memory-doctor.sh.

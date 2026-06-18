@@ -50,6 +50,7 @@ where your AI exports usually live.
 bash ai-memory-setup.sh        # installs the stack (Node, Ollama, Hermes, vault)
 bash ai-memory-configure.sh    # picks a model for YOUR hardware, writes Hermes config
 bash ai-memory-ingest.sh       # imports your AI history from local exports
+bash ai-memory-doctor.sh       # verify memory is reachable from every door (read-only)
 bash ai-memory-remote.sh       # optional: SSH/WireGuard/Tailscale node setup
 bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
 hermes chat                    # talk to an agent that knows your past
