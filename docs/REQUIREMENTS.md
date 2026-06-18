@@ -1,4 +1,10 @@
-# AI Memory Stack — Requirements Specification v1.31
+# AI Memory Stack — Requirements Specification v1.32
+
+<!-- v1.32 (2026-06-18): §6 next-phase plan added (KEYSTONE-FIRST, decided with
+     user) + §5.4 gains the re-run/idempotency rule ("the first run lies", from
+     the set_env re-run crash). §4.3.1 point 8: dashboard agent refused its own
+     tools — reachability fix must verify a REAL tool call, not just rooting. -->
+
 
 <!-- v1.31 (2026-06-18): §4.3.1 added — TOP PRIORITY: reachability must hold from
      EVERY entry point (shell/dashboard/TUI/gateway), cwd-independent. Found by
@@ -1324,3 +1330,66 @@ moving on. Known classes from the X230 run:
 - Sandbox-test every path testable without real hardware; flag honestly what
   could only be tested synthetically.
 - Review rounds ("fresh eyes") are mandatory before release.
+- **Live-test must RE-RUN — idempotency is part of "done."** A first-install
+  `exit 0` hides re-run crashes: the set_env bug (2026-06-18) returned non-zero
+  once a key already existed and aborted configure on every re-run, yet the first
+  install passed clean. Run each script at least TWICE back-to-back (both must
+  exit 0) before recording/shipping. "The sandbox lies" (§5) now extends to
+  **"the first run lies."**
+
+## 6. Next-phase plan (2026-06-18) — KEYSTONE-FIRST (decided with the user)
+
+Captured before a /clear. Sequencing decided: keystone first; cross-platform
+hardening in parallel; a design review gates the keystone build.
+
+**Track 1 — KEYSTONE (the soul, §4.3.1) — FIRST.** Build the HANDOVER:
+always-loaded orientation + ABSOLUTE vault paths + an import INDEX + per-door
+verification that forces a REAL tool call returning vault content. Opening
+investigation (do these first; the live Mac dashboard is the rig):
+  - WHY does the dashboard root at `~/.hermes/hermes-agent`, not the vault? Does
+    it chdir, or spawn `hermes --tui` with a fixed cwd? (Decides whether cwd is
+    fixable at all, or we must go cwd-independent via global instructions — the
+    assumed answer.)
+  - Is `agent.tool_use_enforcement` (config.yaml) — or the system prompt the
+    dashboard injects — the lever for the tool-REFUSAL? qwen3.5 denied having
+    tools in the TUI, yet `-z … --yolo` from the terminal DID call them. Find the
+    difference.
+  - WHERE does Hermes load GLOBAL/user-level instructions applied to EVERY session
+    regardless of cwd/door? That is where the handover must live.
+  Done = ask the memory question THROUGH THE BROWSER, get a grounded answer citing
+  a real imported file (ground truth: 8 convs, e.g. "OpenClaw på Mac Mini").
+
+**Track 2 — Cross-platform hardening (parallel).** A differential harness: same
+script + same fixtures across {macOS-arm64 (Mac), linux-x86 (X230), linux-arm64
+(a VM on the Mac — the user's idea, and the real gap)}, capture + DIFF outputs,
+auto-flag divergences. Keep it as a repo artifact, not a one-night run. WSL2
+already proven. Mac and X230 are both real hardware in hand — diff those before
+building the VM.
+
+**Track 3 — OS-abstraction refactor (with Track 2).** The pipefail/platform bugs
+are symptoms of scattered `if macos…else…`. Replace with ONE thin layer of
+portable helpers (`os_primary_ip` / `os_enable_service` / `os_pkg_install`) so
+platform logic lives in one place and the bug class can't keep re-breeding.
+
+**Track 4 — Critical design review (gate BEFORE the Track-1 build).** Fresh eyes
+on the keystone design before building it, and on the OS-abstraction boundary.
+
+**Carry-along product decisions:**
+  - Ship a `doctor`-style **reachability verifier** ("prove my memory is reachable
+    from every door") — it IS the keystone verification AND a standout feature no
+    competitor ships.
+  - **Model-floor honesty in-product:** qwen3.5 (14B) was too weak — it refused
+    tools in the dashboard. Recommend a cloud fallback for memory + document a
+    minimum capable model (§4.2 intersection).
+
+**Strategic framing (why keystone leads):** the FRIENDLIEST door — the web
+dashboard a beginner reaches for — is the MOST broken for memory (wrong cwd + weak
+model refusing tools). So the keystone is not just a bug fix; it is the GATE to a
+viable beginner experience and the §1 vision. The components are commodity; the
+honestly-verified last hop is the project's actual contribution.
+
+**Operational state at this pause:** the Mac runs a working local AI
+(Hermes → Ollama qwen3.5). `hermes dashboard --tui` is UP (Mac pid 12749),
+reached via an SSH tunnel `ssh -fNL 9119:localhost:9119 kv@192.168.38.229` →
+Brave `http://localhost:9119` — left running on purpose. All code committed +
+pushed (origin/main 733021d); v13 bundle in ~/Downloads.
