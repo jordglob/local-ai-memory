@@ -215,3 +215,18 @@ History:
                           find and reports the 8 sessions correctly. spec v1.34.
                           Reinforces that the import INDEX (next bundle) is needed so
                           a generic recall question has a real manifest to read.
+  v16 CC   2026-06-18  — KEYSTONE dashboard door CLOSED (configure v4.10). Live
+                          browser use showed the dashboard greeting the user as a
+                          "Hermes Agent developer" — it loaded Hermes' OWN dev
+                          AGENTS.md. Root cause in source: the dashboard chat tab
+                          (web_server.py _resolve_chat_argv/_make_tui_argv) HARD-PINS
+                          the agent cwd to its install dir (PROJECT_ROOT/ui-tui),
+                          ignoring launch dir AND .env, but copies its process env to
+                          the agent. Fix: the `hermes()` launcher configure installs
+                          now ALSO exports TERMINAL_CWD (was: cd only) — so `hermes
+                          dashboard`/`gateway`, which ignore cwd, inherit the vault
+                          root via env. The cd still covers `hermes chat`. Live-
+                          verified on the Mac: dashboard launched through the function
+                          carries TERMINAL_CWD, and a chat through it loads the VAULT
+                          AGENTS.md (not the dev guide). Corrects the earlier ".env
+                          covers the dashboard" assumption. spec v1.35.

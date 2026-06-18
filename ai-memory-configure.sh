@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.9
+#  ai-memory-configure.sh  v4.10
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.9"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.10"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.9 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.10 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -521,10 +521,14 @@ fi
 # vault — it loads the wrong AGENTS.md and searches the wrong tree. The fix is
 # THREE layers, weakest→strongest, so reachability never depends on HOW or WHERE
 # Hermes was launched (§4.3.1 — the keystone):
-#   (1) TERMINAL_CWD in ~/.hermes/.env — points context-discovery AND file tools
-#       at the vault for any process that loads .env (incl. the dashboard).
-#   (2) a shell launcher that cd's into the vault — belt-and-suspenders for `hermes
-#       chat` from a terminal.
+#   (1) TERMINAL_CWD in ~/.hermes/.env — picked up by `hermes chat`, which loads
+#       .env at startup. NOTE: the web dashboard does NOT load .env into its env
+#       (verified on macOS — it pins the chat agent's cwd to its own install dir),
+#       so .env alone does not fix the dashboard door — see (2).
+#   (2) a shell launcher (`hermes()`) that cd's into the vault AND exports
+#       TERMINAL_CWD into the command's environment. The cd handles `hermes chat`;
+#       the exported TERMINAL_CWD handles `hermes dashboard`/`gateway`, which ignore
+#       cwd and pin to their install dir but copy their process env to the agent.
 #   (3) the HANDOVER in ~/.hermes/SOUL.md — ALWAYS loaded, every door, independent
 #       of cwd (Hermes injects SOUL.md from HERMES_HOME into every system prompt).
 #       It carries ABSOLUTE vault paths + a search-don't-guess routine, so recall
@@ -548,10 +552,13 @@ start = "# >>> ai-memory hermes launcher >>>"
 end   = "# <<< ai-memory hermes launcher <<<"
 block = (
     start + "\n"
-    "# Run Hermes from your AI-memory vault so its file tools (search/grep) are\n"
-    "# rooted where your imported history lives. The subshell keeps your shell's\n"
-    "# own directory unchanged. Added by ai-memory-configure.sh (reachability fix).\n"
-    'hermes() { ( cd "' + vault + '" 2>/dev/null && command hermes "$@" ); }\n'
+    "# Run Hermes rooted at your AI-memory vault so its file tools (search/grep) and\n"
+    "# context discovery find your imported history. The cd covers `hermes chat`;\n"
+    "# the exported TERMINAL_CWD covers `hermes dashboard`/`gateway`, which ignore\n"
+    "# cwd (they pin to their install dir) but copy this env to their chat agent.\n"
+    "# The subshell keeps your shell's own directory + environment unchanged.\n"
+    "# Added by ai-memory-configure.sh (reachability fix, §4.3 / §4.3.1).\n"
+    'hermes() { ( cd "' + vault + '" 2>/dev/null && TERMINAL_CWD="' + vault + '" command hermes "$@" ); }\n'
     + end
 )
 p = Path(rc)
@@ -676,9 +683,10 @@ fi
 command -v hermes &>/dev/null \
   && ok "Hermes command found — start with: hermes chat" \
   || info "Hermes not in PATH yet — open a new terminal, then: hermes chat"
-echo -e "  ${DIM}A vault launcher was added to your shell startup so a plain 'hermes'"
-echo -e "  runs from the vault and can see your imported history. Open a NEW terminal"
-echo -e "  (or run: source ~/.bashrc) for it to take effect.${NC}"
+echo -e "  ${DIM}A vault launcher was added to your shell startup so 'hermes' (chat,"
+echo -e "  'hermes dashboard', and 'hermes gateway') runs rooted at the vault and can"
+echo -e "  see your imported history. Open a NEW terminal (or run: source ~/.bashrc)"
+echo -e "  for it to take effect, then start the web UI with: hermes dashboard${NC}"
 
 echo ""
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"

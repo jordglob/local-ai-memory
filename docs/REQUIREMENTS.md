@@ -1,4 +1,18 @@
-# AI Memory Stack — Requirements Specification v1.34
+# AI Memory Stack — Requirements Specification v1.35
+
+<!-- v1.35 (2026-06-18): §4.3.1 DASHBOARD door closed (configure v4.10). Root cause
+     found in Hermes source: the web dashboard's chat tab (hermes_cli/web_server.py
+     _resolve_chat_argv → _make_tui_argv) HARD-PINS the agent's cwd to its own
+     install dir (PROJECT_ROOT/ui-tui), ignoring launch dir AND .env — but it passes
+     env = os.environ.copy() to that agent. So context discovery loads the *dev*
+     AGENTS.md (the dashboard greeted the user as a "Hermes Agent developer") unless
+     TERMINAL_CWD is in the DASHBOARD PROCESS's environment. Fix: the `hermes()`
+     shell launcher configure installs now ALSO exports TERMINAL_CWD (not just cd),
+     so `hermes dashboard`/`gateway` — which ignore cwd — inherit the vault root via
+     env. Live-verified on the Mac: dashboard launched through the function carries
+     TERMINAL_CWD and a chat through it loads the VAULT AGENTS.md, not the dev one.
+     Corrects the earlier ".env covers the dashboard" assumption (it does not). -->
+
 
 <!-- v1.34 (2026-06-18): §4.3.1 handover HARDENED (configure v4.9) after a live
      browser test. With haiku-4.5 as the dashboard's primary model the keystone
@@ -921,7 +935,16 @@ finding):** a generic "what do you remember" question read the not-yet-built
 INDEX.md, errored, and falsely reported the history EMPTY without listing the
 folder; the handover now falls back to `ls -R 05-AI-Sessions/` when INDEX.md is
 absent and forbids claiming "empty" without having listed it (an absent index ≠ no
-history). Re-verified live. Two diagnoses corrected the design's assumptions:
+history). Re-verified live. **v4.10 dashboard door (live browser finding):** with
+haiku as the dashboard primary the model read the handover and called tools, but it
+greeted the user as a "Hermes Agent developer" — the dashboard chat tab
+(`web_server.py` `_resolve_chat_argv`/`_make_tui_argv`) HARD-PINS the agent cwd to its
+install dir (`PROJECT_ROOT/ui-tui`), ignoring launch dir and `.env`, so it loaded the
+*dev* AGENTS.md. It does copy its process env to the agent, so the fix is: the
+`hermes()` launcher now also EXPORTS `TERMINAL_CWD` (not just `cd`), and `hermes
+dashboard`/`gateway` inherit the vault root via env. Live-verified: a chat launched
+through the function loads the VAULT AGENTS.md, not the dev guide. Two diagnoses
+corrected the design's assumptions:
 - **`TERMINAL_CWD` is NOT ignored** in the installed Hermes — `system_prompt.py`
   (context discovery) and `tool_executor.py` (file tools) both read
   `os.getenv("TERMINAL_CWD") or os.getcwd()`. The dashboard was blind only because
