@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.10
+#  ai-memory-configure.sh  v4.11
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.10"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.11"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.10 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.11 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -319,16 +319,26 @@ ensure_model_present() {  # ensure_model_present <tag>
 # Warn (don't block) when a small/cheap model is chosen. Heuristic by tag —
 # honest "may be", not a hard rule.
 warn_weak_model() {  # warn_weak_model <model_tag>
+  # §4.2 floor — fire for: cheap CLOUD tiers (gpt-4o-mini GUESSED filenames, X230
+  # live) + tiny local + MID-SIZE LOCAL. The mid-size case is the hard-won one:
+  # a 14B local model (qwen3.5) FAKED the search on a real Mac (2026-06-18) — 0
+  # real tool calls — while a current cloud model searched correctly. Warn, don't
+  # block; large local (32B+) may suffice but is untested here. (No comments inside
+  # the case pattern — bash can't parse them between the `\`-continued lines.)
   local t; t="$(lc "$1")"
   case "$t" in
-    *mini*|*gpt-3.5*|*tinyllama*|*phi-2*|*gemma:2b*|\
-    *:0.5b*|*:1b*|*:1.5b*|*:2b*|*:3b*|*-1b*|*-3b*)
+    *mini*|*gpt-3.5*|*haiku-3*|*tinyllama*|*phi-2*|*gemma:2b*|\
+    *:0.5b*|*:1b*|*:1.5b*|*:2b*|*:3b*|*-1b*|*-3b*|\
+    *qwen3.5*|*gemma4*|*:7b*|*:8b*|*:9b*|*:13b*|*:14b*|*-7b*|*-8b*|*-13b*|*-14b*)
       echo ""
-      warn "'$1' is a small/cheap model — fine for chat, but it may be too weak"
-      echo -e "  ${DIM}for MEMORY/search. Weak models tend to GUESS filenames instead of"
-      echo -e "  running grep/search, so your imported history can look 'missing' even"
-      echo -e "  when it's all there. For reliable recall of imported conversations,"
-      echo -e "  prefer a more capable model (e.g. a full-size cloud model, not a 'mini').${NC}"
+      warn "'$1' may be too weak to reliably USE your memory."
+      echo -e "  ${DIM}Weak models don't just answer worse — they FAKE the search: they say"
+      echo -e "  \"I couldn't find anything\" WITHOUT ever running grep, so your imported"
+      echo -e "  history looks missing even though it is all there."
+      echo -e "  Live-tested here: a 14B local model (qwen3.5) did exactly this — 0 real"
+      echo -e "  tool calls; a current-generation CLOUD model searched and cited the files."
+      echo -e "  For reliable memory recall, prefer a capable cloud model (set an API key in"
+      echo -e "  ~/.hermes/.env). Large local models (32B+) may work but aren't proven here.${NC}"
       return 0 ;;
   esac
   return 1

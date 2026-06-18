@@ -1,4 +1,21 @@
-# AI Memory Stack — Requirements Specification v1.36
+# AI Memory Stack — Requirements Specification v1.37
+
+<!-- v1.37 (2026-06-18): two keystone-finishing builds. (1) §4.2 MODEL-FLOOR warning
+     made user-facing + evidence-based (configure v4.11): the warn_weak_model trigger
+     now also fires for MID-SIZE LOCAL models (qwen3.5/gemma4/7-14B), and the text
+     states the hard-won fact — weak models FAKE the search (report "nothing found"
+     without running grep; live: qwen3.5 14B = 0 real tool calls) and recommends a
+     capable cloud model. Verified: WARNS for qwen3.5/gpt-4o-mini/gemma4, quiet for
+     haiku-4.5/sonnet/llama-70b/mixtral. (2) §4.3.1 point 6 IMPORT INDEX BUILT (ingest
+     v2.10): build_index() (re)generates 05-AI-Sessions/INDEX.md from the files on
+     disk — derived, idempotent, source-agnostic (covers script- AND agent-imported)
+     — with per-source + by-month counts and a grouped listing; new `--reindex` flag
+     rebuilds without importing; a normal import refreshes it too. Live on the Mac:
+     indexed 25 convs (claude-code 17 / lm-studio 6 / openclaw 2), idempotent, and a
+     keyword-less "give me an overview" now READS the index and answers from it
+     (2 tool calls) instead of the ls -R fallback. Makes "imported-but-not-found"
+     a detectable mismatch (input to the future `doctor`). -->
+
 
 <!-- v1.36 (2026-06-18): vault AGENTS.md converted from write_once to a MARKER-BLOCK
      (setup v8.13), closing the last §5.3 gap where managed content was frozen after
@@ -976,10 +993,11 @@ haiku-4.5 via OpenRouter made 6 REAL tool calls**, ran `grep -rli "OpenClaw"
 real imported files (`05-AI-Sessions/openclaw/…`, `…/lmstudio/…openclaw-på-mac-mini…`).
 This satisfies the definition of done from the dashboard's failure cwd, and proves
 the model floor (§4.2) is required for reliable recall, not optional.
-**Still TODO (own bundles): model-floor warning in configure (recommend a capable
-cloud fallback for memory), ingest import INDEX (`05-AI-Sessions/INDEX.md`, which the
-handover already points at), and a `doctor` per-door verifier (Hermes has a `doctor`
-subcommand to build on — it would have caught "0 tool calls").**
+**BUILT since: model-floor warning (configure v4.11, §4.2) and the import INDEX
+(ingest v2.10, point 6 — `05-AI-Sessions/INDEX.md`, which the handover already points
+at). Still TODO: the `doctor` per-door verifier (Hermes has a `doctor` subcommand to
+build on — it would have caught "0 tool calls"; it consumes the INDEX to flag
+imported-but-not-reachable).**
 
 ## 4.2 Model capability floor for tool-use / memory (X230 live finding)
 

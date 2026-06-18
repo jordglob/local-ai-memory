@@ -241,3 +241,21 @@ History:
                           the block). Sandbox-tested all 5 cases + live-verified on the
                           Mac (migrate -> idempotent refresh; routine intact; 1 backup).
                           Mirrors the SOUL.md/launcher pattern. spec v1.36.
+  v18 CC   2026-06-18  — two keystone-finishing builds. (1) MODEL-FLOOR warning made
+                          user-facing + evidence-based (configure v4.11, §4.2): the
+                          weak-model trigger now also fires for MID-SIZE LOCAL models
+                          (qwen3.5/gemma4/7-14B) and the text states the hard fact —
+                          weak models FAKE the search (say "nothing found" without
+                          running grep; live: qwen3.5 14B = 0 tool calls) — and
+                          recommends a capable cloud model. Verified: warns for
+                          qwen3.5/gpt-4o-mini/gemma4; quiet for haiku-4.5/sonnet/
+                          llama-70b/mixtral. (2) IMPORT INDEX BUILT (ingest v2.10,
+                          §4.3.1 pt6): build_index() regenerates 05-AI-Sessions/
+                          INDEX.md from disk — derived, idempotent, source-agnostic
+                          (script- AND agent-imported) — per-source + by-month counts
+                          + grouped listing; new --reindex flag; normal import
+                          refreshes it too. Live on the Mac: 25 convs indexed
+                          (claude-code 17/lm-studio 6/openclaw 2), idempotent, and a
+                          keyword-less "give me an overview" now READS the index
+                          (2 tool calls) instead of ls -R. spec v1.37. Next: doctor
+                          (consumes the INDEX to flag imported-but-not-reachable).
