@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-uninstall.sh  v1.0
+#  ai-memory-uninstall.sh  v1.1
 #  AI Memory Stack — clean reversal, EXPORT-FIRST
 #
 #  Reverses what setup / configure / ingest installed, but ALWAYS exports your
@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-VERSION="1.0"
+VERSION="1.1"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -41,6 +41,8 @@ Flags:
   (default)          DRY-RUN: preview only — exports/removes NOTHING
   --yes, -y          actually export + remove (non-interactive, no prompt)
   --export-only      export the vault to an archive, then STOP (remove nothing)
+  --backup           alias for --export-only — back up / prepare to move machines
+                     (restore on the new machine with: ai-memory-setup.sh --restore)
   --no-export        skip the vault export (requires an extra loud confirm)
   --remove-ollama    ALSO remove downloaded Ollama models (opt-in; off by default)
   --remote           reverse remote.sh changes too (increment 2 — not yet built)
@@ -96,6 +98,7 @@ for arg in "$@"; do
   case "$arg" in
     --yes|-y)        ASSUME_YES=true ;;
     --export-only)   EXPORT_ONLY=true ;;
+    --backup)        EXPORT_ONLY=true ;;   # friendly alias: back up / prepare to migrate
     --no-export)     DO_EXPORT=false ;;
     --remove-ollama) REMOVE_OLLAMA=true ;;
     --remote)        DO_REMOTE=true ;;
@@ -172,7 +175,7 @@ yn() { if "$@"; then echo present; else echo absent; fi; }
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.0 — Uninstall      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.1 — Uninstall      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -211,7 +214,7 @@ m = {
   "created_utc": stamp,
   "source": {"os": os_name, "host": socket.gethostname(), "user": getpass.getuser()},
   "vault_dir": os.path.basename(vault.rstrip("/")),
-  "exported_by": "ai-memory-uninstall.sh v1.0",
+  "exported_by": "ai-memory-uninstall.sh v1.1",
   "includes": ["vault: markdown memory, notes, imported AI sessions"],
   "excludes": [
     "~/.hermes/config.yaml  (hardware-specific — re-derived by configure on the new machine)",

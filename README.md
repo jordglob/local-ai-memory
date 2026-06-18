@@ -61,6 +61,40 @@ idempotent re-runs, and on first run they install themselves to
 `~/Documents/ai-memory/.tools/` — delete the downloads afterwards. Each script
 ends by pointing at the next one, so you're never left guessing what to type.
 
+## Moving to a new machine (or backing up)
+
+Your memory is **plain markdown in the vault** — that's the only thing that needs
+to move. Everything else (which model, API keys) is re-derived for the new machine
+on purpose: hardware differs, and **secrets never travel in an export**.
+
+**One-time move (old machine → new machine):**
+
+```
+# on the OLD machine — back up the vault to a timestamped archive in ~/Downloads
+bash ai-memory-uninstall.sh --backup
+
+# copy that ai-memory-export-*.tar.gz to the NEW machine (USB, scp, cloud — it
+# has no secrets), then on the NEW machine:
+bash ai-memory-setup.sh --restore     # finds the archive in ~/Downloads and restores it
+bash ai-memory-configure.sh           # picks a model for the NEW hardware, re-enter keys
+bash ai-memory-doctor.sh              # verify recall works from every door
+```
+
+`setup` also **auto-detects** an export sitting in `~/Downloads` and offers to restore
+it, so a plain `bash ai-memory-setup.sh` on a fresh box will ask. `--backup` is just a
+friendly alias for `ai-memory-uninstall.sh --export-only` (it exports and stops —
+removes nothing).
+
+**Two machines at once (a shared, evolving vault):** because the vault is plain
+files, put `~/Documents/ai-memory` under **git** (or Syncthing/Dropbox/iCloud) and run
+`configure` on each machine pointed at the synced vault. Keep `~/.hermes/config.yaml`
+and `~/.hermes/.env` **out** of the sync (per-machine + secrets). Markdown diffs and
+merges cleanly; `05-AI-Sessions/` is append-only, so conflicts are rare.
+
+**What moves vs. what you redo:** the vault (all your imported history, notes, and
+profile) moves; `config.yaml`, API keys, and Hermes' internal state are re-created on
+the new machine by `configure`.
+
 ## Who it's for
 
 People who want to **own their AI memory** and are happy to read and adapt bash to

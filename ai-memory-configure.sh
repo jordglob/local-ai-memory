@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.11
+#  ai-memory-configure.sh  v4.12
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.11"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.12"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -56,10 +56,13 @@ REPORT_DIR="$VAULT/03-Resources/AI-Models"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_CONFIG="$HERMES_HOME/config.yaml"
 HERMES_ENV="$HERMES_HOME/.env"
+# §4.12 migration-awareness: remember whether a Hermes config existed BEFORE we
+# (re)write one — a populated vault + no prior config = a vault moved onto this box.
+CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.11 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.12 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -69,6 +72,20 @@ info "Hermes home:  $HERMES_HOME"
 command -v hermes &>/dev/null || [[ -d "$HERMES_HOME" ]] \
   || warn "Hermes not detected — config will be written for when it's installed"
 echo ""
+
+# §4.12 migration-awareness: a populated vault with NO prior Hermes config on this
+# machine means you restored/synced a vault onto a new box — welcome you back and
+# set expectations honestly (config + API keys did NOT travel, by design).
+_CONV_COUNT=$(find "$VAULT/05-AI-Sessions" -type f -name '*.md' ! -name 'INDEX.md' 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${_CONV_COUNT:-0}" -gt 0 && "$CONFIG_PREEXISTED" == false ]]; then
+  hdr "🧳 Migration detected — welcome back"
+  ok "Found a restored memory vault with ${_CONV_COUNT} imported conversation(s)."
+  echo -e "  ${DIM}Your memory came across. What did NOT travel (by design): this machine's"
+  echo -e "  Hermes config + API keys — I'll set those up now for THIS hardware. If this"
+  echo -e "  box is more/less capable than your old one, the best model may differ; I'll"
+  echo -e "  recommend based on the scan below. Verify after with: ai-memory-doctor.sh${NC}"
+  echo ""
+fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 1/5  HARDWARE ANALYSIS

@@ -1,4 +1,19 @@
-# AI Memory Stack — Requirements Specification v1.39
+# AI Memory Stack — Requirements Specification v1.40
+
+<!-- v1.40 (2026-06-18): "make migration great" — §4.12 is now a polished, discoverable
+     feature, not scattered mechanics. (1) DISCOVERABILITY: README gains a "Moving to a
+     new machine (or backing up)" section (one-time export→restore→configure→doctor +
+     the git/Syncthing live-sync alternative + what-moves-vs-redo); uninstall v1.1 adds
+     a friendly `--backup` alias for `--export-only` so "back up / prepare to move" is
+     findable without the word "uninstall". (2) MIGRATION-AWARENESS (configure v4.12,
+     the last §4.12 TODO): a populated vault with NO prior Hermes config = a vault moved
+     onto this box → configure prints a "🧳 Migration detected — welcome back" note
+     (N conversations found) that honestly states config+keys did NOT travel and will be
+     re-derived for THIS hardware, and points at doctor to verify. (3) setup v8.15: the
+     post-restore message now points at doctor. The migration story end to end: back up
+     (uninstall --backup) → restore (setup --restore/auto) → re-derive (configure, now
+     migration-aware) → verify (doctor). All ends exist and cohere. -->
+
 
 <!-- v1.39 (2026-06-18): §4.12 RESTORE-IN-SETUP BUILT (setup v8.14) — the migration
      loop is now end-to-end (export half already shipped in uninstall). setup gains
@@ -1406,10 +1421,15 @@ markdown + git = clean diffs/merges; `05-AI-Sessions/` is append-only (rarely
 conflicts); only `entities/*.md` can clash on simultaneous edits. So: export/restore
 for "I got a new Mac"; file-sync for "I use two machines." Worth a README note.
 
-**Still TODO:**
-- **configure migration-awareness** — when it detects a restored/populated vault on
-  NEW hardware, frame config as a migration ("new machine detected") and actively
-  suggest the cloud→local upgrade when the hardware now allows it (ties to §2.11).
+**BUILT (configure v4.12, 2026-06-18) — migration-awareness:** a populated vault
+(imported conversations present) with NO prior `~/.hermes/config.yaml` = a vault moved
+onto this box → configure prints a "🧳 Migration detected — welcome back" note (with
+the conversation count), states honestly that config + keys did NOT travel and are
+being re-derived for THIS hardware, and points at `doctor` to verify. The hardware
+scan that follows already recommends the right model class, so cloud↔local naturally
+re-fits the new machine. **Discoverability (BUILT):** README "Moving to a new machine"
+section + uninstall v1.1 `--backup` alias. The full loop now coheres: `uninstall
+--backup` → `setup --restore` → `configure` (migration-aware) → `doctor`.
 
 ## 4.13 Guided / Expert verbosity mode + the "honest reason" rule (RECORDED — future build)
 

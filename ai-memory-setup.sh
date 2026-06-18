@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.14
+#  ai-memory-setup.sh  v8.15
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -72,7 +72,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.14"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.15"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -466,7 +466,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.14 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.15 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1031,7 +1031,8 @@ maybe_restore_vault() {
   mkdir -p "$VAULT"
   if cp -R "$inner"/. "$VAULT"/ 2>/dev/null; then
     ok "Restored your vault from $(basename "$archive") → $VAULT"
-    info "config.yaml + API keys are NOT in the export (by design) — configure re-derives them next."
+    info "config.yaml + API keys are NOT in the export (by design) — run configure next,"
+    info "  then 'bash .tools/ai-memory-doctor.sh' to verify recall works on this machine."
   else
     rm -rf "$stage"; die "Restore copy failed — check permissions on $VAULT."
   fi

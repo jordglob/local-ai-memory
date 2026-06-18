@@ -292,3 +292,16 @@ History:
                           + INDEX, no leak. Also recorded the git/Syncthing live-sync
                           sibling pattern in §4.12 (markdown vault → file-sync just
                           works; config/.env stay per-machine). spec v1.39.
+  v21 CC   2026-06-18  — "make migration great" — §4.12 is now a polished, discoverable
+                          feature. (1) Discoverability: README "Moving to a new machine
+                          (or backing up)" section (export→restore→configure→doctor +
+                          git/Syncthing live-sync + what-moves-vs-redo); uninstall v1.1
+                          adds a friendly --backup alias for --export-only (findable
+                          without the word "uninstall"). (2) configure v4.12 migration-
+                          awareness (last §4.12 TODO): a populated vault + NO prior
+                          config = a vault moved here → prints "🧳 Migration detected —
+                          welcome back" (N convs), states honestly config+keys did NOT
+                          travel + re-derives for THIS hardware, points at doctor. (3)
+                          setup v8.15: post-restore message points at doctor. Loop
+                          coheres: uninstall --backup → setup --restore → configure
+                          (migration-aware) → doctor. spec v1.40.
