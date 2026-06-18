@@ -1,4 +1,16 @@
-# AI Memory Stack — Requirements Specification v1.35
+# AI Memory Stack — Requirements Specification v1.36
+
+<!-- v1.36 (2026-06-18): vault AGENTS.md converted from write_once to a MARKER-BLOCK
+     (setup v8.13), closing the last §5.3 gap where managed content was frozen after
+     first creation. The ai-memory routine now lives between
+     `<!-- >>> ai-memory vault routine … >>>` / `<<< … -->` markers: it REFRESHES on
+     re-run so template improvements reach existing vaults, while anything the user
+     adds OUTSIDE the markers is preserved. Legacy unmarked files are backed up
+     (.bak.<ts>) then migrated — our old template is cleanly replaced; a user-written
+     AGENTS.md is kept below the block. Mirrors the SOUL.md/launcher pattern.
+     Live-verified on the Mac (migrate → idempotent refresh; routine intact; 1 backup).
+     Asymmetry resolved: SOUL.md handover AND vault AGENTS.md now both self-refresh. -->
+
 
 <!-- v1.35 (2026-06-18): §4.3.1 DASHBOARD door closed (configure v4.10). Root cause
      found in Hermes source: the web dashboard's chat tab (hermes_cli/web_server.py
@@ -1407,7 +1419,11 @@ moving on. Known classes from the X230 run:
 - **Write-blind-don't-preserve:** configure may overwrite ~/.hermes/.env
   instead of reading the existing key first. Audit: does it overwrite
   config.yaml a re-run should preserve? Does setup clobber anything on re-run?
-  Rule: read-preserve-ask, don't blind-write.
+  Rule: read-preserve-ask, don't blind-write. Status: handled across the stack —
+  config.yaml = backup + model-block-only replace + atomic + read-back verify;
+  .env = per-key line replace; SOUL.md, shell launcher, AND the vault AGENTS.md
+  (v1.36) = marker-block refresh (managed block updates, user text outside kept);
+  Claude Desktop = JSON merge (not clobber); other vault files = write_once.
 - **Write-against-unknown-limit:** context_length written below Hermes' 64K
   floor. Audit: other values written without knowing the receiver's required
   range?

@@ -230,3 +230,14 @@ History:
                           carries TERMINAL_CWD, and a chat through it loads the VAULT
                           AGENTS.md (not the dev guide). Corrects the earlier ".env
                           covers the dashboard" assumption. spec v1.35.
+  v17 CC   2026-06-18  — vault AGENTS.md is now a MARKER-BLOCK (setup v8.13), not
+                          write_once. Closes the last §5.3 gap: managed content used
+                          to freeze after first creation, so existing vaults never got
+                          template improvements. Now the routine between
+                          `>>> ai-memory vault routine >>>` / `<<<` markers REFRESHES on
+                          re-run; user text outside the markers is preserved. Legacy
+                          unmarked files are backed up (.bak.<ts>) then migrated (our
+                          old template cleanly replaced; user-written file kept below
+                          the block). Sandbox-tested all 5 cases + live-verified on the
+                          Mac (migrate -> idempotent refresh; routine intact; 1 backup).
+                          Mirrors the SOUL.md/launcher pattern. spec v1.36.

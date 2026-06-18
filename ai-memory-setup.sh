@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.12
+#  ai-memory-setup.sh  v8.13
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -69,7 +69,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.12"; exit 0 ;;
+    echo "ai-memory-setup.sh v8.13"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -460,7 +460,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.12 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v8.13 — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -1094,8 +1094,18 @@ fi
 
 # ── AGENTS.md — the bridge: auto-injected into Hermes' system prompt ─────────
 # (written outside the step gate so re-runs on existing installs also get it)
-write_once "$VAULT/AGENTS.md" << AGENTSMD
-# AI Memory Vault — workspace instructions
+# MARKER-BLOCK managed: the ai-memory routine between the markers REFRESHES on
+# re-run so template improvements reach existing vaults, while anything the user
+# adds OUTSIDE the markers is preserved. Legacy unmarked files are backed up
+# first, then our old template is cleanly replaced (user-written files are kept
+# below the block). Mirrors the SOUL.md / shell-launcher marker-block pattern.
+AGENTS_ACTION=$(python3 - "$VAULT/AGENTS.md" << 'PYAGENTS'
+import sys, re, time
+from pathlib import Path
+path = sys.argv[1]
+start = "<!-- >>> ai-memory vault routine (managed — edit OUTSIDE these markers) >>> -->"
+end   = "<!-- <<< ai-memory vault routine <<< -->"
+body = """# AI Memory Vault — workspace instructions
 
 You are running inside a personal knowledge vault. Treat it as the user's
 long-term, agent-neutral memory.
@@ -1132,8 +1142,32 @@ Once per day, or when the user asks "check for updates":
    github.com/ollama/ollama/releases. Ignore blogs and aggregators.
 3. Write a short report with findings and exact upgrade commands to
    00-Inbox/UPDATES.md. NEVER install or upgrade anything yourself.
-   The user decides; you may execute an upgrade only after explicit approval.
-AGENTSMD
+   The user decides; you may execute an upgrade only after explicit approval."""
+block = start + "\n" + body.rstrip() + "\n" + end
+p = Path(path)
+text = p.read_text() if p.exists() else ""
+pat = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+if pat.search(text):
+    text = pat.sub(lambda m: block, text)                       # refresh in place
+    action = "refreshed"
+elif not text.strip():
+    text = block + "\n"                                          # fresh create
+    action = "created"
+else:
+    # legacy unmarked file — back it up, then migrate without losing anything
+    Path(str(p) + ".bak." + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())).write_text(text)
+    if text.lstrip().startswith("# AI Memory Vault — workspace instructions"):
+        text = block + "\n"                                      # our old template -> clean replace
+        action = "migrated (old template replaced; backup saved)"
+    else:
+        text = block + "\n\n<!-- preserved: your previous AGENTS.md content follows -->\n\n" + text
+        action = "migrated (your content preserved below the block; backup saved)"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(text)
+print(action)
+PYAGENTS
+)
+ok "Vault AGENTS.md — managed routine block ${AGENTS_ACTION}"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # STEP 2 — mcpvault
