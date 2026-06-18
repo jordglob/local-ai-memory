@@ -202,3 +202,16 @@ History:
                           NEXT bundles (own rounds): model-floor warning in configure,
                           ingest import INDEX (05-AI-Sessions/INDEX.md), `doctor`
                           per-door verifier (Hermes has a `doctor` subcommand).
+  v15 CC   2026-06-18  — KEYSTONE handover HARDENED (configure v4.9) after a live
+                          browser test with haiku-4.5 as the dashboard primary. The
+                          keystone WORKED (model read the handover + called tools),
+                          but a GENERIC question ("tell me about your memories") read
+                          the not-yet-built INDEX.md, errored, and falsely said the
+                          history was EMPTY without ever listing the folder (which
+                          holds 8 imported convs). Fix: handover now falls back to
+                          `ls -R 05-AI-Sessions/` when INDEX.md is absent and forbids
+                          claiming "empty" without having listed it (absent index ≠
+                          no history). Re-verified live: same query now runs ls -R +
+                          find and reports the 8 sessions correctly. spec v1.34.
+                          Reinforces that the import INDEX (next bundle) is needed so
+                          a generic recall question has a real manifest to read.

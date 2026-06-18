@@ -1,4 +1,17 @@
-# AI Memory Stack — Requirements Specification v1.33
+# AI Memory Stack — Requirements Specification v1.34
+
+<!-- v1.34 (2026-06-18): §4.3.1 handover HARDENED (configure v4.9) after a live
+     browser test. With haiku-4.5 as the dashboard's primary model the keystone
+     works — the model read the handover and called tools — BUT a GENERIC question
+     ("tell me about your memories", no keyword to grep) read the not-yet-built
+     INDEX.md, got an error, and falsely concluded the history was EMPTY without
+     ever listing the folder (which holds 8 imported convs). Fix: the handover now
+     says — if INDEX.md is absent, LIST the folder (`ls -R 05-AI-Sessions/`) and
+     NEVER claim "empty" without having listed it; an absent index ≠ no history.
+     Re-verified live: the same generic query now runs ls -R + find and correctly
+     reports the 8 sessions. Confirms the import INDEX (next bundle) is needed so a
+     generic recall question has a real manifest to read, not just a directory walk. -->
+
 
 <!-- v1.33 (2026-06-18): §4.3.1 KEYSTONE first slice BUILT + PROVEN end-to-end on
      the Mac (configure v4.8). The cwd-independent HANDOVER ships: configure writes
@@ -898,12 +911,17 @@ silent miss.
    is what makes recall dependable. The dashboard's wrong cwd AND the model's
    tool-refusal are independent failures; the fix must beat both.
 
-**Status: FIRST SLICE BUILT + PROVEN end-to-end (2026-06-18, configure v4.8).** The
-cwd-independent HANDOVER ships: `install_soul_handover()` writes a marker-bounded
-orientation block into `~/.hermes/SOUL.md` (always injected, every door, any cwd) —
-absolute vault paths, the search-don't-guess recipe, and explicit "actually CALL
-the tool, don't just describe it" wording (points 6-8). Idempotent; preserves any
-user persona text. Two diagnoses corrected the design's assumptions:
+**Status: FIRST SLICE BUILT + PROVEN end-to-end (2026-06-18, configure v4.8;
+hardened v4.9).** The cwd-independent HANDOVER ships: `install_soul_handover()`
+writes a marker-bounded orientation block into `~/.hermes/SOUL.md` (always injected,
+every door, any cwd) — absolute vault paths, the search-don't-guess recipe, and
+explicit "actually CALL the tool, don't just describe it" wording (points 6-8).
+Idempotent; preserves any user persona text. **v4.9 hardening (live browser
+finding):** a generic "what do you remember" question read the not-yet-built
+INDEX.md, errored, and falsely reported the history EMPTY without listing the
+folder; the handover now falls back to `ls -R 05-AI-Sessions/` when INDEX.md is
+absent and forbids claiming "empty" without having listed it (an absent index ≠ no
+history). Re-verified live. Two diagnoses corrected the design's assumptions:
 - **`TERMINAL_CWD` is NOT ignored** in the installed Hermes — `system_prompt.py`
   (context discovery) and `tool_executor.py` (file tools) both read
   `os.getenv("TERMINAL_CWD") or os.getcwd()`. The dashboard was blind only because

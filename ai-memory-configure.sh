@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.8
+#  ai-memory-configure.sh  v4.9
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -36,7 +36,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.8"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.9"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -59,7 +59,7 @@ HERMES_ENV="$HERMES_HOME/.env"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.8 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.9 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -594,18 +594,26 @@ block = (
     "    " + vault + "\n"
     "It holds the user's profile and their imported AI-conversation history, and\n"
     "is your long-term memory — reachable no matter where this session launched.\n\n"
-    "Before you ever say \"I don't have access to that\" or \"I don't remember\":\n"
-    "1. Read the user's profile:              " + vault + "/entities/user.md\n"
-    "2. Consult the import index (if present): " + vault + "/05-AI-Sessions/INDEX.md\n"
-    "3. SEARCH the imported history. Actually CALL your terminal/code tool — do not\n"
-    "   just describe the command — and use ABSOLUTE paths so it works from any cwd:\n"
+    "When the user asks what you know, about your memory, or any past topic, BEFORE\n"
+    "you say \"I don't have that\", \"I don't remember\", or \"nothing is imported\":\n"
+    "1. Read the user's profile:  " + vault + "/entities/user.md\n"
+    "2. Find out what history EXISTS. Read the index if it is there:\n"
+    "       " + vault + "/05-AI-Sessions/INDEX.md\n"
+    "   If that file does NOT exist, LIST the history folder instead — actually run\n"
+    "   the tool, and include the sub-folders:\n"
+    "       ls -R \"" + vault + "/05-AI-Sessions/\"\n"
+    "   NEVER say the history is empty without having listed that folder first. The\n"
+    "   sub-folders (claude-web/, claude-code/, openclaw/, lmstudio/, ...) hold the\n"
+    "   imported conversations; an absent INDEX.md does NOT mean there is no history.\n"
+    "3. For a SPECIFIC topic, SEARCH with absolute paths — actually CALL the tool,\n"
+    "   do not just describe the command:\n"
     "       grep -rli \"KEYWORD\" \"" + vault + "/05-AI-Sessions/\"\n"
     "   then read the matching files and answer from them. Try keyword variants\n"
     "   (synonyms, names, project titles). Never guess or invent filenames. Only\n"
     "   say you found nothing AFTER that grep has actually run and returned nothing.\n\n"
-    "You DO have filesystem and command tools available — use them. If a search\n"
-    "returns matches, the memory is there; claiming \"no access\" without having run\n"
-    "the tool is a mistake.\n"
+    "You DO have filesystem and command tools available — use them. If a listing or\n"
+    "search returns entries, the memory is there; claiming \"no access\" or \"empty\"\n"
+    "without having run the tool is a mistake.\n"
     + end
 )
 p = Path(soul)
