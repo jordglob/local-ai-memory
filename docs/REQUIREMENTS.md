@@ -1,4 +1,22 @@
-# AI Memory Stack — Requirements Specification v1.37
+# AI Memory Stack — Requirements Specification v1.38
+
+<!-- v1.38 (2026-06-18): `doctor` per-door reachability verifier BUILT — the keystone
+     trio is complete (§4.3.1 pt4, §6 carry-along). New 6th family script
+     ai-memory-doctor.sh v1.0 (auto-installed by setup's ai-memory-*.sh copy glob),
+     READ-ONLY. Deterministic checks (no model/tokens): vault; INDEX in sync with
+     disk (flags imported-but-not-indexed + indexed-but-missing — the detectable
+     mismatch); handover present with ABSOLUTE vault path + search routine; door
+     wiring (TERMINAL_CWD + launcher); model floor (reuses the §4.2 heuristic);
+     and a model-free SEARCHABILITY PROOF (from /tmp, the prescribed absolute-path
+     grep finds vault content). Optional --live: a real `hermes chat -q` round-trip
+     through the shell door that CONFIRMS tool-calls>0 + a cited vault file (§4.3.1
+     pt8); dashboard/gateway flagged as browser-confirm-only (can't drive headless).
+     Exit 1 if a critical door is broken. NOTE doctor uses `set -uo pipefail` (NOT
+     -e) by design — it runs checks meant to fail. Live-verified on the Mac: 7/7
+     deterministic pass on the real vault; --live = 5 real tool calls + cited file.
+     Bash-3.2 caught a real bug bash-5 missed: a literal backtick in a python regex
+     inside $(...) broke the Mac parser → rewrote to a backtick-free regex. -->
+
 
 <!-- v1.37 (2026-06-18): two keystone-finishing builds. (1) §4.2 MODEL-FLOOR warning
      made user-facing + evidence-based (configure v4.11): the warn_weak_model trigger
@@ -993,11 +1011,12 @@ haiku-4.5 via OpenRouter made 6 REAL tool calls**, ran `grep -rli "OpenClaw"
 real imported files (`05-AI-Sessions/openclaw/…`, `…/lmstudio/…openclaw-på-mac-mini…`).
 This satisfies the definition of done from the dashboard's failure cwd, and proves
 the model floor (§4.2) is required for reliable recall, not optional.
-**BUILT since: model-floor warning (configure v4.11, §4.2) and the import INDEX
-(ingest v2.10, point 6 — `05-AI-Sessions/INDEX.md`, which the handover already points
-at). Still TODO: the `doctor` per-door verifier (Hermes has a `doctor` subcommand to
-build on — it would have caught "0 tool calls"; it consumes the INDEX to flag
-imported-but-not-reachable).**
+**BUILT — the keystone trio is complete: model-floor warning (configure v4.11, §4.2),
+the import INDEX (ingest v2.10, point 6 — `05-AI-Sessions/INDEX.md`), and the
+`doctor` per-door reachability verifier (`ai-memory-doctor.sh` v1.0 — deterministic
+checks incl. an INDEX-vs-disk sync check + a model-free searchability proof, plus an
+opt-in `--live` round-trip that confirms tool-calls>0 + a cited vault file). Recall is
+now reachable from every door, and verifiable on demand.**
 
 ## 4.2 Model capability floor for tool-use / memory (X230 live finding)
 

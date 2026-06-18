@@ -259,3 +259,19 @@ History:
                           keyword-less "give me an overview" now READS the index
                           (2 tool calls) instead of ls -R. spec v1.37. Next: doctor
                           (consumes the INDEX to flag imported-but-not-reachable).
+  v19 CC   2026-06-18  — `doctor` BUILT — keystone trio complete. New 6th family
+                          script ai-memory-doctor.sh v1.0 (READ-ONLY; auto-installed
+                          by setup's ai-memory-*.sh glob). Deterministic checks (no
+                          model/tokens): vault; INDEX-vs-disk sync (flags imported-
+                          but-not-indexed / indexed-but-missing); handover present w/
+                          ABSOLUTE vault path + search routine; door wiring
+                          (TERMINAL_CWD + launcher); §4.2 model floor; and a model-
+                          free SEARCHABILITY PROOF (from /tmp the absolute-path grep
+                          finds vault content). Opt-in --live: real `hermes chat -q`
+                          round-trip confirming tool-calls>0 + a cited vault file
+                          (§4.3.1 pt8); dashboard/gateway = browser-confirm-only.
+                          Exit 1 if a critical door is broken. Uses `set -uo pipefail`
+                          (not -e) by design. Live-verified on the Mac: 7/7
+                          deterministic + --live = 5 tool calls + cited file. Bash-3.2
+                          surfaced a parser bug bash-5 missed (literal backtick in a
+                          python regex inside $()) — fixed. spec v1.38.
