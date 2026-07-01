@@ -305,3 +305,26 @@ History:
                           setup v8.15: post-restore message points at doctor. Loop
                           coheres: uninstall --backup → setup --restore → configure
                           (migration-aware) → doctor. spec v1.40.
+  v22 CC   2026-07-01  — review-driven security & correctness hardening across the whole
+                          family (no new features; closes real defects found by a full code
+                          review — see REVIEW.md). CRITICAL: uninstall v1.2 — `--no-export
+                          --yes` can no longer delete the vault without the loud DELETE confirm
+                          (added `--force-no-export` as the only non-interactive escape); export
+                          verified (tar -tzf + md-count) before any removal. remote v2.8 —
+                          `--yes` disables password auth only after a real key-login test
+                          passes; auto-revert timer; verifies the LIVE daemon; macOS
+                          `kickstart -k` removed; GitHub-key fingerprint confirm (SSH paths
+                          written-but-unproven on real nodes). setup v8.16 — download-then-
+                          verify all installers, dropped `sudo -E`, df disk-check (no python3
+                          dep), JSON via python, sudo-keepalive killed, apt errors surfaced,
+                          npm PATH persisted, version drift fixed. ingest v2.12 — real content-
+                          hash idempotency + stable-id match (no re-import duplicates), path-
+                          traversal sanitise + vault-boundary guard, zip-bomb cap. configure
+                          v4.13 — safe YAML scalar quoting (no regex splice), exact ollama tag
+                          match, atomic .env, Windows/WSL RAM detection, shell-safe launcher.
+                          doctor v1.1 — no vacuous green without python3; READ-ONLY scoped to
+                          non-`--live`. DOCS: added REVIEW.md; CLAUDE.md four→six scripts;
+                          REQUIREMENTS.md scrubbed of leaked private IPs/pids/paths + duplicate
+                          lines. Shipped via git push to main (14d92fd), not a zip. Ethos
+                          intact: strengthens "verify against the source" + "secrets never
+                          leak"; nothing self-modifies.
