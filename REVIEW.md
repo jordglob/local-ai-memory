@@ -240,3 +240,97 @@ care about.**
     config gen) in CI.** *(Architecture)*
 11. **Housekeeping: single-source the setup version; fix the dead `publish-to-github.sh`
     placeholder guard; split the spec from the journal.** *(Docs)*
+
+---
+
+# Appendix A — Proposal: encrypted, opt-in *secrets bundle* (design sketch)
+
+> Status: **design sketch, not built.** Proposed as an *optional, isolated* surface
+> (like `remote.sh`), gated behind an explicit dangerous flag. It does **not** change
+> the default export, which stays secret-free.
+
+## Why this exists (and the hard constraint it must not break)
+
+Porting to new hardware today means re-entering every key by hand (LLM API keys,
+Cloudflare token, SSH keys, …). Real friction. **But** the project's keystone promise
+is *"secrets never travel in an export"* (README; §4.12), and that promise is what makes
+the vault archive **safe to move anywhere** — USB, scp, cloud, email — because it carries
+nothing sensitive. Putting plaintext keys into that archive would destroy the one property
+the export is built on. Exports routinely land in `~/Downloads`, cloud sync, and git;
+a leaked archive must never equal a leaked keychain.
+
+So the secrets bundle is **not** part of the vault export. It is a **separate, encrypted,
+opt-in, categorized, staged** side-channel. The plain-markdown vault export is unchanged.
+
+## The insight: not all secrets are portable — classify, don't dump
+
+"Port everything in one go" is the wrong model. Each secret gets a **portability class**:
+
+| Class | Meaning | Default in bundle | Examples |
+|---|---|---|---|
+| **PORTABLE** | Same value is valid on any machine; moving it is a convenience | opt-in, included when selected | LLM API keys (OpenRouter/Anthropic/…), Cloudflare/DDNS token, Tavily/Firecrawl keys |
+| **SENSITIVE-PORTABLE** | Portable but high blast-radius; extra confirm | opt-in, off by default | SSH private keys |
+| **RE-DERIVE** | Should be regenerated per machine; porting causes *identity collision* or is meaningless | **excluded** (tool tells you to regenerate) | WireGuard private keys (two nodes must not share one key), machine-bound tokens, `TERMINAL_CWD`/paths |
+| **NEVER** | Too sensitive for any tooling export; belongs in dedicated secure storage | **excluded**, pointer only | crypto wallet seed phrases / private keys → hardware wallet / cold storage |
+
+This directly answers "can you even port it all at once?" — **no, by design.** WireGuard is
+re-derived on the new node (matches the existing *"config re-derived per machine"* ethos);
+**crypto wallet keys are never carried** — the tool records only *where* they live (a note),
+never the secret. Staged, selective porting is a first-class feature, not a limitation.
+
+## CLI surface
+
+A dedicated, isolated script keeps the dangerous surface contained (mirrors `remote.sh`):
+
+```
+ai-memory-secrets.sh list                       # read-only: what COULD travel, by class (names only, never values)
+ai-memory-secrets.sh export [--only llm,ssh]    # opt-in categories; writes an encrypted blob + a values-free manifest
+                       [--all-portable]          #   convenience: PORTABLE only (never RE-DERIVE/NEVER)
+                       [--include-wireguard]     #   explicit override for a RE-DERIVE item (warns hard)
+                       [--to /media/usb]         #   refuses to write into the vault or its export dir
+ai-memory-secrets.sh import <file.age>          # on new hardware: decrypt → show manifest → per-category confirm → place with chmod 600
+```
+
+(Alternatively expressed as `uninstall --include-secrets` / `setup --restore-secrets`, but a
+separate script isolates the blast radius and the review's `--yes`-safety lesson.)
+
+## Encryption & artifacts
+
+- **Encrypt with `age`** (`age -p` passphrase, or `-r <recipient-pubkey>`); fall back to
+  `gpg --symmetric` if `age` is absent. Single portable blob, useless without the secret.
+- **Two files, always separate:**
+  - `ai-memory-secrets-<date>.age` — the encrypted payload.
+  - `ai-memory-secrets-<date>.manifest.txt` — **unencrypted, values-free**: category, item
+    *names* (e.g. `OPENROUTER_API_KEY`), class, blast-radius note, and a checksum/auth-tag of
+    the `.age` file. So you always know *what* you're carrying without decrypting.
+- **Import verifies first:** check the `.age` file's integrity/tag against the manifest before
+  attempting to place anything (the review's "verify before you trust" lesson applies here too).
+
+## Safety rails (learned from this review)
+
+- **No default, ever.** Requires an explicit subcommand + a loud confirm; `--yes` must **not**
+  auto-satisfy the secrets export (same rule the `uninstall`/`remote` fixes established).
+- **Never writes into the vault or the vault export dir**; refuses, and nudges toward
+  removable/offline media.
+- **RE-DERIVE items are excluded** unless individually forced with their own flag + warning;
+  **NEVER items are pointer-only** and can't be included at all.
+- **Idempotent, staged, resumable** — export/import `llm` now, `ssh` later; re-runs are safe.
+- **Perms enforced on import** (`chmod 600`, correct dirs), matching the project's secret hygiene.
+- Manifest states the **blast radius** in plain language ("this file, if decrypted, grants: …").
+
+## Ethos check
+
+Preserves every principle: the plain vault export stays secret-free (keystone intact); secrets
+move only **encrypted, opt-in, and classified**; per-machine things are **re-derived** not copied;
+the tool **recommends, never decides** (it won't carry wallet keys for you). The cleaner long-term
+answer is still a real secrets manager — Hermes already ships `hermes secrets` (Bitwarden Secrets
+Manager) — so this bundle is best framed as the *offline/air-gapped* alternative for people who
+don't want a cloud secrets service.
+
+## Open questions for the maintainer
+
+1. Separate `ai-memory-secrets.sh` vs. flags on `uninstall`/`setup`? (Isolation argues for separate.)
+2. `age` as a hard dependency (clean) vs. `gpg` fallback (portable)? 
+3. Should `list`/`export` auto-discover secrets (scan `~/.hermes/.env`, `~/.ssh`, `/etc/wireguard`,
+   RustDesk, …) or work only from an explicit allow-list the user curates? (Allow-list is safer.)
+4. Recovery-code / Shamir split for the passphrase, or keep it a single passphrase?
