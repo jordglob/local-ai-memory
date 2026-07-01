@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.7
+#  ai-memory-remote.sh  v2.8
 #  Remote access & always-on setup for AI Memory Stack nodes
+#  v2.8: lockout-proof SSH hardening — real key-login test, live-daemon verify,
+#        and a timed auto-revert net before password auth is ever disabled.
 #
 #  First question: what is this machine?
 #    MAIN  — the computer you sit at. Gets an SSH keypair (one per client
@@ -22,7 +24,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.7"
+VERSION="2.8"
 
 case "${1:-}" in
   -h|--help)
@@ -106,7 +108,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.7          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.8          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -245,11 +247,17 @@ else
       *)      die "No supported package manager found" ;;
     esac
     sudo systemctl enable --now ssh 2>/dev/null || sudo systemctl enable --now sshd 2>/dev/null
-    # If the ufw firewall is active it will block port 22 — open it
-    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-      sudo ufw allow ssh >/dev/null 2>&1 && ok "ufw: SSH allowed through the firewall"
-    fi
     ssh_running && ok "SSH server running" || warn "sshd not responding — check: systemctl status sshd"
+  fi
+fi
+
+# If the ufw firewall is active it blocks port 22 — open it regardless of which
+# branch ran above (a pre-existing sshd may predate ufw being enabled).
+if [[ "$OS" != "macos" ]] && command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+  if sudo ufw status 2>/dev/null | grep -qiE '(^|[[:space:]])(22|ssh)(/tcp)?[[:space:]].*allow'; then
+    skip "ufw: SSH already allowed"
+  else
+    sudo ufw allow ssh >/dev/null 2>&1 && ok "ufw: SSH allowed through the firewall"
   fi
 fi
 
@@ -285,7 +293,22 @@ if $CAN_PROMPT && ! $ASSUME_YES; then
       if [[ -n "$ghuser" ]]; then
         keys="$(curl -fsSL --max-time 15 "https://github.com/${ghuser}.keys" 2>/dev/null || true)"
         if [[ -n "$keys" ]]; then
-          echo "$keys" | while IFS= read -r k; do [[ -n "$k" ]] && add_key "$k"; done
+          info "Keys published by github.com/$ghuser — confirm each before installing"
+          info "(a mistyped username would otherwise authorize a stranger):"
+          # Feed the loop via here-doc (not a pipe) so it runs in THIS shell and
+          # ask_yn can still read /dev/tty for the per-key confirmation.
+          while IFS= read -r k; do
+            [[ -n "$k" ]] || continue
+            fp="$(printf '%s\n' "$k" | ssh-keygen -lf - 2>/dev/null || echo 'fingerprint unavailable')"
+            echo -e "    ${CYAN}$fp${NC}"
+            if ask_yn "Install this key from github.com/$ghuser?" n; then
+              add_key "$k"
+            else
+              info "Skipped this key"
+            fi
+          done <<GHKEYS
+$keys
+GHKEYS
         else
           warn "No keys found for github.com/$ghuser"
         fi
@@ -311,13 +334,51 @@ fi
 hdr "3/6  SSH hardening (disable password login)"
 # ═════════════════════════════════════════════════════════════════════════════
 if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
-  echo "  Before disabling password login, key login MUST be verified."
-  echo "  From your CLIENT machine, open a NEW terminal and run:"
   IPGUESS="$( { [[ "$OS" == "macos" ]] && ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}'; } || true )"
-  echo -e "    ${CYAN}ssh $REMOTE_USER@${IPGUESS:-<this-machine-ip>}${NC}"
-  echo "  It must log in WITHOUT asking for the account password"
-  echo "  (a key passphrase prompt is fine — that is your key, not the account)."
-  if ask_yn "Did key login work, and do you want to disable password login?" n; then
+
+  # ── Gate: prove key-only login works BEFORE touching password auth ──────────
+  # --yes must NEVER be able to disable password auth on its own. We proceed only
+  # when a real key-only login test passes, or (test unavailable) an explicit
+  # interactive confirmation — never on --yes alone.
+  key_login_test() {  # key_login_test — 0 if key-only auth succeeds to this box
+    local t
+    for t in localhost "${IPGUESS:-}"; do
+      [[ -n "$t" ]] || continue
+      if ssh -o BatchMode=yes -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
+             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+             -o ConnectTimeout=5 "$REMOTE_USER@$t" true 2>/dev/null; then
+        return 0
+      fi
+    done
+    return 1
+  }
+
+  info "Testing key-only login (no password) before disabling password auth..."
+  KEY_LOGIN_OK=false
+  if key_login_test; then KEY_LOGIN_OK=true; ok "Key-only login verified from this node"; fi
+
+  DO_DISABLE=false
+  if $KEY_LOGIN_OK; then
+    # Proof exists — safe to let --yes proceed, because the test (not the flag)
+    # is what makes this safe.
+    ask_yn "Disable password login now? (key-only login is verified)" y && DO_DISABLE=true
+  else
+    warn "Automated key-only login test did NOT pass from this node."
+    warn "That is expected if this node has no matching PRIVATE key locally"
+    warn "(your client key never leaves your client). Verify by hand instead:"
+    echo  "  From your CLIENT machine, open a NEW terminal and run:"
+    echo -e "    ${CYAN}ssh $REMOTE_USER@${IPGUESS:-<this-machine-ip>}${NC}"
+    echo  "  It must log in WITHOUT asking for the account password"
+    echo  "  (a key passphrase prompt is fine — that is your key, not the account)."
+    if $CAN_PROMPT && ! $ASSUME_YES; then
+      # NEVER auto-satisfied by --yes: this path requires a live interactive answer.
+      ask_yn "Confirm ONLY if key login just worked from your client — disable password login?" n && DO_DISABLE=true
+    else
+      warn "Non-interactive and key login unproven — password login kept ON (safe)."
+    fi
+  fi
+
+  if $DO_DISABLE; then
     # sshd is FIRST-MATCH-WINS and reads sshd_config.d/*.conf alphabetically, so a
     # distro drop-in like 50-cloud-init.conf (PasswordAuthentication yes) beats a
     # 99- file. We therefore sort FIRST (00-) to win, fall back to the main config
@@ -334,20 +395,96 @@ if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
       warn "sshd_config has no drop-in Include — writing into the main config instead"
       SSHD_DROPIN="/etc/ssh/sshd_config"
       sudo sed -i -E 's/^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication)[[:space:]].*/# &  (superseded by ai-memory)/I' /etc/ssh/sshd_config 2>/dev/null || true
-      printf '\n# ai-memory hardening\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee -a /etc/ssh/sshd_config >/dev/null
+      # Idempotent: append our block only once (re-runs must not stack duplicates).
+      if ! sudo grep -q '^# ai-memory hardening$' /etc/ssh/sshd_config 2>/dev/null; then
+        printf '\n# ai-memory hardening\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee -a /etc/ssh/sshd_config >/dev/null
+      fi
     fi
     if ! sudo sshd -t 2>/dev/null; then
       warn "sshd config test failed — NOT restarting. Password login left ON; fix sshd_config first."
     else
-      if [[ "$OS" == "macos" ]]; then
-        sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+      # ── Auto-revert safety net ────────────────────────────────────────────
+      # Before the change goes live, schedule a rollback that re-enables password
+      # auth after REVERT_MIN minutes UNLESS a confirmed new session drops a
+      # sentinel file. This is what stops a broken key setup from locking you out
+      # of a headless box. The rollback runs as root (scheduled while we hold sudo).
+      REVERT_MIN=5
+      SENTINEL="/tmp/ai-memory-ssh-confirmed.$$"
+      rm -f "$SENTINEL" 2>/dev/null || true
+      if [[ "$SSHD_DROPIN" == "/etc/ssh/sshd_config" ]]; then
+        REVERT_CMD="sed -i -E 's/^PasswordAuthentication no/PasswordAuthentication yes/; s/^KbdInteractiveAuthentication no/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config"
       else
-        sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || true
+        REVERT_CMD="printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > '$SSHD_DROPIN'"
       fi
+      REVERT_SH="$(mktemp 2>/dev/null || echo "/tmp/ai-memory-revert.$$")"
+      cat > "$REVERT_SH" <<REVERT
+#!/bin/sh
+# ai-memory auto-revert: re-enable password login unless the new session confirmed.
+[ -f "$SENTINEL" ] && exit 0
+$REVERT_CMD
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || \
+  systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+else
+  launchctl kill HUP system/com.openssh.sshd 2>/dev/null || true
+fi
+REVERT
+      chmod +x "$REVERT_SH" 2>/dev/null || true
+      REVERT_ARMED=false
+      if command -v systemd-run &>/dev/null && \
+         sudo systemd-run --quiet --on-active="${REVERT_MIN}min" --unit=ai-memory-ssh-revert /bin/sh "$REVERT_SH" 2>/dev/null; then
+        REVERT_ARMED=true
+      elif command -v at &>/dev/null && echo "/bin/sh $REVERT_SH" | sudo at now + "$REVERT_MIN" minutes 2>/dev/null; then
+        REVERT_ARMED=true
+      else
+        # Detached fallback: sudo holds root for the whole sleep window, so the
+        # rollback still has privileges after this script exits.
+        sudo sh -c "sleep $((REVERT_MIN*60)); /bin/sh '$REVERT_SH'" &
+        REVERT_ARMED=true
+      fi
+      if $REVERT_ARMED; then
+        warn "AUTO-REVERT ARMED: password login re-enables in ${REVERT_MIN} min unless confirmed."
+      else
+        warn "Could not arm an auto-revert timer — proceeding WITHOUT a rollback net."
+        warn "Keep a local session open until you have confirmed key login works."
+      fi
+
+      # ── Apply to the running daemon (non-killing) ─────────────────────────
+      RESTART_OK=false
+      if [[ "$OS" == "macos" ]]; then
+        # launchd spawns a fresh sshd per connection, so NEW connections already
+        # read the updated config — no restart needed. Do NOT 'kickstart -k'
+        # (that drops the live session).
+        warn "macOS: new SSH connections use the updated config automatically."
+        warn "Keep a local or RustDesk session open until you have confirmed key login."
+        RESTART_OK=true
+      else
+        if sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null \
+           || sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null; then
+          RESTART_OK=true
+        fi
+      fi
+
+      # ── Verify the LIVE daemon, not just the file ─────────────────────────
       EFF="$(sudo sshd -T 2>/dev/null | awk '$1=="passwordauthentication"{print $2}' || true)"
-      if [[ "$EFF" == "no" ]]; then
-        ok "Password login disabled and VERIFIED (sshd -T: passwordauthentication no) — $SSHD_DROPIN"
+      KEY_STILL_OK=false
+      if $RESTART_OK && key_login_test; then KEY_STILL_OK=true; fi
+      if [[ "$EFF" == "no" ]] && $KEY_STILL_OK; then
+        # Programmatic proof the hardened daemon still accepts key login → the box
+        # is reachable, so cancel the auto-revert on our own behalf.
+        : > "$SENTINEL" 2>/dev/null || true
+        ok "Password login disabled and VERIFIED on the LIVE daemon (key login still works) — $SSHD_DROPIN"
+        ok "Auto-revert cancelled — key login confirmed programmatically."
         warn "Keep your key safe — it is now the only way in over SSH"
+      elif [[ "$EFF" == "no" ]] && ! $RESTART_OK; then
+        warn "Config says passwordauthentication=no but the sshd reload/restart did NOT succeed."
+        warn "The change may not be live. Check: sudo systemctl status ssh"
+        $REVERT_ARMED && echo -e "  Once a NEW key session works, keep it disabled with: ${CYAN}touch $SENTINEL${NC}"
+      elif [[ "$EFF" == "no" ]]; then
+        warn "sshd -T reports passwordauthentication=no, but I could NOT confirm key"
+        warn "login from this node (no local private key is normal). Confirm from your CLIENT."
+        $REVERT_ARMED && echo -e "  Then KEEP it disabled from that session with: ${CYAN}touch $SENTINEL${NC}"
+        $REVERT_ARMED && echo  "  Do nothing and password login auto-reverts in ${REVERT_MIN} min."
       else
         warn "Tried to disable password login, but sshd still reports passwordauthentication=${EFF:-unknown}."
         warn "Password login is STILL ON (so you are not locked out). A higher-priority setting overrides ours."
@@ -577,7 +714,12 @@ DDNS
       "$CFDIR/cloudflare-ddns.sh" 2>/dev/null && ok "Cloudflare record updated to current IP"         || warn "First update failed — check token/zone; script saved at $CFDIR/cloudflare-ddns.sh"
       # schedule
       if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
-        (crontab -l 2>/dev/null; echo "*/15 * * * * $CFDIR/cloudflare-ddns.sh >/dev/null 2>&1") | crontab - 2>/dev/null           && ok "Scheduled every 15 min (cron)"
+        # Idempotent: don't append a duplicate cron line on every re-run.
+        if crontab -l 2>/dev/null | grep -qF "$CFDIR/cloudflare-ddns.sh"; then
+          skip "Cloudflare DDNS cron entry"
+        else
+          (crontab -l 2>/dev/null; echo "*/15 * * * * $CFDIR/cloudflare-ddns.sh >/dev/null 2>&1") | crontab - 2>/dev/null           && ok "Scheduled every 15 min (cron)"
+        fi
       elif [[ "$OS" == "macos" ]]; then
         info "To run it regularly, add a launchd job (see Tips) — or it runs on demand."
       fi

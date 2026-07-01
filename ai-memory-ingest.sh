@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.11
+#  ai-memory-ingest.sh  v2.12
 #  Import scattered AI conversations into the vault — 10 sources
+#  v2.12: true idempotency — identity keyed on stable conversation id +
+#         content hash (mtime no longer forks duplicates; grown chats refresh);
+#         path-safe id/date components; uncompressed-size cap on zip members.
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
 #           cursor, aider, lmstudio, open-webui, gemini-takeout
@@ -17,15 +20,16 @@
 #    bash ai-memory-ingest.sh --source chatgpt --path ~/Downloads/export.zip
 #    bash ai-memory-ingest.sh --all --yes               non-interactive
 #
-#  Idempotent: already-imported conversations are skipped (matched by ID).
+#  Idempotent: matched by stable conversation id — identical chats are skipped,
+#  grown/edited chats are refreshed in place (content hash), never duplicated.
 # =============================================================================
 set -euo pipefail
 command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 exec python3 - "$@" << 'PYMAIN'
-import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch
+import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 from pathlib import Path
 
-VERSION = "2.11"
+VERSION = "2.12"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -60,15 +64,26 @@ def slugify(s, n=55):
     s = re.sub(r"[^\w\s-]", "", s or "untitled", flags=re.UNICODE).strip()
     return (re.sub(r"[\s_]+", "-", s)[:n].strip("-") or "untitled").lower()
 
+def _safe_id(s, n=40):
+    """Whitelist an id to filename-safe chars — a hostile/corrupt export must not
+    smuggle path separators (`../`) into the conversation id (path-traversal fix)."""
+    s = re.sub(r"[^A-Za-z0-9._-]", "", str(s or "")).strip("._-")
+    return s[:n] or "noid"
+
+def _safe_date(s):
+    """Accept only a leading YYYY-MM-DD; anything else (incl. `../..`) → 'undated'."""
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", str(s or ""))
+    return m.group(1) if m else "undated"
+
 def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
-    """conv: {id, title, created, messages:[(role,text)], note?}  Idempotent by id."""
-    cid = (str(conv.get("id") or "noid"))[:12]
-    date = (str(conv.get("created") or ""))[:10] or "undated"
-    fname = f"{date}-{slugify(conv.get('title'))}-{cid}.md"
-    path = out_dir / fname
-    if path.exists():
-        stats["skipped"] += 1
-        return
+    """conv: {id, title, created, messages:[(role,text)], note?}
+
+    Idempotent by STABLE conversation id (never by the mtime-derived date): the
+    prior import for this id is found regardless of its date/slug prefix, its
+    stored content hash is compared, and the file is SKIPPED if identical or
+    OVERWRITTEN in place if the conversation grew/changed — no duplicates."""
+    cid = _safe_id(conv.get("id"))
+    date = _safe_date(conv.get("created"))
     # Clean every message (strip renderer-placeholder noise, tidy blank lines)
     # BEFORE the empty check, so a message that was *only* noise is dropped and
     # never emits a hollow "**Assistant:**" block.
@@ -76,10 +91,39 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     if not msgs:
         stats["empty"] += 1
         return
+    # Content hash over the cleaned messages only — deliberately excludes the
+    # mtime-derived `created`, so a re-import of the same chat is a true no-op.
+    h = hashlib.sha256()
+    for r, ct in msgs:
+        h.update((str(r) + "\x00" + ct + "\x00").encode("utf-8"))
+    content_hash = h.hexdigest()[:16]
+    # Locate a prior import of THIS id (stable), ignoring its date/slug prefix.
+    existing = None
+    if cid != "noid" and out_dir.is_dir():
+        existing = next(iter(sorted(out_dir.glob(f"*-{cid}.md"))), None)
+    path = existing if existing is not None else (out_dir / f"{date}-{slugify(conv.get('title'))}-{cid}.md")
+    # Belt-and-suspenders: the resolved target must stay inside the vault, even
+    # though id/date are now sanitized above.
+    try:
+        path.resolve().relative_to(out_dir.resolve())
+    except ValueError:
+        err(f"{source}: refusing to write outside vault: {path}")
+        stats["failed"] += 1
+        return
+    if existing is not None and existing.exists():
+        prior = existing.read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"(?m)^- hash: (\S+)$", prior)
+        if m and m.group(1) == content_hash:
+            stats["skipped"] += 1          # byte-for-byte the same conversation
+            return
+        updated = True                     # grown/edited (or legacy file w/o hash)
+    else:
+        updated = False
     L = [f"# {conv.get('title') or 'Untitled'}", "",
          f"- source: {source}",
          f"- created: {conv.get('created') or '?'}",
-         f"- id: {conv.get('id') or '?'}"]
+         f"- id: {conv.get('id') or '?'}",
+         f"- hash: {content_hash}"]
     if conv.get("note"):
         L += [f"- note: {conv['note']}"]
     L += ["", "---", ""]
@@ -89,7 +133,7 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         L += [label.get(str(role).lower(), f"**{role}:**"), "", text.strip(), ""]
     out_dir.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(L), encoding="utf-8")
-    stats["new"] += 1
+    stats["updated" if updated else "new"] += 1
 
 # Renderer placeholders some exporters embed in their pre-rendered "text" field
 # where a tool-call / artifact / search block could not be shown. Pure noise in a
@@ -130,14 +174,31 @@ def text_from_blocks(content):
     return ""
 
 # ── parsers (each: parse(path, out_root) -> stats dict) ──────────────────────
-def _stats(): return {"new": 0, "skipped": 0, "empty": 0, "failed": 0}
+def _stats(): return {"new": 0, "updated": 0, "skipped": 0, "empty": 0, "failed": 0}
+
+# Cap on a single decompressed zip member. A malicious/decompression-bomb export
+# can be a few KB on disk yet expand to many GB — reading it whole would OOM the
+# process. Refuse anything over this uncompressed threshold. (2 GiB is generous;
+# a real conversations.json export is MBs, not GBs.)
+_MAX_MEMBER_BYTES = 2 * 1024 ** 3
+
+def _zip_read(z, name):
+    """Read a zip member as bytes, guarding against decompression bombs."""
+    size = z.getinfo(name).file_size
+    if size > _MAX_MEMBER_BYTES:
+        raise ValueError(f"{name}: {size} bytes uncompressed exceeds "
+                         f"{_MAX_MEMBER_BYTES}-byte cap — refusing (possible zip bomb)")
+    return z.read(name)
+
+def _zip_read_json(z, name):
+    return json.loads(_zip_read(z, name).decode("utf-8", "replace"))
 
 def parse_claude_zip(zpath, out_root):
     st = _stats(); out = out_root / "claude-web"
     with zipfile.ZipFile(zpath) as z:
         name = next((n for n in z.namelist() if n.endswith("conversations.json")), None)
         if not name: raise ValueError("no conversations.json in zip")
-        data = json.loads(z.read(name).decode("utf-8", "replace"))
+        data = _zip_read_json(z, name)
     for conv in data:
         try:
             msgs = []
@@ -176,7 +237,7 @@ def parse_chatgpt_zip(zpath, out_root):
     with zipfile.ZipFile(zpath) as z:
         name = next((n for n in z.namelist() if n.endswith("conversations.json")), None)
         if not name: raise ValueError("no conversations.json in zip")
-        data = json.loads(z.read(name).decode("utf-8", "replace"))
+        data = _zip_read_json(z, name)
     for conv in data:
         try:
             mapping = conv.get("mapping") or {}
@@ -413,7 +474,7 @@ def parse_takeout(path, out_root):
             with zipfile.ZipFile(p) as z:
                 name = next((n for n in z.namelist()
                              if "Gemini" in n and n.endswith(".html")), None)
-                if name: html = z.read(name).decode("utf-8", "replace")
+                if name: html = _zip_read(z, name).decode("utf-8", "replace")
         elif p.is_dir():
             f = next(iter(p.rglob("*Gemini*/*.html")), None) or next(iter(p.rglob("MyActivity.html")), None)
             if f: html = f.read_text(encoding="utf-8", errors="replace")
@@ -604,6 +665,30 @@ def find_files(roots, pattern, max_depth=6, shallow=False):
 ZIP_FN = {"claude-web": parse_claude_zip, "chatgpt": parse_chatgpt_zip,
           "gemini-takeout": parse_takeout}
 
+def warn_path_source_mismatch(source, path):
+    """Light sanity check that an explicit --path plausibly matches --source.
+    Non-blocking: warns and continues, since the user asked for this source."""
+    spec = SOURCES.get(source, {})
+    p = Path(path).expanduser()
+    if not p.exists():
+        warn(f"--path does not exist: {p}"); return
+    kind = spec.get("kind")
+    if kind == "zip":
+        sniffed = sniff_zip(p)
+        if sniffed and sniffed != source:
+            warn(f"--path looks like a '{sniffed}' export, not --source '{source}'"
+                 " — importing as requested; double-check this is what you meant.")
+        elif sniffed is None:
+            warn(f"--path is not a recognizable {source} export ZIP"
+                 " — importing as requested.")
+    elif kind == "dir" and not p.is_dir():
+        warn(f"--source {source} expects a directory but --path is a file: {p}")
+    elif kind == "glob":
+        pat = spec.get("pattern", "")
+        if p.is_file() and pat and not fnmatch.fnmatch(p.name, pat):
+            warn(f"--path '{p.name}' doesn't match the expected '{pat}' for"
+                 f" --source {source} — importing as requested.")
+
 def run_source(name, out_root, explicit_path=None, scan_roots=None):
     spec = SOURCES[name]
     totals = _stats()
@@ -754,7 +839,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.11         ║"))
+    print(c("1", "║   AI Memory Stack — Ingest v2.12         ║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
@@ -820,6 +905,8 @@ def main():
     elif a.source:
         if a.source not in SOURCES:
             err(f"Unknown source '{a.source}' — see --list-sources"); return 1
+        if a.path:
+            warn_path_source_mismatch(a.source, a.path)
         results[a.source] = run_source(a.source, out_root,
                                        explicit_path=a.path, scan_roots=scan_roots)
     else:                                          # default = discover all
@@ -828,17 +915,20 @@ def main():
             results[name] = run_source(name, out_root, scan_roots=scan_roots)
 
     hdr("Summary")
-    print(f"\n  {'source':<16} {'new':>5} {'skipped':>8} {'empty':>6} {'failed':>7}")
-    print("  " + "-" * 46)
+    print(f"\n  {'source':<16} {'new':>5} {'updated':>8} {'skipped':>8} {'empty':>6} {'failed':>7}")
+    print("  " + "-" * 55)
     tot = _stats()
     for name, s in results.items():
         if any(s.values()):
-            print(f"  {name:<16} {s['new']:>5} {s['skipped']:>8} {s['empty']:>6} {s['failed']:>7}")
+            print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['empty']:>6} {s['failed']:>7}")
         for k in tot: tot[k] += s[k]
-    print("  " + "-" * 46)
-    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['skipped']:>8} {tot['empty']:>6} {tot['failed']:>7}\n")
-    if tot["new"]:
-        ok(f"{tot['new']} conversations imported to {out_root}")
+    print("  " + "-" * 55)
+    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['updated']:>8} {tot['skipped']:>8} {tot['empty']:>6} {tot['failed']:>7}\n")
+    if tot["new"] or tot["updated"]:
+        bits = []
+        if tot["new"]:     bits.append(f"{tot['new']} new")
+        if tot["updated"]: bits.append(f"{tot['updated']} refreshed")
+        ok(f"{', '.join(bits)} conversation(s) → {out_root}")
     elif tot["skipped"]:
         ok("Nothing new — everything already imported")
     else:
@@ -866,7 +956,7 @@ def main():
             if "ai-memory hermes launcher" in t and str(vault) in t:
                 return True
         return False
-    if tot["new"] or tot["skipped"]:
+    if tot["new"] or tot["updated"] or tot["skipped"]:
         if _memory_reachable(vault):
             ok("Reachability OK — a plain `hermes` is set to run from your vault.")
         else:

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-doctor.sh  v1.0
+#  ai-memory-doctor.sh  v1.1
 #  Health + reachability check for the AI Memory Stack — "prove my memory is
-#  reachable from every door."  READ-ONLY: it diagnoses, never changes anything.
+#  reachable from every door."  READ-ONLY by default: checks 1-6 diagnose and
+#  change nothing. The opt-in --live probe is the ONE exception — it runs a real
+#  `hermes … --yolo` round-trip, which spends tokens and can have side effects.
+#
+#  v1.1: checks 2 & 6 now warn (not falsely pass) when python3 is missing;
+#        clarified that only --live has side effects (checks 1-6 stay read-only).
 #
 #  Checks (deterministic, no model, no tokens):
 #    1. Vault structure
@@ -49,8 +54,8 @@ VAULT=""
 for arg in "$@"; do
   case "$arg" in
     --live) LIVE=true ;;
-    -h|--help)    sed -n '2,21p' "$0" | sed 's/^#//'; exit 0 ;;
-    -V|--version) echo "ai-memory-doctor.sh v1.0"; exit 0 ;;
+    -h|--help)    sed -n '2,28p' "$0" | sed 's/^#//'; exit 0 ;;
+    -V|--version) echo "ai-memory-doctor.sh v1.1"; exit 0 ;;
     -*) ;;
     *) [[ -z "$VAULT" ]] && VAULT="$arg" ;;
   esac
@@ -67,7 +72,7 @@ INGEST="$VAULT/.tools/ai-memory-ingest.sh"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.0 — Doctor         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.1 — Doctor         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 info "Vault:       $VAULT"
 info "Hermes home: $HERMES_HOME"
@@ -88,6 +93,9 @@ hdr "2. Import index"
 if [[ ! -f "$OUT/INDEX.md" ]]; then
   w "No INDEX.md — a keyword-less 'what do you remember?' has no manifest to read."
   fix "bash $INGEST --reindex $VAULT"
+elif ! command -v python3 &>/dev/null; then
+  w "python3 not found — cannot verify INDEX.md is in sync with disk (check skipped)."
+  fix "install python3, then re-run to confirm the index matches the files on disk"
 else
   REPORT=$(python3 - "$OUT" << 'PYIDX'
 import sys, re
@@ -177,9 +185,13 @@ fi
 
 # ── 6. Searchability proof (no model) ────────────────────────────────────────
 hdr "6. Searchability  (the prescribed search reaches your memory from ANY cwd)"
+KW=""   # keep defined for the optional --live probe below (set -u)
 if [[ "$CONV" -eq 0 ]]; then
   w "No conversations imported yet — nothing to search."
   fix "bash $INGEST $VAULT"
+elif ! command -v python3 &>/dev/null; then
+  w "python3 not found — cannot derive a probe keyword (search proof skipped)."
+  fix "install python3, then re-run to prove memory is reachable from a foreign cwd"
 else
   KW=$(python3 - "$OUT" << 'PYKW'
 import sys, re
@@ -208,14 +220,18 @@ PYKW
 fi
 
 # ── 7. Live recall probe (opt-in) ────────────────────────────────────────────
+# NOT read-only: unlike checks 1-6, this runs `hermes … --yolo`, which spends
+# tokens and lets the agent act on its own — a real, side-effecting round-trip.
 if $LIVE; then
-  hdr "7. Live recall probe  (real round-trip through the shell door)"
+  hdr "7. Live recall probe  (real round-trip through the shell door — NOT read-only)"
   if ! command -v hermes >/dev/null 2>&1; then
     w "'hermes' not on PATH — skipping the live probe."
   elif [[ "$CONV" -eq 0 ]]; then
     w "No conversations to recall — skipping the live probe."
+  elif [[ -z "$KW" ]]; then
+    w "No probe keyword available (see check 6) — skipping the live probe."
   else
-    info "Asking hermes to recall '$KW' from a foreign cwd (this costs a few tokens)..."
+    info "Asking hermes to recall '$KW' from a foreign cwd (spends tokens; --yolo lets it act)..."
     OUTP=$( ( cd /tmp 2>/dev/null && hermes chat -q \
       "Search your memory for \"$KW\" and tell me what you find. Cite the file path." \
       --yolo 2>&1 ) )

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-uninstall.sh  v1.1
+#  ai-memory-uninstall.sh  v1.2
 #  AI Memory Stack — clean reversal, EXPORT-FIRST
+#
+#  v1.2: --no-export always requires the loud DELETE confirm (even under --yes;
+#        override only with --force-no-export); the export archive is now
+#        integrity- and completeness-verified before any vault removal;
+#        portable path canonicalization for macOS/BSD; TMPDIR=/ guarded;
+#        scan-report removal now actually implemented (plan/act parity).
 #
 #  Reverses what setup / configure / ingest installed, but ALWAYS exports your
 #  vault (your irreplaceable imported memory) to a timestamped archive BEFORE
@@ -26,7 +32,7 @@
 
 set -euo pipefail
 
-VERSION="1.1"
+VERSION="1.2"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -43,7 +49,10 @@ Flags:
   --export-only      export the vault to an archive, then STOP (remove nothing)
   --backup           alias for --export-only — back up / prepare to move machines
                      (restore on the new machine with: ai-memory-setup.sh --restore)
-  --no-export        skip the vault export (requires an extra loud confirm)
+  --no-export        skip the vault export (ALWAYS requires the loud DELETE
+                     confirm — even with --yes — unless --force-no-export)
+  --force-no-export  with --no-export: skip the DELETE confirm too (irreversible,
+                     non-interactive data loss — you have been warned)
   --remove-ollama    ALSO remove downloaded Ollama models (opt-in; off by default)
   --remote           reverse remote.sh changes too (increment 2 — not yet built)
   --help / --version
@@ -91,19 +100,21 @@ lc()    { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 ASSUME_YES=false
 EXPORT_ONLY=false
 DO_EXPORT=true
+FORCE_NO_EXPORT=false
 REMOVE_OLLAMA=false
 DO_REMOTE=false
 VAULT=""
 for arg in "$@"; do
   case "$arg" in
-    --yes|-y)        ASSUME_YES=true ;;
-    --export-only)   EXPORT_ONLY=true ;;
-    --backup)        EXPORT_ONLY=true ;;   # friendly alias: back up / prepare to migrate
-    --no-export)     DO_EXPORT=false ;;
-    --remove-ollama) REMOVE_OLLAMA=true ;;
-    --remote)        DO_REMOTE=true ;;
-    -*)              echo "Unknown flag: $arg (see --help)" >&2; exit 1 ;;
-    *)               [[ -z "$VAULT" ]] && VAULT="$arg" ;;
+    --yes|-y)          ASSUME_YES=true ;;
+    --export-only)     EXPORT_ONLY=true ;;
+    --backup)          EXPORT_ONLY=true ;;   # friendly alias: back up / prepare to migrate
+    --no-export)       DO_EXPORT=false ;;
+    --force-no-export) FORCE_NO_EXPORT=true ;;
+    --remove-ollama)   REMOVE_OLLAMA=true ;;
+    --remote)          DO_REMOTE=true ;;
+    -*)                echo "Unknown flag: $arg (see --help)" >&2; exit 1 ;;
+    *)                 [[ -z "$VAULT" ]] && VAULT="$arg" ;;
   esac
 done
 
@@ -117,9 +128,30 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
 fi
 
 # ── Resolve the vault path ───────────────────────────────────────────────────
+# Normalize to an absolute, canonical path so the safety guards below (never
+# delete $HOME, /, or ~/.paperclip) compare against a real path — not a relative
+# or symlinked alias that could slip past them.
+canonicalize() {  # portable realpath: works without GNU coreutils (macOS/BSD)
+  local p="$1" dir base
+  if [[ -d "$p" ]]; then
+    ( cd -P "$p" 2>/dev/null && pwd ) || echo "$p"
+  else
+    dir="$(dirname "$p")"; base="$(basename "$p")"
+    if [[ -d "$dir" ]]; then
+      dir="$( cd -P "$dir" 2>/dev/null && pwd )" || dir="$(dirname "$p")"
+      echo "${dir%/}/$base"
+    else
+      echo "$p"
+    fi
+  fi
+}
 VAULT="${VAULT:-$HOME/Documents/ai-memory}"
-if command -v realpath &>/dev/null; then
+# realpath -m is GNU-only; probe for it and fall back to the portable helper so
+# macOS/BSD (where `realpath -m` errors) still get a normalized path.
+if command -v realpath &>/dev/null && realpath -m / &>/dev/null; then
   VAULT="$(realpath -m "$VAULT" 2>/dev/null || echo "$VAULT")"
+else
+  VAULT="$(canonicalize "$VAULT")"
 fi
 [[ "$VAULT" != /* ]] && VAULT="$PWD/$VAULT"
 
@@ -139,6 +171,9 @@ RC_BASH="$HOME/.bashrc"
 RC_ZSH="$HOME/.zshrc"
 RC_MARK_START="# >>> ai-memory hermes launcher >>>"
 TMP_DIR="${TMPDIR:-/tmp}"; TMP_DIR="${TMP_DIR%/}"
+# Guard: TMPDIR=/ collapses to "" after stripping the trailing slash, which would
+# aim the temp rm's at filesystem root — fall back to /tmp instead.
+[[ -z "$TMP_DIR" ]] && TMP_DIR="/tmp"
 TMP_LOG="$TMP_DIR/ai-memory-setup-$(id -u).log"
 TMP_CKPT="$TMP_DIR/ai-memory-checkpoints-$(id -u)"
 SCAN_REPORT="$VAULT/ai-scan-report.md"
@@ -175,7 +210,7 @@ yn() { if "$@"; then echo present; else echo absent; fi; }
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.1 — Uninstall      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.2 — Uninstall      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -214,7 +249,7 @@ m = {
   "created_utc": stamp,
   "source": {"os": os_name, "host": socket.gethostname(), "user": getpass.getuser()},
   "vault_dir": os.path.basename(vault.rstrip("/")),
-  "exported_by": "ai-memory-uninstall.sh v1.1",
+  "exported_by": "ai-memory-uninstall.sh v1.2",
   "includes": ["vault: markdown memory, notes, imported AI sessions"],
   "excludes": [
     "~/.hermes/config.yaml  (hardware-specific — re-derived by configure on the new machine)",
@@ -309,8 +344,21 @@ do_export() {
   fi
   if tar -czf "$ARCHIVE" ${extra[@]+"${extra[@]}"} \
         -C "$(dirname "$VAULT")" "$(basename "$VAULT")" 2>/dev/null \
-       && [[ -s "$ARCHIVE" ]]; then
+       && [[ -s "$ARCHIVE" ]] \
+       && tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
+    # Non-empty AND readable is not enough: a truncated archive can still list.
+    # Compare the *.md count in the archive against the vault on disk — trust the
+    # export only if it contains at least as many markdown files as the source.
+    local disk_md arch_md
+    disk_md="$(find "$VAULT" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    arch_md="$(tar -tzf "$ARCHIVE" 2>/dev/null | grep -c '\.md$')"
+    if [[ "${disk_md:-0}" -gt 0 && "${arch_md:-0}" -lt "${disk_md:-0}" ]]; then
+      rm -f "$ARCHIVE" 2>/dev/null || true
+      [[ -n "$stage" ]] && rm -rf "$stage" 2>/dev/null || true
+      die "Export INCOMPLETE — archive holds $arch_md of $disk_md markdown file(s).\n  Refusing to remove anything. Your vault is untouched."
+    fi
     ok "Exported → $ARCHIVE  ($(du -h "$ARCHIVE" 2>/dev/null | awk '{print $1}'))"
+    info "Verified archive: readable and $arch_md markdown file(s) present."
     [[ ${#extra[@]} -gt 0 ]] && info "Included migration manifest ($MANIFEST_NAME) — contains no secrets."
     EXPORT_OK=true
   else
@@ -389,6 +437,10 @@ remove_tmp() {
   rm -f "$TMP_DIR"/ai-memory-setup.*.log 2>/dev/null || true
   ok "Removed temp logs + checkpoints"
 }
+remove_scan_report() {
+  scan_report_present || return 0
+  rm -f "$SCAN_REPORT" && ok "Removed scan report (${SCAN_REPORT/#$HOME/~})"
+}
 remove_hermes() {
   hermes_present || return 0
   # Guard: must be exactly ~/.hermes, never a symlink pointing elsewhere, never paperclip
@@ -431,6 +483,7 @@ do_remove() {
   remove_rc_block "$RC_BASH"
   remove_rc_block "$RC_ZSH"
   remove_tmp
+  remove_scan_report
   remove_ollama_models
   remove_hermes
   remove_vault   # always last
@@ -466,19 +519,28 @@ if $DRY_RUN; then
   exit 0
 fi
 
-# ── REAL run — confirm (unless --yes), with extra ceremony for --no-export ────
-if ! $ASSUME_YES; then
+# ── REAL run — confirm, with extra ceremony for --no-export ──────────────────
+# IRREVERSIBLE data loss (removal WITHOUT a backup) is NEVER waved through by the
+# convenience flag: --no-export ALWAYS demands the loud 'DELETE' confirmation,
+# even under --yes. The only non-interactive escape is the explicit, separate
+# --force-no-export flag — a plain --yes must never silently skip the backup.
+if ! $DO_EXPORT && ! $EXPORT_ONLY; then
   blank
-  if ! $DO_EXPORT && ! $EXPORT_ONLY; then
-    echo -e "${RED}${BOLD}  --no-export: your imported memory will NOT be backed up.${NC}"
+  echo -e "${RED}${BOLD}  --no-export: your imported memory will NOT be backed up.${NC}"
+  if $FORCE_NO_EXPORT; then
+    warn "--force-no-export given — removing the stack WITHOUT a backup, no prompt."
+  elif $CAN_PROMPT; then
     echo -e "${BOLD}  Type 'DELETE' to remove the stack WITHOUT a backup:${NC}"
     read -r _c < /dev/tty || _c=""
     [[ "$_c" == "DELETE" ]] || die "Aborted — nothing was changed."
   else
-    echo -e "${BOLD}This will export your vault, then remove the stack. Type 'y' to continue:${NC}"
-    read -r _c < /dev/tty || _c=""
-    [[ "$(lc "${_c:-n}")" == "y" ]] || die "Aborted — nothing was changed."
+    die "Refusing --no-export without confirmation.\n  Re-run attached to a terminal to type DELETE, or add --force-no-export\n  to skip the backup non-interactively (irreversible)."
   fi
+elif ! $ASSUME_YES; then
+  blank
+  echo -e "${BOLD}This will export your vault, then remove the stack. Type 'y' to continue:${NC}"
+  read -r _c < /dev/tty || _c=""
+  [[ "$(lc "${_c:-n}")" == "y" ]] || die "Aborted — nothing was changed."
 fi
 
 EXPORT_OK=false

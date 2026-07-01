@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.12
+#  ai-memory-configure.sh  v4.13
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -14,6 +14,7 @@
 #  Usage: bash ai-memory-configure.sh [path/to/vault]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v4.13: safe YAML quoting; exact ollama tag match; atomic .env; Windows/WSL RAM; shell-safe launcher.
 # =============================================================================
 
 set -euo pipefail
@@ -35,8 +36,8 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 case "${1:-}" in
   -h|--help)
-    sed -n '2,20p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.12"; exit 0 ;;
+    sed -n '2,18p' "$0" | sed 's/^#//'; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v4.13"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -62,7 +63,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.12 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v4.13 — Configure     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -111,6 +112,9 @@ if sysname == "Darwin":
         hw.update(apple_silicon=True, gpu_type="apple",
                   vram_gb=hw["ram_gb"], gpu_name=hw["cpu_name"] or "Apple Silicon")
 elif sysname == "Linux":
+    # CAVEAT (WSL2): under WSL2 /proc/meminfo reports the Linux VM's memory
+    # allotment (default ~50% of host, capped by .wslconfig), NOT the machine's
+    # physical RAM — so ram_gb here can read low on an otherwise capable box.
     try:
         for line in open("/proc/meminfo"):
             if line.startswith("MemTotal"):
@@ -119,6 +123,26 @@ elif sysname == "Linux":
             if "model name" in line:
                 hw["cpu_name"] = line.split(":",1)[1].strip(); break
     except Exception: pass
+elif sysname == "Windows":
+    # Native Windows python has no /proc; query physical RAM via the Win32 API so
+    # ram_gb isn't left 0 (which would misclassify the box as "weak").
+    try:
+        import ctypes
+        class _MEMSTAT(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        ms = _MEMSTAT(); ms.dwLength = ctypes.sizeof(_MEMSTAT)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            hw["ram_gb"] = round(ms.ullTotalPhys/1e9,1)
+    except Exception: pass
+    hw["cpu_name"] = os.environ.get("PROCESSOR_IDENTIFIER","") or platform.processor()
 nv = run(["nvidia-smi","--query-gpu=name,memory.total","--format=csv,noheader,nounits"])
 if nv:
     p = nv.split(",")
@@ -138,7 +162,9 @@ echo ""
 echo -e "  RAM:   ${BOLD}${RAM_GB} GB${NC}    CPU: ${BOLD}${CPU_NAME:-unknown} (${CPU_CORES} cores)${NC}"
 echo -e "  GPU:   ${BOLD}${GPU_NAME:-none}${NC}${VRAM_GB:+    VRAM: ${BOLD}${VRAM_GB} GB${NC}}"
 echo ""
-RAM_INT="${RAM_GB%.*}"
+# Round (not truncate) so 5.8 GB reads as 6, not 5, when bucketing hardware.
+RAM_INT=$(printf '%.0f' "$RAM_GB" 2>/dev/null || echo 0)
+[[ "$RAM_INT" =~ ^[0-9]+$ ]] || RAM_INT=0
 if [[ "${RAM_INT:-0}" =~ ^[0-9]+$ ]] && [[ "${RAM_INT:-0}" -lt 32 ]]; then
   warn "RAM is below the recommended 32–48 GB for 32–35B models."
   echo -e "  ${DIM}Guide:  8 GB → 3B models (limited) · 16 GB → 7–14B · 32+ GB → 32–35B${NC}"
@@ -279,7 +305,8 @@ HERMES_CTX_FLOOR=64000
 # Is this machine too weak for a useful local model?
 # Heuristic: under ~6 GB RAM, a local model is either too small to be useful
 # (0.5b) or too slow (3b). Offer cloud-only instead of forcing a local model.
-RAM_INT="${RAM_GB%.*}"; [[ "$RAM_INT" =~ ^[0-9]+$ ]] || RAM_INT=0
+RAM_INT=$(printf '%.0f' "$RAM_GB" 2>/dev/null || echo 0)  # round, don't truncate
+[[ "$RAM_INT" =~ ^[0-9]+$ ]] || RAM_INT=0
 WEAK_FOR_LOCAL=false
 [[ "$RAM_INT" -lt 6 ]] && WEAK_FOR_LOCAL=true
 
@@ -312,7 +339,9 @@ echo ""
 #  confirming it exists, whether suggested OR user-chosen.)
 ensure_model_present() {  # ensure_model_present <tag>
   local tag="$1"
-  if ollama list 2>/dev/null | grep -q "^${tag%%:*}"; then
+  # Exact full name:tag match against ollama's first column — a bare-name prefix
+  # (`grep "^${tag%%:*}"`) would treat qwen3:35b as present when only qwen3:7b is.
+  if ollama list 2>/dev/null | awk '{print $1}' | grep -qxF "$tag"; then
     return 0   # already there
   fi
   warn "Model '$tag' is not downloaded yet."
@@ -441,7 +470,7 @@ if [[ -f "$HERMES_CONFIG" ]]; then
   ok "Backed up existing config.yaml"
 fi
 python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" "$MODE" << 'PYCONF'
-import sys, re, os
+import sys, os, json
 from pathlib import Path
 path, model, ctx, mode = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 if mode == "cloud":
@@ -456,20 +485,39 @@ else:
     # ("runtime context too small") even though context_length passed its check.
     # context_length = what Hermes believes; ollama_num_ctx = what Ollama loads.
     extra = f"  ollama_num_ctx: {ctx}            # force Ollama to load >= Hermes' floor\n"
+# QUOTE scalar values so a model tag containing YAML metacharacters (# : { } '
+# quotes, leading digits) can never corrupt the file. json.dumps emits a valid
+# double-quoted YAML scalar (YAML flow scalars are a JSON superset).
 block = (
     "model:\n"
-    f"  default: {model}\n"
+    f"  default: {json.dumps(model)}\n"
     f"  provider: custom            {comment}\n"
-    f"  base_url: {base_url}\n"
+    f"  base_url: {json.dumps(base_url)}\n"
     f"  context_length: {ctx}\n"
     + extra
 )
 p = Path(path)
 if p.exists():
     text = p.read_text()
-    # Replace existing top-level model: block (up to next top-level key)
-    new, n = re.subn(r"(?ms)^model:.*?(?=^\S|\Z)", block, text, count=1)
-    text = new if n else block + "\n" + text
+    # Replace the existing top-level `model:` block by walking the file's line
+    # structure (not a blind regex splice): drop the `model:` line plus its
+    # indented/blank continuation lines up to the next top-level key, then splice
+    # our block in. Tolerates arbitrary content inside the old block.
+    lines = text.splitlines(keepends=True)
+    out, i, replaced = [], 0, False
+    while i < len(lines):
+        if not replaced and lines[i].startswith("model:"):
+            out.append(block)
+            i += 1
+            while i < len(lines) and (
+                lines[i].strip() == "" or lines[i][:1] in (" ", "\t")):
+                i += 1
+            if i < len(lines):
+                out.append("\n")   # keep a blank line before the next section
+            replaced = True
+        else:
+            out.append(lines[i]); i += 1
+    text = "".join(out) if replaced else block + "\n" + text
 else:
     text = ("# Hermes Agent CLI configuration — written by ai-memory-configure.sh\n"
             "# Env vars in ~/.hermes/.env take precedence over this file.\n\n" + block)
@@ -492,18 +540,49 @@ fi
 verify_config_written() {
   [[ -f "$HERMES_CONFIG" ]] \
     || die "config.yaml was NOT written to $HERMES_CONFIG — Hermes would fall back to its default. Re-run configure."
-  grep -qF "  default: $MODEL_TAG" "$HERMES_CONFIG" \
-    || die "config.yaml is missing the model default ($MODEL_TAG) — write did not land correctly."
-  grep -qE "^  context_length: [0-9]+" "$HERMES_CONFIG" \
-    || die "config.yaml is missing context_length — write did not land correctly."
+  # Parse the top-level model: block back out and assert it is WELL-FORMED — the
+  # default must be a quoted scalar that decodes to exactly the intended model,
+  # context_length must be numeric, and (local) ollama_num_ctx must be numeric.
+  # Catches a MALFORMED write (e.g. a tag that corrupted the block), not just a
+  # missing default line.
+  python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$MODE" << 'PYVERIFY' \
+    || die "config.yaml did not pass validation (see message above) — write did not land correctly. Re-run configure."
+import sys, json
+path, model, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+blk, in_model = {}, False
+for ln in open(path).read().splitlines():
+    if ln.startswith("model:"):
+        in_model = True; continue
+    if in_model:
+        if ln.strip() == "":
+            continue
+        if ln[:1] not in (" ", "\t"):
+            break
+        s = ln.strip()
+        if ":" in s:
+            k, v = s.split(":", 1)
+            blk[k.strip()] = v.strip()
+if "default" not in blk:
+    sys.exit("  config.yaml is missing the model default (%s)." % model)
+raw = blk["default"]
+try:
+    val = json.loads(raw)   # our writer emits a json.dumps'd (quoted) scalar
+except Exception:
+    sys.exit("  config.yaml default is not a quoted scalar: %r" % raw)
+if not isinstance(val, str) or val != model:
+    sys.exit("  config.yaml default (%r) != intended model (%r)." % (val, model))
+cl = blk.get("context_length", "").split()
+if not cl or not cl[0].isdigit():
+    sys.exit("  config.yaml is missing a numeric context_length.")
+if mode == "local":
+    nc = blk.get("ollama_num_ctx", "").split()
+    if not nc or not nc[0].isdigit():
+        sys.exit("  config.yaml is missing ollama_num_ctx — a local model needs it to clear Hermes' 64K floor.")
+PYVERIFY
   if [[ "$MODE" == "local" ]]; then
-    grep -qE "^  ollama_num_ctx: [0-9]+" "$HERMES_CONFIG" \
-      || die "config.yaml is missing ollama_num_ctx — a local model needs it to clear Hermes' 64K floor."
-  fi
-  if [[ "$MODE" == "local" ]]; then
-    ok "Verified config.yaml on disk (model, context_length, ollama_num_ctx)"
+    ok "Verified config.yaml on disk (quoted default == $MODEL_TAG, context_length, ollama_num_ctx)"
   else
-    ok "Verified config.yaml on disk (model, context_length)"
+    ok "Verified config.yaml on disk (quoted default == $MODEL_TAG, context_length)"
   fi
 }
 verify_config_written
@@ -514,11 +593,17 @@ set_env() {  # set_env KEY VALUE  (idempotent line replace)
   local k="$1" v="$2"
   grep -q "^${k}=" "$HERMES_ENV" 2>/dev/null \
     && python3 - "$HERMES_ENV" "$k" "$v" << 'PYENV'
-import sys
+import sys, os
 p,k,v = sys.argv[1], sys.argv[2], sys.argv[3]
 lines = open(p).read().splitlines()
 out = [f"{k}={v}" if l.startswith(f"{k}=") else l for l in lines]
-open(p,"w").write("\n".join(out) + "\n")
+# Atomic replace (like config.yaml) so a crash can't leave a half-written .env
+# that drops other keys; chmod the temp to 600 before swap so perms are preserved.
+tmp = p + ".tmp"
+with open(tmp, "w") as f:
+    f.write("\n".join(out) + "\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, p)
 PYENV
   [[ -z "$(grep "^${k}=" "$HERMES_ENV" 2>/dev/null)" ]] && echo "${k}=${v}" >> "$HERMES_ENV"
   return 0   # setter succeeds whether it replaced or appended; without this the
@@ -572,9 +657,13 @@ install_vault_launcher() {
   local rc
   for rc in "${targets[@]}"; do
     python3 - "$rc" "$VAULT" << 'PYLAUNCH'
-import sys, re
+import sys, re, shlex
 from pathlib import Path
 rc, vault = sys.argv[1], sys.argv[2]
+# Shell-quote the vault path before it goes into the generated hermes() function
+# so a path containing a quote/space/$ etc. can't break out and inject shell into
+# .bashrc/.zshrc. shlex.quote emits a single POSIX-safe token.
+qv = shlex.quote(vault)
 start = "# >>> ai-memory hermes launcher >>>"
 end   = "# <<< ai-memory hermes launcher <<<"
 block = (
@@ -585,7 +674,7 @@ block = (
     "# cwd (they pin to their install dir) but copy this env to their chat agent.\n"
     "# The subshell keeps your shell's own directory + environment unchanged.\n"
     "# Added by ai-memory-configure.sh (reachability fix, §4.3 / §4.3.1).\n"
-    'hermes() { ( cd "' + vault + '" 2>/dev/null && TERMINAL_CWD="' + vault + '" command hermes "$@" ); }\n'
+    'hermes() { ( cd ' + qv + ' 2>/dev/null && TERMINAL_CWD=' + qv + ' command hermes "$@" ); }\n'
     + end
 )
 p = Path(rc)
@@ -698,7 +787,7 @@ if [[ "$MODE" == "cloud" ]]; then
 else
   if command -v ollama &>/dev/null && ollama list &>/dev/null 2>&1; then
     ok "Ollama responding"
-    if ollama list 2>/dev/null | grep -q "^${MODEL_TAG%%:*}"; then
+    if ollama list 2>/dev/null | awk '{print $1}' | grep -qxF "$MODEL_TAG"; then
       ok "Primary model available: $MODEL_TAG"
     else
       warn "Model $MODEL_TAG not in Ollama — run: ollama pull $MODEL_TAG"

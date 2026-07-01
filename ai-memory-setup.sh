@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.15
+#  ai-memory-setup.sh  v8.16
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -42,7 +42,12 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VERSION="8.9"
+# Single source of truth for the version — the --version flag and the banner
+# both read $VERSION, so they can never drift from each other again.
+# v8.16: safe download-then-run for piped installers, python3-free disk check,
+#        JSON built via python3 (not string interpolation), sudo-keepalive
+#        killed on exit, surfaced apt errors, persisted npm-global PATH.
+VERSION="8.16"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -72,7 +77,7 @@ Do NOT run with sudo. See header of this file for time estimates.
 HELP
     exit 0 ;;
   -V|--version)
-    echo "ai-memory-setup.sh v8.15"; exit 0 ;;
+    echo "ai-memory-setup.sh v$VERSION"; exit 0 ;;
 esac
 
 # ── TTY detection (must happen BEFORE log redirect) ──────────────────────────
@@ -105,6 +110,16 @@ run_timeout() {
 
 TMP_DIR="${TMPDIR:-/tmp}"
 TMP_DIR="${TMP_DIR%/}"
+
+# fetch_script URL OUTFILE — download a remote installer to a file, returning
+# non-zero if the transfer failed. NEVER `curl … | bash`: a slow or dropped link
+# can hand a TRUNCATED script to the shell, which then executes half an installer
+# (partial-execution risk). We save first, check curl's exit, THEN run the file.
+# --fail turns HTTP errors into a non-zero exit; --max-time bounds a stalled link.
+fetch_script() {
+  local url="$1" out="$2"
+  curl -fsSL --max-time "${FETCH_MAX_TIME:-120}" -o "$out" "$url"
+}
 
 ok()    { echo -e "${GREEN}✓${NC}  $*"; }
 info()  { echo -e "${CYAN}→${NC}  $*"; }
@@ -232,10 +247,17 @@ cleanup() {
   local exit_code=$?
   stop_spinner 2>/dev/null || true
 
-  # Kill spinner and other background processes (NOT sudo keepalive — let it die naturally)
+  # Kill spinner and other background processes
   for pid in ${CLEANUP_PIDS[@]+"${CLEANUP_PIDS[@]}"}; do
     kill "$pid" 2>/dev/null || true
   done
+
+  # Kill the sudo-keepalive loop explicitly — a backgrounded `while true` is NOT
+  # reaped just because the script exits (it can outlive us and keep re-arming
+  # the sudo timestamp), so tear it down here on every EXIT path.
+  if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then
+    kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+  fi
 
   # Remove incomplete checkpoint markers
   if [[ -d "$CHECKPOINT_DIR" ]]; then
@@ -381,11 +403,15 @@ checkpoint() {
 # ─────────────────────────────────────────────────────────────────────────────
 check_disk_space() {
   local required_gb="${1:-10}" path="${2:-$HOME}"
+  # POSIX df — NOT python3: this runs on a fresh macOS/minimal Linux BEFORE
+  # python3 is installed, so a python calc here would report 0 GB and falsely
+  # die on a machine with plenty free. `df -Pk` gives 1K blocks (portable);
+  # column 4 is available space -> whole GB.
   local free_gb
-  free_gb=$(python3 -c \
-    "import shutil; s=shutil.disk_usage('$path'); print(round(s.free/1e9,1))" \
-    2>/dev/null || echo "0")
-  python3 -c "exit(0 if float('$free_gb') >= $required_gb else 1)" 2>/dev/null \
+  free_gb=$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print int($4/1024/1024)}')
+  # If df couldn't measure (unexpected), don't block the install on a bad read.
+  [[ -z "$free_gb" ]] && { warn "Could not measure free disk space at $path — continuing"; return 0; }
+  [[ "$free_gb" -ge "$required_gb" ]] \
     || die "Not enough disk space. Need ${required_gb} GB free, have ${free_gb} GB.\nFree up space and re-run."
 }
 
@@ -403,7 +429,11 @@ safe_json_merge() {
       return 1
     fi
     local bak="${target}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
-    cp "$target" "$bak"
+    # The source config can carry OTHER MCP servers' API keys/secrets, so the
+    # backup must not be world/group-readable. Create it 0600 up front (umask),
+    # then chmod as a belt-and-braces on platforms that ignore the umask on cp.
+    ( umask 077; cp "$target" "$bak" )
+    chmod 600 "$bak" 2>/dev/null || true
     ok "Backup: $(basename "$bak")"
   fi
 
@@ -466,7 +496,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v8.15 — Setup        ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v$VERSION — Setup        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -678,10 +708,16 @@ install_pkg() {
 # ── macOS: Homebrew ───────────────────────────────────────────────────────────
 if [[ "$OS" == "macos" ]]; then
   if ! command -v brew &>/dev/null; then
-    # Trigger installation then checkpoint for the dialog
-    /bin/bash -c \
-      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-      || true
+    # Trigger installation then checkpoint for the dialog.
+    # Save the installer to a file first (never `bash -c "$(curl …)"`) so a
+    # truncated download can't run a half-written installer as us.
+    _brew_installer="$(mktemp "$TMP_DIR/ai-memory-brew.XXXXXX")"
+    if fetch_script https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh "$_brew_installer"; then
+      /bin/bash "$_brew_installer" || true
+    else
+      warn "Could not download the Homebrew installer — check internet/proxy."
+    fi
+    rm -f "$_brew_installer"
     # Source into current session
     [[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
     [[ -f /usr/local/bin/brew   ]] && eval "$(/usr/local/bin/brew shellenv)"
@@ -740,24 +776,36 @@ if [[ "$OS" == "linux" ]]; then
       if ! dpkg -l build-essential &>/dev/null 2>&1; then
         info "Installing build tools..."
         apt_update_once
-        apt_get install -y -qq build-essential python3-dev 2>/dev/null
-        ok "build-essential installed"
+        # Don't discard stderr and don't let a silent failure sail under set -e:
+        # surface it via err() (increments the error count, shown in the summary)
+        # instead of a hidden abort or a false "installed" line.
+        if apt_get install -y -qq build-essential python3-dev; then
+          ok "build-essential installed"
+        else
+          err "build-essential install failed — native modules may not build. See log: $LOG_FILE"
+        fi
       else
         skip "build-essential"
       fi
       ;;
     dnf)
       if ! rpm -q gcc make &>/dev/null 2>&1; then
-        sudo dnf groupinstall -y -q "Development Tools" 2>/dev/null
-        ok "Development Tools installed"
+        if sudo dnf groupinstall -y -q "Development Tools"; then
+          ok "Development Tools installed"
+        else
+          err "Development Tools install failed — native modules may not build. See log: $LOG_FILE"
+        fi
       else
         skip "Development Tools"
       fi
       ;;
     pacman)
       if ! pacman -Qi base-devel &>/dev/null 2>&1; then
-        sudo pacman -S --noconfirm --needed base-devel 2>/dev/null
-        ok "base-devel installed"
+        if sudo pacman -S --noconfirm --needed base-devel; then
+          ok "base-devel installed"
+        else
+          err "base-devel install failed — native modules may not build. See log: $LOG_FILE"
+        fi
       else
         skip "base-devel"
       fi
@@ -799,18 +847,37 @@ install_node() {
       ;;
     linux)
       start_spinner "Setting up NodeSource repository..."
-      if [[ "$PKG_MANAGER" == "apt" ]]; then
-        curl -fsSL --max-time 60 https://deb.nodesource.com/setup_22.x \
-          | sudo -E bash - 2>/dev/null \
-          || die "Could not reach NodeSource. Check internet/proxy."
+      if [[ "$PKG_MANAGER" == "apt" || "$PKG_MANAGER" == "dnf" ]]; then
+        # Save the NodeSource setup script to a file, verify the download, THEN
+        # run it as root — never `curl … | sudo bash`, which can execute a
+        # truncated script as root on a slow/dropped link. We also drop `sudo -E`
+        # (don't hand root our whole env) and forward ONLY proxy vars, which the
+        # setup script genuinely needs to fetch the repo key behind a proxy.
+        local _ns_url _ns_file
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+          _ns_url="https://deb.nodesource.com/setup_22.x"
+        else
+          _ns_url="https://rpm.nodesource.com/setup_22.x"
+        fi
+        _ns_file="$(mktemp "$TMP_DIR/ai-memory-nodesource.XXXXXX")"
+        if ! FETCH_MAX_TIME=60 fetch_script "$_ns_url" "$_ns_file"; then
+          stop_spinner; rm -f "$_ns_file"
+          die "Could not reach NodeSource. Check internet/proxy."
+        fi
+        sudo env \
+          ${HTTPS_PROXY:+HTTPS_PROXY="$HTTPS_PROXY"} \
+          ${https_proxy:+https_proxy="$https_proxy"} \
+          ${HTTP_PROXY:+HTTP_PROXY="$HTTP_PROXY"} \
+          ${http_proxy:+http_proxy="$http_proxy"} \
+          bash "$_ns_file" \
+          || { stop_spinner; rm -f "$_ns_file"; die "NodeSource setup script failed. Check internet/proxy."; }
+        rm -f "$_ns_file"
         stop_spinner
-        apt_get install -y -qq nodejs
-      elif [[ "$PKG_MANAGER" == "dnf" ]]; then
-        curl -fsSL --max-time 60 https://rpm.nodesource.com/setup_22.x \
-          | sudo bash - 2>/dev/null \
-          || die "Could not reach NodeSource. Check internet/proxy."
-        stop_spinner
-        sudo dnf install -y -q nodejs
+        if [[ "$PKG_MANAGER" == "apt" ]]; then
+          apt_get install -y -qq nodejs || die "Node.js package install failed (apt). See log: $LOG_FILE"
+        else
+          sudo dnf install -y -q nodejs || die "Node.js package install failed (dnf). See log: $LOG_FILE"
+        fi
       else
         stop_spinner
         die "Cannot install Node.js automatically.\nInstall Node.js 22 manually: https://nodejs.org"
@@ -830,6 +897,32 @@ if [[ "$(npm config get prefix 2>/dev/null)" != "$NPM_PREFIX" ]]; then
 fi
 export PATH="$NPM_PREFIX/bin:$PATH"
 
+# We moved the global npm prefix to ~/.npm-global so `npm install -g` needs no
+# sudo — but then globally-installed CLIs (e.g. mcpvault) live in
+# ~/.npm-global/bin, which a NEW shell won't have on PATH, so "installed" tools
+# would look missing. Persist that PATH into the user's shell rc (idempotent
+# marker block; any user text is preserved) so it survives past this process.
+persist_npm_path() {
+  local rc
+  case "$(basename "${SHELL:-}")" in
+    zsh)  rc="$HOME/.zshrc" ;;
+    bash) rc="$HOME/.bashrc" ;;
+    *)    rc="$HOME/.profile" ;;
+  esac
+  [[ -f "$rc" ]] || : > "$rc"
+  if grep -Fq '.npm-global/bin' "$rc" 2>/dev/null; then
+    return 0
+  fi
+  {
+    echo ""
+    echo "# >>> ai-memory npm-global PATH >>>"
+    echo 'export PATH="$HOME/.npm-global/bin:$PATH"'
+    echo "# <<< ai-memory npm-global PATH <<<"
+  } >> "$rc"
+  info "Added ~/.npm-global/bin to PATH in $(basename "$rc") (new terminals pick it up)"
+}
+persist_npm_path
+
 # ── Ollama ────────────────────────────────────────────────────────────────────
 if ! command -v ollama &>/dev/null; then
   info "Installing Ollama..."
@@ -837,10 +930,19 @@ if ! command -v ollama &>/dev/null; then
   calm "Fetching the Ollama runtime (~30 MB). The AI model itself is a separate, larger download you choose later in configure."
   case "$OS" in
     macos)
-      brew install ollama 2>/dev/null || \
-        { start_spinner "Downloading Ollama..."; \
-          curl -fsSL --max-time 120 https://ollama.com/install.sh | sh; \
-          stop_spinner; }
+      if ! brew install ollama 2>/dev/null; then
+        # Fallback to the official installer: save it, verify the download, THEN
+        # run — never `curl … | sh`, which can run a truncated script.
+        start_spinner "Downloading Ollama..."
+        _oll="$(mktemp "$TMP_DIR/ai-memory-ollama.XXXXXX")"
+        if ! fetch_script https://ollama.com/install.sh "$_oll"; then
+          stop_spinner; rm -f "$_oll"
+          die "Could not download the Ollama installer. Check internet connection."
+        fi
+        sh "$_oll" || { stop_spinner; rm -f "$_oll"; die "Ollama installation failed. See log: $LOG_FILE"; }
+        rm -f "$_oll"
+        stop_spinner
+      fi
 
       checkpoint "ollama-gatekeeper" \
         "Allow Ollama in macOS Security" \
@@ -848,9 +950,16 @@ if ! command -v ollama &>/dev/null; then
         "ollama --version"
       ;;
     linux)
+      # Save-then-run (never pipe curl straight to a shell): a truncated download
+      # on a slow link would otherwise execute a half-written installer.
       start_spinner "Downloading Ollama..."
-      curl -fsSL --max-time 120 https://ollama.com/install.sh | sh 2>/dev/null \
-        || die "Ollama installation failed. Check internet connection."
+      _oll="$(mktemp "$TMP_DIR/ai-memory-ollama.XXXXXX")"
+      if ! fetch_script https://ollama.com/install.sh "$_oll"; then
+        stop_spinner; rm -f "$_oll"
+        die "Could not download the Ollama installer. Check internet connection."
+      fi
+      sh "$_oll" || { stop_spinner; rm -f "$_oll"; die "Ollama installation failed. See log: $LOG_FILE"; }
+      rm -f "$_oll"
       stop_spinner
       ;;
   esac
@@ -1278,7 +1387,7 @@ else
       else
         blank
         echo -e "  Hermes Agent is the local AI agent layer (recommended, optional)."
-        echo -e "  Its official installer runs ${BOLD}curl | bash${NC} from NousResearch."
+        echo -e "  It downloads and runs NousResearch's official installer script."
         echo -e "  Review it first if you wish:"
         echo -e "  ${CYAN}https://github.com/NousResearch/hermes-agent/blob/main/scripts/install.sh${NC}"
         echo -e "${BOLD}Install Hermes Agent? [Y/n]${NC}"
@@ -1293,15 +1402,20 @@ else
       info "Running the official Hermes installer (this takes 3–6 minutes)..."
       info "Source: https://github.com/NousResearch/hermes-agent"
       blank
-      # Run interactively so its own prompts work; do NOT pipe through our spinner
-      if curl -fsSL --max-time 60 \
+      # Save the installer to a file, verify the download, THEN run it — never
+      # `curl … | bash`, which can execute a truncated script on a slow link AND
+      # steals stdin (breaking the installer's own interactive prompts).
+      _hermes_installer="$(mktemp "$TMP_DIR/ai-memory-hermes.XXXXXX")"
+      if FETCH_MAX_TIME=60 fetch_script \
            https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
-           | bash -s -- --skip-setup; then
+           "$_hermes_installer" \
+         && bash "$_hermes_installer" --skip-setup; then
         ok "Hermes Agent installed"
       else
         warn "Hermes installer failed — install manually later:"
-        warn "  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash"
+        warn "  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh -o hermes-install.sh && bash hermes-install.sh"
       fi
+      rm -f "$_hermes_installer"
       # PATH may need a new shell for the 'hermes' command
       if ! command -v hermes &>/dev/null && [[ -d "$HOME/.hermes" ]]; then
         info "'hermes' command not in PATH yet — a new terminal will pick it up"
@@ -1322,7 +1436,11 @@ else
   hdr "Step 4/7  MCP configuration"
   step_start "4"
 
-  MCP_SERVERS_JSON='{"obsidian-vault":{"command":"npx","args":["-y","@bitbonsai/mcpvault@latest","'"$VAULT"'"]}}'
+  # Build the MCP JSON with python3 (json.dumps) rather than interpolating $VAULT
+  # into a string — a vault path containing a quote or backslash would otherwise
+  # produce invalid JSON. Pass the path as argv so it is properly escaped.
+  MCP_SERVERS_JSON="$(python3 -c 'import json,sys
+print(json.dumps({"obsidian-vault":{"command":"npx","args":["-y","@bitbonsai/mcpvault@latest",sys.argv[1]]}}))' "$VAULT")"
 
   # Claude Desktop — only merge if file already exists
   if [[ -f "$CLAUDE_DESKTOP" ]]; then
@@ -1347,9 +1465,9 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 # STEP 5 — Session Continuity skill
 # ═════════════════════════════════════════════════════════════════════════════
-if step_done "5"; then
-  # Always re-write skill — may have improved in newer versions of setup.sh
-  # But only if the step was previously completed (not a fresh run reaching here)
+# One source of truth for the skill body (was two byte-identical heredocs, one
+# per branch — a drift risk). $VAULT is expanded at write time.
+write_session_skill() {
   mkdir -p "$SKILL_DIR"
   cat > "$SKILL_DIR/session-continuity.md" << SKILLMD
 # Session Continuity
@@ -1367,28 +1485,18 @@ if step_done "5"; then
 1. Write final CURRENT_SESSION.md
 2. Confirm: "Session saved. Will resume automatically next time."
 SKILLMD
+}
+
+if step_done "5"; then
+  # Always re-write skill — may have improved in newer versions of setup.sh
+  # But only if the step was previously completed (not a fresh run reaching here)
+  write_session_skill
   skip "Step 5/7 — Session Continuity skill (refreshed)"
 else
   hdr "Step 5/7  Session Continuity skill"
   step_start "5"
 
-  mkdir -p "$SKILL_DIR"
-  cat > "$SKILL_DIR/session-continuity.md" << SKILLMD
-# Session Continuity
-
-## At session start
-1. Read \`$VAULT/05-AI-Sessions/CURRENT_SESSION.md\` if it exists
-2. Summarize: "Continuing from: [summary]"
-3. Check \`$VAULT/00-Inbox/AI-INBOX.md\` — read, confirm, clear
-
-## During session
-- Update CURRENT_SESSION.md at important decisions or forks
-- Format: date · context · decision · next steps · open questions
-
-## At session end
-1. Write final CURRENT_SESSION.md
-2. Confirm: "Session saved. Will resume automatically next time."
-SKILLMD
+  write_session_skill
   ok "Skill installed: $SKILL_DIR/session-continuity.md"
 
   step_end "5"

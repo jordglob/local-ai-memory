@@ -15,9 +15,10 @@ and starts to contradict).
   outward-facing actions (e.g. pushing a remote, deleting data you didn't make).
 
 ## The repo in one breath
-Four self-contained bash scripts — `setup` → `configure` → `ingest` → `remote`
-— plus the spec. Bash-portable, idempotent, secrets never logged. Read §2.8 for
-the family conventions before adding to any of them; match the surrounding code.
+Six self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
+→ `remote` → `uninstall` (the last two optional) — plus the spec. Bash-portable,
+idempotent, secrets never logged. Read §2.8 for the family conventions before
+adding to any of them; match the surrounding code.
 
 ## How to work here (habits that have paid off, not a checklist to perform)
 - **Read the spec before a build/design round** — fully, not skimmed — and
@@ -27,7 +28,7 @@ the family conventions before adding to any of them; match the surrounding code.
   (§5): `bash -n` + a clean run is the floor; real behavior is the bar. If a
   path can't be tested here (e.g. a WSL path on this non-WSL box), label it
   **written-but-unproven** — never "done".
-- **Pattern-hunt every real bug (§5.3):** fix the *class* across all four
+- **Pattern-hunt every real bug (§5.3):** fix the *class* across all six
   scripts, not the one instance.
 - **Verify before you claim:** read a file back after writing it; check a tool
   exists before assuming it; report what actually happened — including failures

@@ -1,5 +1,10 @@
 # AI Memory Stack — Requirements Specification v1.40
 
+<!-- Doc hygiene (2026-07-01): scrubbed leaked personal infrastructure from the prose
+     (private IPs, usernames, host paths, a Mac pid, and a live `ssh …@…` line replaced
+     with generic <user>/<node-ip>/<pid> placeholders) and removed four copy-paste
+     duplicated changelog lines (~§ v1.22–v1.25). No spec content restructured. -->
+
 <!-- v1.40 (2026-06-18): "make migration great" — §4.12 is now a polished, discoverable
      feature, not scattered mechanics. (1) DISCOVERABILITY: README gains a "Moving to a
      new machine (or backing up)" section (one-time export→restore→configure→doctor +
@@ -179,14 +184,12 @@ so a beginner lands at the terminal confused); §B5: configure.sh is the thinnes
 tested script — fold a thorough live-test into the macOS round. UX/clarity
 backlog, not yet built.
 v1.25 (CC): §2.11 refined — the "self-deciding gateway" decision policy was an
-v1.25 (CC): §2.11 refined — the "self-deciding gateway" decision policy was an
 open gap (named the chain, never said who/when). Now pinned: Level A = rule-based
 fallback (deterministic triggers: backend error / context overflow / rate-limit /
 manual tag), user owns the rules + gateway executes them — THE COMMITTED, medium-
 effort target. Level B = semantic/quality-aware per-request routing = OUT OF
 SCOPE (agent territory, open problem). Delivered reality restated: configure
 picks ONE model, no runtime decider yet.
-v1.24 (CC): remote.sh R2+R3 CLOSED OUT. Pull-the-plug test PASSED (abrupt
 v1.24 (CC): remote.sh R2+R3 CLOSED OUT. Pull-the-plug test PASSED (abrupt
 SIGKILL power-cut + cold boot: VM recovered unattended; pwauth=no, linger=yes,
 sleep masked, wg-quick@wg0 auto-started — all persisted). F1 proven on BOTH
@@ -200,7 +203,6 @@ remain OPEN, low prio: F3 sed-argv ps-exposure; F2 full-live (needs a CF token).
 Tooling note: driving the interactive script through a TCG pty (ssh -tt / script)
 is flaky — deterministic command-level tests were used to validate Path B.
 v1.23 (CC): R3 FIX BUNDLE built + re-tested on the QEMU VM (package v9; remote
-v1.23 (CC): R3 FIX BUNDLE built + re-tested on the QEMU VM (package v9; remote
 v2.5, setup v8.9). F1 FIXED — hardening now writes `00-ai-memory-hardening.conf`
 (beats cloud-init's `50-` under sshd first-match-wins), falls back to the main
 config when there is no drop-in Include, runs `sshd -t`, and VERIFIES the
@@ -210,7 +212,6 @@ non-interactive NODE run completes instead of dying at `>/dev/tty`); same fix in
 setup.sh. F6 FIXED — `grep -q "Status: active"` (live: inactive ufw correctly
 skipped). F2 FIXED — DDNS JSON built with printf (valid JSON; full live needs a
 CF token). F3 cleared earlier; only its minor sed-argv residual remains open.
-v1.22 (CC): remote.sh R2 LIVE-TESTED on a local QEMU VM (Ubuntu 24.04 cloud
 v1.22 (CC): remote.sh R2 LIVE-TESTED on a local QEMU VM (Ubuntu 24.04 cloud
 image). §4.8 "R2 LIVE RESULTS" added. F1 CONFIRMED and worse than predicted —
 sshd first-match-wins means cloud-init's 50-cloud-init.conf (PasswordAuth yes)
@@ -1038,7 +1039,7 @@ corrected the design's assumptions:
 **LIVE PROOF (Mac, same wrong cwd `$HOME`, same vault, same handover — only the model
 varied):** qwen3.5 made **0** tool calls (hallucinated grep, twice); **claude-
 haiku-4.5 via OpenRouter made 6 REAL tool calls**, ran `grep -rli "OpenClaw"
-"/Users/kv/Documents/ai-memory/"` (the handover's absolute path), read and CITED the
+"~/Documents/ai-memory/"` (the handover's absolute path), read and CITED the
 real imported files (`05-AI-Sessions/openclaw/…`, `…/lmstudio/…openclaw-på-mac-mini…`).
 This satisfies the definition of done from the dashboard's failure cwd, and proves
 the model floor (§4.2) is required for reliable recall, not optional.
@@ -1575,7 +1576,7 @@ viable beginner experience and the §1 vision. The components are commodity; the
 honestly-verified last hop is the project's actual contribution.
 
 **Operational state at this pause:** the Mac runs a working local AI
-(Hermes → Ollama qwen3.5). `hermes dashboard --tui` is UP (Mac pid 12749),
-reached via an SSH tunnel `ssh -fNL 9119:localhost:9119 kv@192.168.38.229` →
+(Hermes → Ollama qwen3.5). `hermes dashboard --tui` is UP (Mac pid <pid>),
+reached via an SSH tunnel `ssh -fNL 9119:localhost:9119 <user>@<node-ip>` →
 Brave `http://localhost:9119` — left running on purpose. All code committed +
 pushed (origin/main 733021d); v13 bundle in ~/Downloads.
