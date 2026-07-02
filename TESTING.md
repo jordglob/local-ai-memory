@@ -52,7 +52,7 @@ project's rule that a path you cannot live-test is *written-but-unproven*, never
 | mux 2-pane + mouse assertions | ✅ proven | WSL: both pass |
 | ingest `--version`/`--help` | ✅ proven | WSL (real python3): pass. git-bash skips (Store-stub python) |
 | shellcheck step | 🟡 static | proven clean on git-bash (0.11.0); WSL run skipped it (not installed there); CI installs it |
-| CI on Linux **and macOS bash 3.2** | ⚪ unproven | workflow added; first run happens on push — not yet observed |
+| CI on Linux **and macOS bash 3.2** | ✅ proven | run [28591657914](https://github.com/jordglob/local-ai-memory/actions/runs/28591657914) @ `1b509a2`: `test (ubuntu-latest)` ✅ + `test (macos-latest)` ✅ (macOS runner's `/bin/bash` is 3.2 — proves the whole family + harness parse & run there) |
 
 ### Line endings (CRLF → LF) — finding + fix
 
