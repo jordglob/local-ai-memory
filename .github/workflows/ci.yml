@@ -1,0 +1,40 @@
+name: ci
+
+# The stack targets Linux, WSL and macOS (bash 3.2). Running the harness on
+# both ubuntu-latest and macos-latest gives the one thing a single dev box
+# can't: real bash-3.2 (/bin/bash on the macOS runner) + a clean Linux install.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (shellcheck, tmux)
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends shellcheck tmux
+          else
+            brew install shellcheck tmux || true
+          fi
+
+      - name: Show interpreter versions
+        run: |
+          bash --version | head -1
+          shellcheck --version | grep version || true
+          tmux -V || true
+
+      - name: Run test harness
+        run: bash tests/run.sh

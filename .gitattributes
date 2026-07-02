@@ -1,0 +1,22 @@
+# Normalize line endings so shell scripts NEVER get CRLF — a `.sh` file with
+# carriage returns fails on Linux/macOS with `bad interpreter` / `\r` errors,
+# which is exactly the kind of silent, machine-dependent break this project
+# tries to avoid. Attributes here override each contributor's core.autocrlf.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Binary assets — never touch.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.gz   binary
+*.age  binary

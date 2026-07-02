@@ -343,3 +343,22 @@ History:
                           (backup, no dup lines) all verified. shellcheck 0.11.0 clean;
                           `bash -n` OK on bash 5.2 (git-bash + WSL). bash-3.2/macOS paths:
                           static-only, written-but-unproven. README quick-start updated.
+
+  v24 CC   2026-07-02  — HARDENING INFRA + hygiene (no runtime behavior change to the
+                          shipped stack). Added the project's first automated safety net:
+                          tests/run.sh (bash -n + shellcheck + --version/--help smoke +
+                          version-drift check + a REGRESSION test that locks in the v1.2
+                          uninstall gate: `--no-export --yes` must not delete without the
+                          DELETE confirm) and .github/workflows/ci.yml running it on Linux
+                          AND macOS (real bash 3.2). Added .gitattributes (`* text=auto
+                          eol=lf`, `*.sh eol=lf`) — fixes a proven bug: the scripts were
+                          CRLF in a Windows working tree and crashed under WSL/Linux bash
+                          when run from /mnt/c; now LF on every checkout. Added
+                          .shellcheckrc, .editorconfig, SECURITY.md, CONTRIBUTING.md,
+                          TESTING.md (proven/unproven provenance). Behavior-neutral lint
+                          fixes (shellcheck -S warning now clean): configure drops a dead
+                          SOURCE var, remote drops a dead `blank`, setup splits `local bak;
+                          bak=…` to unmask date's return — left unversioned (no behavior
+                          change). LIVE-TESTED by Claude Code (Opus 4.8) on WSL2 Ubuntu +
+                          git-bash: harness green after LF renormalize; uninstall gate +
+                          mux tmux assertions pass. CI matrix first-run happens on push.

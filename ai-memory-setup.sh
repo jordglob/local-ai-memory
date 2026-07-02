@@ -428,7 +428,7 @@ safe_json_merge() {
       warn "Fix manually: $target"
       return 1
     fi
-    local bak="${target}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+    local bak; bak="${target}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
     # The source config can carry OTHER MCP servers' API keys/secrets, so the
     # backup must not be world/group-readable. Create it 0600 up front (umask),
     # then chmod as a belt-and-braces on platforms that ignore the umask on cp.

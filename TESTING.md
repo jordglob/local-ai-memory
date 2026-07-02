@@ -41,4 +41,39 @@ project's rule that a path you cannot live-test is *written-but-unproven*, never
 | model-mode switches (`hermes config set …`) | ⚪ unproven | needs a configured local/cloud endpoint; gated behind opt-in config |
 | bash 3.2 / macOS | ⚪ unproven | no bash-3.2 interpreter available here |
 
-<!-- New artifacts (tests harness, CI, hygiene files) are appended here as they land. -->
+### `tests/run.sh` — test harness (new, 2026-07-02)
+
+| Check | Level | Evidence |
+|---|---|---|
+| full harness green in WSL2 | ✅ proven | **33 passed / 0 failed / 1 skipped** (only shellcheck skipped — see below) |
+| uninstall gate tested with NO controlling tty | ✅ proven | uses `setsid` + `timeout` so the gate must *refuse*, not prompt/hang |
+| `bash -n` on all 8 scripts (LF content) | ✅ proven | WSL: all 8 pass when LF-normalized |
+| uninstall `--no-export --yes` safety gate | ✅ proven | WSL: vault survived, exit≠0 — regression locked in |
+| mux 2-pane + mouse assertions | ✅ proven | WSL: both pass |
+| ingest `--version`/`--help` | ✅ proven | WSL (real python3): pass. git-bash skips (Store-stub python) |
+| shellcheck step | 🟡 static | proven clean on git-bash (0.11.0); WSL run skipped it (not installed there); CI installs it |
+| CI on Linux **and macOS bash 3.2** | ⚪ unproven | workflow added; first run happens on push — not yet observed |
+
+### Line endings (CRLF → LF) — finding + fix
+
+- **Finding (proven):** the six existing scripts are **CRLF in the Windows
+  working tree** (via `core.autocrlf`) and **fail under Linux/WSL bash**
+  (`syntax error near … $'in\r'`) when run from `/mnt/c`. The repo *blobs* are
+  LF, so a Linux `git clone` is fine — but a Windows checkout run through WSL is
+  not.
+- **Fix (proven):** `.gitattributes` (`* text=auto eol=lf`, `*.sh eol=lf`)
+  forces LF on every checkout regardless of `autocrlf`. After renormalizing, all
+  8 scripts pass `bash -n` **and** the full harness in WSL from `/mnt/c`.
+
+### Hygiene / config files (new, 2026-07-02)
+
+`.gitattributes`, `.shellcheckrc`, `.editorconfig`, `.github/workflows/ci.yml`,
+`SECURITY.md`, `CONTRIBUTING.md` — static content; `.gitattributes` effect
+proven above; CI workflow validated locally by running the same steps by hand.
+
+### Behavior-neutral lint fixes (2026-07-02)
+
+`configure` (drop dead `SOURCE`), `remote` (drop dead `blank`), `setup` (split
+`local bak; bak=…` to unmask `date`'s return). ✅ proven: shellcheck `-S warning`
+now clean on all three; `bash -n` OK; no behavior change (dead-var removal +
+declare/assign split), so **intentionally left unversioned**.

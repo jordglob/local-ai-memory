@@ -297,7 +297,7 @@ print(json.dumps({"model":"llama3.2:3b","source":"pull","desc":"minimal",
 PYSEL
 )
 sget() { echo "$SELECTED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"; }
-MODEL_TAG=$(sget model); SOURCE=$(sget source); DESC=$(sget desc); REASON=$(sget reason)
+MODEL_TAG=$(sget model); DESC=$(sget desc); REASON=$(sget reason)
 
 # Hermes Agent refuses any model below this context floor.
 HERMES_CTX_FLOOR=64000

@@ -85,7 +85,7 @@ ask_yn() {  # ask_yn "question" default(y|n)
 
 pause_for() {  # blocking instruction without verification
   local msg="$1"
-  blank=""; echo ""
+  echo ""
   echo -e "${YELLOW}${BOLD}ACTION REQUIRED:${NC}"
   echo -e "$msg"
   if $CAN_PROMPT && ! $ASSUME_YES; then

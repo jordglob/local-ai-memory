@@ -1,0 +1,9 @@
+# shellcheck configuration for the AI Memory Stack.
+shell=bash
+
+# Don't try to follow files sourced at runtime (nvm.sh, optional user config);
+# they aren't part of the repo and their absence is expected.
+disable=SC1091
+
+# We keep signal high by fixing genuine warnings rather than blanket-disabling.
+# Run locally the same way CI does:  shellcheck -S warning ai-memory-*.sh
