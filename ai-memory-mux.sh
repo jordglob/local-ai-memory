@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-mux.sh  v1.0
+#  ai-memory-mux.sh  v1.1
+#  v1.1: honor the "env wins" contract — environment variables now survive a
+#        sourced mux.conf instead of being clobbered by its assignments.
 #  Mouse-driven tmux launcher + menu for the AI Memory Stack's local agent.
 #  Opens the agent (default: `hermes chat`) in one tmux pane with a working
 #  terminal pane beside it, mouse control on (click a pane, drag the border,
@@ -52,7 +54,7 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC}  $*" >&2; }
 ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 
-VERSION="1.0"
+VERSION="1.1"
 
 # ── args ─────────────────────────────────────────────────────────────────────
 SUBCMD=""
@@ -74,8 +76,22 @@ done
 
 # ── config (optional file; env wins; no secrets ever) ────────────────────────
 MUX_CONF="${AI_MEMORY_MUX_CONF:-$HOME/.config/ai-memory/mux.conf}"
+# "env wins" is a promise: a plain assignment in the sourced conf would
+# silently clobber the caller's environment, so snapshot the env first and
+# restore any value the caller actually set after the conf has loaded.
+_env_vault="${AI_MEMORY_VAULT-}";        _env_agent="${AI_MEMORY_AGENT_CMD-}"
+_env_session="${AI_MEMORY_MUX_SESSION-}"; _env_lurl="${AI_MEMORY_LOCAL_URL-}"
+_env_lmodel="${AI_MEMORY_LOCAL_MODEL-}";  _env_curl="${AI_MEMORY_CLOUD_URL-}"
+_env_cmodel="${AI_MEMORY_CLOUD_MODEL-}"
 # shellcheck source=/dev/null
 [[ -f "$MUX_CONF" ]] && . "$MUX_CONF"
+[[ -n "$_env_vault"   ]] && AI_MEMORY_VAULT="$_env_vault"
+[[ -n "$_env_agent"   ]] && AI_MEMORY_AGENT_CMD="$_env_agent"
+[[ -n "$_env_session" ]] && AI_MEMORY_MUX_SESSION="$_env_session"
+[[ -n "$_env_lurl"    ]] && AI_MEMORY_LOCAL_URL="$_env_lurl"
+[[ -n "$_env_lmodel"  ]] && AI_MEMORY_LOCAL_MODEL="$_env_lmodel"
+[[ -n "$_env_curl"    ]] && AI_MEMORY_CLOUD_URL="$_env_curl"
+[[ -n "$_env_cmodel"  ]] && AI_MEMORY_CLOUD_MODEL="$_env_cmodel"
 
 VAULT="${VAULT:-${AI_MEMORY_VAULT:-$HOME/Documents/ai-memory}}"
 [[ "$VAULT" != /* ]] && VAULT="$PWD/$VAULT"

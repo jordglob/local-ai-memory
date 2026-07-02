@@ -362,3 +362,25 @@ History:
                           change). LIVE-TESTED by Claude Code (Opus 4.8) on WSL2 Ubuntu +
                           git-bash: harness green after LF renormalize; uninstall gate +
                           mux tmux assertions pass. CI matrix first-run happens on push.
+
+  v25 CC   2026-07-02  — claude-code source made FIRST-CLASS (ingest v2.13) + mux
+                          env-precedence fix (mux v1.1). ingest v2.13: (1) WSL-aware
+                          discovery — running under WSL now also finds the WINDOWS
+                          profile's sessions (/mnt/<drive>/Users/<name>/.claude/
+                          projects); generic via /proc/version + WSL_DISTRO_NAME, zero
+                          change on plain Linux/macOS. (2) Real titles from the
+                          transcript's aiTitle records (was "Claude Code — <dirname>").
+                          (3) Stable created-timestamp from the first message (was file
+                          mtime). (4) Harness-noise filtering: command/system-reminder/
+                          task-notification tags stripped from user turns; tool-output
+                          user records and subagent sidechains skipped; sessions with
+                          no human turn dropped as empty. LIVE-TESTED on WSL2: 16 real
+                          sessions imported, 26 noise sessions filtered, clean You/
+                          Assistant transcripts. mux v1.1: the conf loader violated its
+                          own "env wins" contract — sourced mux.conf assignments
+                          clobbered caller env vars (caught by the v24 live test the
+                          moment a real mux.conf existed: the test's
+                          AI_MEMORY_MUX_SESSION was overridden and mux attached to the
+                          user's live hermes session instead). Env is snapshotted
+                          before the conf loads and restored after. tests/run.sh: 33
+                          passed, 0 failed after both changes.
