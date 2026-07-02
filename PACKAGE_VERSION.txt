@@ -328,3 +328,18 @@ History:
                           lines. Shipped via git push to main (14d92fd), not a zip. Ethos
                           intact: strengthens "verify against the source" + "secrets never
                           leak"; nothing self-modifies.
+
+  v23 CC   2026-07-02  — NEW 7th family script: ai-memory-mux.sh v1.0 — a mouse-driven
+                          tmux launcher + menu for the stack's local agent. Opens the agent
+                          (default `hermes chat`) in one pane with a working terminal pane
+                          beside it; session-scoped `mouse on` (click/drag/scroll/select-copy);
+                          detach/re-attach; restart-agent; opt-in marker-blocked ~/.tmux.conf
+                          snippet (backup + idempotent). Generic: vault/agent/model-modes via
+                          env or ~/.config/ai-memory/mux.conf — no hardcoded hosts/models.
+                          Ported + generalized from a live hermes-tmux bashrc setup.
+                          LIVE-TESTED on WSL2 Ubuntu (tmux 3.4) by Claude Code (Opus 4.8) on
+                          2026-07-02: 2-pane split, `mouse on`, pane titles (agent/terminal),
+                          AI_MEMORY_MUX=1 in session env, and idempotent tmux.conf install
+                          (backup, no dup lines) all verified. shellcheck 0.11.0 clean;
+                          `bash -n` OK on bash 5.2 (git-bash + WSL). bash-3.2/macOS paths:
+                          static-only, written-but-unproven. README quick-start updated.
