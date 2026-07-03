@@ -6,6 +6,11 @@ Consolidate your scattered AI conversations into one local vault you own —
 and run a persistent local agent on top of it. No cloud accounts. No lock-in.
 Plain markdown on your own disk.
 
+> 🌱 **New to the terminal?** Start with **[GET-STARTED.md](GET-STARTED.md)** — a
+> beginner walkthrough, one copy-paste block at a time (it handles the classic
+> *"git: command not found"* wall that trips people on a fresh machine). Provisioning
+> many machines hands-off? See the sketch in **[docs/ADVANCED-NETBOOT.md](docs/ADVANCED-NETBOOT.md)**.
+
 > ## Status — read this first
 >
 > Source-available, **works-for-me**, *not* a polished consumer product. Built for
