@@ -50,10 +50,8 @@ ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 VERSION="1.0"
 
 # ── args ─────────────────────────────────────────────────────────────────────
-# --yes is accepted for family-flag consistency (§2.8) but has nothing to
-# auto-answer here: sync never prompts, and its one refusal (the outgoing
-# secret-scan) is deliberately NOT silenceable by --yes.
-# shellcheck disable=SC2034
+# --yes is accepted for family-flag consistency (§2.8) but sync never prompts;
+# its one refusal (the outgoing secret-scan) is deliberately NOT silenceable.
 SUBCMD=""; TARGET=""; VAULT=""; NO_SCRAPE=false; ASSUME_YES=false
 REMOTE_VAULT="${AI_MEMORY_REMOTE_VAULT:-Documents/ai-memory}"
 prev=""
@@ -148,6 +146,7 @@ if [[ -n "$leaks" ]]; then
   echo "$leaks" | sed 's/^/      /'
   err "refusing to push. Re-run ingest (v2.14+ self-sanitizes on re-import),"
   err "or redact these files by hand, then push again."
+  $ASSUME_YES && warn "(--yes does not override the secret gate — by design)"
   exit 1
 fi
 ok "secret-scan clean"
