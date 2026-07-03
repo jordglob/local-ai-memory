@@ -54,6 +54,23 @@ project's rule that a path you cannot live-test is *written-but-unproven*, never
 | shellcheck step | 🟡 static | proven clean on git-bash (0.11.0); WSL run skipped it (not installed there); CI installs it |
 | CI on Linux **and macOS bash 3.2** | ✅ proven | run [28591657914](https://github.com/jordglob/local-ai-memory/actions/runs/28591657914) @ `1b509a2`: `test (ubuntu-latest)` ✅ + `test (macos-latest)` ✅ (macOS runner's `/bin/bash` is 3.2 — proves the whole family + harness parse & run there) |
 
+### First real-Mac live run (2026-07-03) — macOS path upgraded to PROVEN
+
+The full chain ran end-to-end on a physical Apple Silicon Mac mini (macOS 26.4.1)
+as the hub of a hub-and-spoke setup (central vault, satellite pushes via sync):
+
+| Path | Level | Evidence |
+|---|---|---|
+| `setup` v8.16 on real macOS | ✅ proven | fresh run over ssh: Homebrew sudo prompt, npm-prefix install (no sudo), `~/.hermes` created — 0 errors |
+| `configure` on real macOS | ✅ proven | detected 48GB + 16 Ollama models, suggested `qwen3.6:35b`, wrote config + vault launcher |
+| `doctor` on real macOS | ✅ proven | **7 passed / 0 warnings / 0 failed** — searchability verified from a foreign cwd |
+| `sync` v1.0 push (WSL satellite → Mac central) | ✅ proven | scrape → clean secret-scan → add-only → remote reindex → 844=844 verified |
+| cross-machine recall | ✅ proven | the Mac's Hermes answered a memory question by reading a session archived on the WSL machine the day before (ingest `hermes` source → sync → central recall) |
+
+(The earlier "bash 3.2 / macOS unproven" rows above describe the state at
+2026-07-02 and are kept as history; CI had proven parse/run on the macOS runner,
+this run proves real-hardware behavior.)
+
 ### Line endings (CRLF → LF) — finding + fix
 
 - **Finding (proven):** the six existing scripts are **CRLF in the Windows
