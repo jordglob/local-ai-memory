@@ -405,3 +405,23 @@ History:
                           asserts [REDACTED:api-key], asserts key absent). 34 passed,
                           0 failed. LIVE: 11 hermes sessions imported; vault AGENTS.md
                           told the agent its own history lives in 05-AI-Sessions/.
+
+  v27 CC   2026-07-03  — NEW 8th family script: ai-memory-sync.sh v1.0 — the
+                          hub-and-spoke flow: ONE central vault, satellite machines
+                          that scrape themselves and push at need (no continuous
+                          sync). `push USER@HOST` = local ingest --all → secret-scan
+                          → ADD-ONLY rsync of 05-AI-Sessions (never INDEX.md, never
+                          a delete) → reindex ON the central → verify counts.
+                          `status` compares both sides read-only. Every rule encodes
+                          a real incident from the 2026-07-03 live merge session:
+                          a copied INDEX.md lied about the target's disk (→ derived
+                          state is rebuilt, not copied); the target held 687 old
+                          openclaw sessions the source never knew about (→ add-only,
+                          inventory-first); pre-scrub archives may carry pasted keys
+                          (→ outgoing secret-scan that --yes cannot silence); and a
+                          green log that moved nothing must fail loudly (→ count
+                          verification). LIVE-TESTED against the real central
+                          (Mac mini over ssh): scrape, clean scan, no-op add-only
+                          push, remote reindex, 844=844 verified. tests/run.sh:
+                          sync joined FAMILY (smoke + drift checks) — 38 passed,
+                          0 failed. README + CLAUDE.md updated (eight scripts).

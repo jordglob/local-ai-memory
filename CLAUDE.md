@@ -15,8 +15,9 @@ and starts to contradict).
   outward-facing actions (e.g. pushing a remote, deleting data you didn't make).
 
 ## The repo in one breath
-Six self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
-→ `remote` → `uninstall` (the last two optional) — plus the spec. Bash-portable,
+Eight self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
+→ `remote` → `uninstall` (optional) → `mux` (optional) → `sync` (optional) —
+plus the spec. Bash-portable,
 idempotent, secrets never logged. Read §2.8 for the family conventions before
 adding to any of them; match the surrounding code.
 

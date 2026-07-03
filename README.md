@@ -60,6 +60,7 @@ bash ai-memory-remote.sh       # optional: SSH/WireGuard/Tailscale node setup
 bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
 hermes chat                    # talk to an agent that knows your past
 bash ai-memory-mux.sh          # optional: launch the agent in a mouse-driven tmux tab
+bash ai-memory-sync.sh         # optional: push this machine's history to a central vault
 ```
 
 The scripts are a family: same flags everywhere (`--help` `--version` `--yes`),

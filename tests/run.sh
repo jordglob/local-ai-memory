@@ -39,7 +39,7 @@ hdr()  { printf "\n${B}── %s ──${N}\n" "$1"; }
 
 # Family scripts must carry --help/--version/--yes and a consistent version
 # (§2.8). publish-to-github.sh is an internal helper: syntax + shellcheck only.
-FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-remote.sh ai-memory-uninstall.sh ai-memory-mux.sh"
+FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-remote.sh ai-memory-uninstall.sh ai-memory-mux.sh ai-memory-sync.sh"
 HELPERS="publish-to-github.sh"
 SCRIPTS="$FAMILY $HELPERS"
 
