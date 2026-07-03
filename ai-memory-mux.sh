@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-mux.sh  v1.1
+#  ai-memory-mux.sh  v1.2
+#  v1.2: ingest-on-start — before the agent launches, fast local sources
+#        (hermes state.db + Claude Code transcripts) are archived into the
+#        vault so every session starts with a fresh index. Deterministic,
+#        quiet, never blocks the launch; opt out with AI_MEMORY_NO_INGEST=1.
 #  v1.1: honor the "env wins" contract — environment variables now survive a
 #        sourced mux.conf instead of being clobbered by its assignments.
 #  Mouse-driven tmux launcher + menu for the AI Memory Stack's local agent.
@@ -54,7 +58,7 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC}  $*" >&2; }
 ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 
-VERSION="1.1"
+VERSION="1.2"
 
 # ── args ─────────────────────────────────────────────────────────────────────
 SUBCMD=""
@@ -127,6 +131,25 @@ apply_session_options() {
     " #{pane_index}: #{pane_current_command} " 2>/dev/null || true
 }
 
+# Archive fast local history (the agent's own past sessions + Claude Code
+# transcripts) into the vault before the agent wakes, so every start begins
+# with a fresh, complete index. Deterministic and idempotent — deliberately a
+# script's job, never the agent's. Quiet; failures never block the launch.
+# Opt out with AI_MEMORY_NO_INGEST=1.
+ingest_on_start() {
+  [[ "${AI_MEMORY_NO_INGEST:-0}" = "1" ]] && return 0
+  local here ing src
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for ing in "$here/ai-memory-ingest.sh" "$VAULT/.tools/ai-memory-ingest.sh"; do
+    [[ -f "$ing" ]] || continue
+    info "refreshing memory index (hermes + claude-code → vault)"
+    for src in hermes claude-code; do
+      bash "$ing" "$VAULT" --source "$src" --yes >/dev/null 2>&1 || true
+    done
+    return 0
+  done
+}
+
 # ── core: start / attach ─────────────────────────────────────────────────────
 mux_start() {
   require_tmux
@@ -134,6 +157,7 @@ mux_start() {
     warn "vault dir not found: $VAULT"
     warn "run ai-memory-setup.sh first, or pass the right path."
   fi
+  ingest_on_start
   if session_exists; then
     info "attaching to the existing '$SESSION' session"
     mux_attach

@@ -143,7 +143,28 @@ else
   skip "ai-memory-uninstall.sh absent"
 fi
 
-# ── 6. mux: real tmux session shape (skipped without tmux) ───────────────────
+# ── 6. regression: ingest secret-scrub (locks in the v2.14 promise) ──────────
+hdr "regression: ingest secret-scrub"
+if [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/ccfake/proj" "$TMP/scrubvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"type":"ai-title","aiTitle":"Leak test"}' \
+    '{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"my key is sk-or-v1-0123456789abcdef0123456789abcdef"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"noted"}]}}' \
+    > "$TMP/ccfake/proj/11111111-1111-1111-1111-111111111111.jsonl"
+  bash ai-memory-ingest.sh "$TMP/scrubvault" --source claude-code --path "$TMP/ccfake" --yes >/dev/null 2>&1
+  scrubfile=$(ls "$TMP/scrubvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | head -1)
+  if [ -n "$scrubfile" ] && grep -q "REDACTED:api-key" "$scrubfile" \
+     && ! grep -q "sk-or-v1-0123456789" "$scrubfile"; then
+    pass "pasted api key redacted on import"
+  else
+    fail "secret survived into vault (or import failed)" "${scrubfile:-no file written}"
+  fi
+fi
+
+# ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then
   skip "tmux not installed"

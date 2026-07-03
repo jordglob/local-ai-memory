@@ -384,3 +384,24 @@ History:
                           user's live hermes session instead). Env is snapshotted
                           before the conf loads and restored after. tests/run.sh: 33
                           passed, 0 failed after both changes.
+
+  v26 CC   2026-07-03  — MEMORY LOOP CLOSED + secret-scrub (ingest v2.14, mux v1.2).
+                          ingest v2.14: (1) NEW 11th source `hermes` — the local
+                          agent's own session history (~/.hermes/state.db, read-only
+                          SQLite) is archived into 05-AI-Sessions/hermes/, so the
+                          agent's short-term memory becomes searchable long-term
+                          memory; WSL-aware discovery like claude-code. (2) SECRET-
+                          SCRUB on every import: pasted API keys/tokens/private keys
+                          (sk-*, ghp_*, AKIA*, AIza*, xox*, whsec_*, JWT, PEM blocks)
+                          are redacted before writing; the hash covers redacted text,
+                          so files imported by older versions self-sanitize on the
+                          next run (PROVEN: a real pasted OpenRouter key found in the
+                          vault was scrubbed by re-running ingest). (3) Banner version
+                          drift fixed (was hardcoded v2.12). mux v1.2: ingest-on-start
+                          — mux_start archives hermes + claude-code into the vault
+                          before the agent launches (quiet, idempotent, never blocks;
+                          AI_MEMORY_NO_INGEST=1 opts out). tests/run.sh: NEW regression
+                          test locks in the scrub (fake session with a pasted key →
+                          asserts [REDACTED:api-key], asserts key absent). 34 passed,
+                          0 failed. LIVE: 11 hermes sessions imported; vault AGENTS.md
+                          told the agent its own history lives in 05-AI-Sessions/.

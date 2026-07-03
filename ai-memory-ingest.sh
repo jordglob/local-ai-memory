@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.13
-#  Import scattered AI conversations into the vault — 10 sources
+#  ai-memory-ingest.sh  v2.14
+#  Import scattered AI conversations into the vault — 11 sources
+#  v2.14: (1) NEW `hermes` source — the local agent's own session history
+#         (~/.hermes/state.db) is archived into the vault, closing the loop:
+#         the agent's short-term memory becomes searchable long-term memory.
+#         (2) SECRET-SCRUB on every import — pasted API keys, tokens and
+#         private keys are redacted before a conversation is written, so a
+#         synced/exported vault upholds "secrets never travel" even when the
+#         original chat contained one. Re-running ingest sanitizes files
+#         imported by older versions (hash changes → rewritten redacted).
 #  v2.13: claude-code source made first-class — under WSL the Windows-side
 #         profile (/mnt/<drive>/Users/<name>/.claude/projects) is discovered
 #         too; real session titles (aiTitle), stable created-timestamp from
@@ -12,7 +20,7 @@
 #         path-safe id/date components; uncompressed-size cap on zip members.
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
-#           cursor, aider, lmstudio, open-webui, gemini-takeout
+#           cursor, aider, lmstudio, open-webui, gemini-takeout, hermes
 #
 #  Discovery (three tiers):
 #    default      known per-source paths + targeted ~/Downloads export sniffing
@@ -34,7 +42,7 @@ exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 from pathlib import Path
 
-VERSION = "2.13"
+VERSION = "2.14"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -64,6 +72,30 @@ def ask_yn(question, default=True):
         warn(f"Non-interactive — assuming {'yes' if default else 'no'}: {question}")
         return default
 
+# ── secret-scrub ──────────────────────────────────────────────────────────────
+# The vault is the artifact that gets synced, exported and backed up — the
+# project's keystone promise is "secrets never travel". But people PASTE keys
+# into chats, and a faithful archive would carry them along. Redact before
+# anything is written. Conservative, high-confidence patterns only: silently
+# mangling prose would be worse than missing an exotic token format.
+_SECRET_PATTERNS = (
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),                     "[REDACTED:api-key]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),              "[REDACTED:github-token]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                        "[REDACTED:aws-key]"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),                   "[REDACTED:google-key]"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),            "[REDACTED:slack-token]"),
+    (re.compile(r"\bwhsec_[A-Za-z0-9]{16,}\b"),                  "[REDACTED:webhook-secret]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b"),
+                                                                 "[REDACTED:jwt]"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+                re.S),                                           "[REDACTED:private-key]"),
+)
+
+def scrub_secrets(t):
+    for rx, repl in _SECRET_PATTERNS:
+        t = rx.sub(repl, t)
+    return t
+
 # ── shared output ─────────────────────────────────────────────────────────────
 def slugify(s, n=55):
     s = re.sub(r"[^\w\s-]", "", s or "untitled", flags=re.UNICODE).strip()
@@ -91,8 +123,12 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     date = _safe_date(conv.get("created"))
     # Clean every message (strip renderer-placeholder noise, tidy blank lines)
     # BEFORE the empty check, so a message that was *only* noise is dropped and
-    # never emits a hollow "**Assistant:**" block.
-    msgs = [(r, ct) for r, ct in ((r, clean_text(t)) for r, t in conv.get("messages", [])) if ct]
+    # never emits a hollow "**Assistant:**" block. Secrets are scrubbed here
+    # too, so the hash covers the REDACTED text — files written by older
+    # versions with a secret intact get a hash mismatch and are rewritten
+    # sanitized on the next run.
+    msgs = [(r, ct) for r, ct in
+            ((r, scrub_secrets(clean_text(t))) for r, t in conv.get("messages", [])) if ct]
     if not msgs:
         stats["empty"] += 1
         return
@@ -319,6 +355,44 @@ def parse_claude_code(root, out_root):
                         "title": title or f"Claude Code — {jl.parent.name}",
                         "created": created,
                         "note": f"project dir: {jl.parent.name}",
+                        "messages": msgs}, st)
+        except Exception: st["failed"] += 1
+    return st
+
+def parse_hermes(db_path, out_root):
+    """Hermes keeps its own history in ~/.hermes/state.db (sessions + messages).
+    Archiving it closes the loop the stack promises: the agent's short-term
+    memory becomes long-term, searchable vault memory. Read-only open — safe
+    to run while the agent is live (WAL readers don't block the writer)."""
+    st = _stats(); out = out_root / "hermes"
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur = con.cursor()
+        sessions = cur.execute(
+            "SELECT id, model, started_at FROM sessions ORDER BY started_at").fetchall()
+        rows = cur.execute(
+            "SELECT session_id, role, content FROM messages "
+            "WHERE role IN ('user','assistant') ORDER BY timestamp, id").fetchall()
+        con.close()
+    except sqlite3.Error as e:
+        err(f"hermes: cannot open {db_path}: {e}"); st["failed"] += 1; return st
+    by_session = {}
+    for sid, role, content in rows:
+        if isinstance(content, str) and content.strip():
+            by_session.setdefault(sid, []).append((role, content))
+    for sid, model, started in sessions:
+        try:
+            msgs = by_session.get(sid) or []
+            if not any(r == "user" for r, _ in msgs):
+                st["empty"] += 1; continue         # tool-only / aborted session
+            created = None
+            if isinstance(started, (int, float)):
+                created = datetime.datetime.fromtimestamp(started).isoformat()
+            first_user = next((t for r, t in msgs if r == "user"), "")
+            title = " ".join(first_user.split())[:60] or f"Hermes — {sid}"
+            write_conv(out, "hermes",
+                       {"id": sid, "title": title, "created": created,
+                        "note": f"model: {model}" if model else None,
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
     return st
@@ -590,6 +664,11 @@ SOURCES = {
                      "paths": [HOME / ".open-webui", HOME / "open-webui"],
                      "pattern": "webui.db",                     "fn": parse_openwebui},
     "gemini-takeout": {"desc": "Google Takeout (Gemini)",       "kind": "zip"},
+    "hermes":       {"desc": "Hermes agent session history",    "kind": "glob",
+                     "paths": [HOME / ".hermes"]
+                              + [h / ".hermes" for h in _wsl_windows_homes()],
+                     "pattern": "state.db",                     "fn": parse_hermes,
+                     "shallow": True},
 }
 
 # Match known export *stems* without requiring an extension: browsers (and
@@ -904,7 +983,7 @@ def main():
 
     print()
     print(c("1", "╔══════════════════════════════════════════╗"))
-    print(c("1", "║   AI Memory Stack — Ingest v2.12         ║"))
+    print(c("1", f"║   AI Memory Stack — Ingest v{VERSION:<13}║"))
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
