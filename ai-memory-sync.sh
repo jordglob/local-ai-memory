@@ -50,6 +50,10 @@ ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 VERSION="1.0"
 
 # ── args ─────────────────────────────────────────────────────────────────────
+# --yes is accepted for family-flag consistency (§2.8) but has nothing to
+# auto-answer here: sync never prompts, and its one refusal (the outgoing
+# secret-scan) is deliberately NOT silenceable by --yes.
+# shellcheck disable=SC2034
 SUBCMD=""; TARGET=""; VAULT=""; NO_SCRAPE=false; ASSUME_YES=false
 REMOTE_VAULT="${AI_MEMORY_REMOTE_VAULT:-Documents/ai-memory}"
 prev=""
