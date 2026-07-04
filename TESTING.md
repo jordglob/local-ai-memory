@@ -97,8 +97,8 @@ spot: `tests/run.sh` linted every script except itself.
 |---|---|---|
 | harness + bootstrap self-lint (`bash -n` + shellcheck) | ✅ proven | git-bash: both green at `-S warning` after fix |
 | scrub false-red eliminated | ✅ proven | git-bash: `skip … (no real python3 here)` instead of FAIL |
-| scrub still runs where python3 is real | 🟡 static | guard mirrors the proven §2/§3 pattern; confirmed by next CI ubuntu run |
-| bash-3.2 safety of the changes | 🟡 static | `elif` + `mkdir -p` + `$(dirname)` only — no bash-4isms; confirmed by next CI macOS run |
+| scrub still runs where python3 is real | ✅ proven | run [28697698407](https://github.com/jordglob/local-ai-memory/actions/runs/28697698407) @ `148cc7a`: ubuntu `pasted api key redacted on import` ok — **51 passed / 0 failed / 0 skipped** |
+| bash-3.2 safety of the changes | ✅ proven | same run, macOS leg (`/bin/bash` 3.2): self-lint + scrub all ok — **50 passed / 0 failed / 1 skipped** |
 
 ### Line endings (CRLF → LF) — finding + fix
 
