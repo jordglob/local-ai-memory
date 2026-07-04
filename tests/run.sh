@@ -43,12 +43,19 @@ FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-
 HELPERS="publish-to-github.sh"
 SCRIPTS="$FAMILY $HELPERS"
 
+# Hygiene-only targets: linted + parse-checked like everything else, but they
+# carry no --version/--help/version-consistency contract, so they stay out of
+# $FAMILY. Includes this harness itself — otherwise the one file that lints all
+# the others is the one file the linter never sees (that blind spot is exactly
+# how a stray pseudo-directive comment once slipped into this very file).
+LINT_ONLY="bootstrap.sh tests/run.sh"
+
 # Real python3? The Windows Store alias is a stub that fails imports; ingest is
 # a python script, so its runtime smokes are skipped where python3 isn't real.
 PY_OK=0
 python3 -c 'import sys' >/dev/null 2>&1 && PY_OK=1
 
-# shellcheck: find it on PATH, or the winget install path on Windows.
+# Locate the shellcheck binary on PATH, or the winget install path on Windows.
 SHELLCHECK=""
 if command -v shellcheck >/dev/null 2>&1; then
   SHELLCHECK=shellcheck
@@ -65,7 +72,7 @@ trap cleanup EXIT
 
 # ── 1. bash -n parse ─────────────────────────────────────────────────────────
 hdr "bash -n (syntax)"
-for s in $SCRIPTS; do
+for s in $SCRIPTS $LINT_ONLY; do
   [ -f "$s" ] || { skip "$s (absent)"; continue; }
   if out=$(bash -n "$s" 2>&1); then pass "$s"; else fail "$s" "$out"; fi
 done
@@ -75,8 +82,9 @@ hdr "shellcheck"
 if [ -z "$SHELLCHECK" ]; then
   skip "shellcheck not installed (install: apt-get install shellcheck)"
 else
-  for s in $SCRIPTS; do
+  for s in $SCRIPTS $LINT_ONLY; do
     [ -f "$s" ] || continue
+    mkdir -p "$TMP/$(dirname "$s")"          # $s may be nested (e.g. tests/run.sh)
     tr -d '\r' < "$s" > "$TMP/$s"
     if out=$("$SHELLCHECK" -S warning "$TMP/$s" 2>&1); then pass "$s"; else fail "$s" "$out"; fi
   done
@@ -147,6 +155,11 @@ fi
 hdr "regression: ingest secret-scrub"
 if [ ! -f ai-memory-ingest.sh ]; then
   skip "ai-memory-ingest.sh absent"
+elif [ "$PY_OK" = 0 ]; then
+  # ingest is a python script; without a real python3 the import can't run and
+  # this would report a spurious secret-leak FAIL. Skip, like the other ingest
+  # checks above (§2 --version / §3 consistency), so a false red never lands.
+  skip "ai-memory-ingest.sh (no real python3 here)"
 else
   mkdir -p "$TMP/ccfake/proj" "$TMP/scrubvault/05-AI-Sessions"
   printf '%s\n' \

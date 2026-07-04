@@ -71,6 +71,35 @@ as the hub of a hub-and-spoke setup (central vault, satellite pushes via sync):
 2026-07-02 and are kept as history; CI had proven parse/run on the macOS runner,
 this run proves real-hardware behavior.)
 
+### Harness self-lint + false-red fixes (2026-07-04) — findings + fix
+
+Two real bugs found *in the harness itself*, both rooted in the same blind
+spot: `tests/run.sh` linted every script except itself.
+
+- **Finding 1 (proven):** the comment `# shellcheck: find it on PATH…` is
+  parsed by shellcheck as a *directive*, fails with SC1073/SC1072, and makes
+  shellcheck bail on the whole file — so `run.sh` was never actually
+  lint-checkable. Never caught, because the harness didn't lint itself.
+- **Finding 2 (proven):** the secret-scrub regression (§6) lacked the `PY_OK`
+  guard the other ingest checks have. On a box without real python3
+  (git-bash / Store-stub python) the import can't run, no file is written, and
+  the harness reports a **false red** `secret survived into vault` — a spurious
+  leak alarm in exactly the test whose job is trust.
+- **Fix (proven):** new `LINT_ONLY="bootstrap.sh tests/run.sh"` set — parse- and
+  lint-checked like `$SCRIPTS` but exempt from the `--version`/`--help`
+  contract; the pseudo-directive comment reworded; the scrub test now skips
+  without real python3 (CI's ubuntu leg still runs it for real). Evidence:
+  git-bash 5.2.37 + shellcheck 0.11.0 — **45 passed / 0 failed / 4 skipped**
+  (was 44/2/3). Meta-proof the gap is closed: the self-lint immediately caught a
+  *new* accidental pseudo-directive in the first draft of its own comment.
+
+| Check | Level | Evidence |
+|---|---|---|
+| harness + bootstrap self-lint (`bash -n` + shellcheck) | ✅ proven | git-bash: both green at `-S warning` after fix |
+| scrub false-red eliminated | ✅ proven | git-bash: `skip … (no real python3 here)` instead of FAIL |
+| scrub still runs where python3 is real | 🟡 static | guard mirrors the proven §2/§3 pattern; confirmed by next CI ubuntu run |
+| bash-3.2 safety of the changes | 🟡 static | `elif` + `mkdir -p` + `$(dirname)` only — no bash-4isms; confirmed by next CI macOS run |
+
 ### Line endings (CRLF → LF) — finding + fix
 
 - **Finding (proven):** the six existing scripts are **CRLF in the Windows
