@@ -213,7 +213,10 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
 PYFIX
   bash ai-memory-ingest.sh "$TMP/tovault" --source gemini-takeout \
        --path "$TMP/mini-takeout.zip" --yes >/dev/null 2>&1
-  gcount=$(ls "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null | grep -c .)
+  gcount=0
+  for f in "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md; do
+    [ -e "$f" ] && gcount=$((gcount+1))
+  done
   if [ "$gcount" = 2 ]; then
     pass "2 day-files from 2 days (sv + en entries)"
   else
@@ -231,7 +234,10 @@ PYFIX
   fi
   bash ai-memory-ingest.sh "$TMP/tovault" --source gemini-takeout \
        --path "$TMP/mini-takeout.zip" --yes >/dev/null 2>&1
-  gcount2=$(ls "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null | grep -c .)
+  gcount2=0
+  for f in "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md; do
+    [ -e "$f" ] && gcount2=$((gcount2+1))
+  done
   if [ "$gcount2" = 2 ]; then
     pass "re-run idempotent (still 2 files, no duplicates)"
   else
