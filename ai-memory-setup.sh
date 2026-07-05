@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.16
+#  ai-memory-setup.sh  v8.17
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -44,10 +44,14 @@ IFS=$'\n\t'
 
 # Single source of truth for the version — the --version flag and the banner
 # both read $VERSION, so they can never drift from each other again.
+# v8.17: resume.sh is now SELF-LOCATING (vault derived from its own path, not
+#        baked in at generation) — a copy that travels with the vault to
+#        another machine keeps working; a baked /home/<user> path broke on the
+#        macOS central after a vault copy (live round 2026-07-05).
 # v8.16: safe download-then-run for piped installers, python3-free disk check,
 #        JSON built via python3 (not string interpolation), sudo-keepalive
 #        killed on exit, surfaced apt errors, persisted npm-global PATH.
-VERSION="8.16"
+VERSION="8.17"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -1520,8 +1524,11 @@ else
 set -euo pipefail
 AGENT="\${1:-hermes}"
 PROJECT="\${2:-default}"
-VAULT="$VAULT"
-CONFIG="$MCP_DIR/ai-config.json"
+# Self-locating: the vault is THIS script's parent directory (.tools/..), never
+# a path baked in at generation — .tools travels with vault copies/migrations,
+# and a baked absolute path broke on another machine (live round 2026-07-05).
+VAULT="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="\$VAULT/.mcp/ai-config.json"
 
 echo ""
 echo "╔══════════════════════════════════════════╗"

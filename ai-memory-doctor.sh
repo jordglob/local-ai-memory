@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-doctor.sh  v1.1
+#  ai-memory-doctor.sh  v1.2
 #  Health + reachability check for the AI Memory Stack — "prove my memory is
 #  reachable from every door."  READ-ONLY by default: checks 1-6 diagnose and
 #  change nothing. The opt-in --live probe is the ONE exception — it runs a real
 #  `hermes … --yolo` round-trip, which spends tokens and can have side effects.
 #
+#  v1.2: check 4 now proves the hermes door actually OPENS — a resolvable
+#        binary that exits 0 on --version — not just that the wiring points at
+#        it. On the macOS central, hermes was absent from PATH and the only
+#        hermes-named thing in reach was a dep-less repo copy inside the vault;
+#        every wiring check would have looked fine while the door was dead
+#        (§4.3.1 class, live round 2026-07-05).
 #  v1.1: checks 2 & 6 now warn (not falsely pass) when python3 is missing;
 #        clarified that only --live has side effects (checks 1-6 stay read-only).
 #
@@ -55,7 +61,7 @@ for arg in "$@"; do
   case "$arg" in
     --live) LIVE=true ;;
     -h|--help)    sed -n '2,28p' "$0" | sed 's/^#//'; exit 0 ;;
-    -V|--version) echo "ai-memory-doctor.sh v1.1"; exit 0 ;;
+    -V|--version) echo "ai-memory-doctor.sh v1.2"; exit 0 ;;
     -*) ;;
     *) [[ -z "$VAULT" ]] && VAULT="$arg" ;;
   esac
@@ -72,7 +78,7 @@ INGEST="$VAULT/.tools/ai-memory-ingest.sh"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.1 — Doctor         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.2 — Doctor         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 info "Vault:       $VAULT"
 info "Hermes home: $HERMES_HOME"
@@ -161,6 +167,24 @@ if $launcher; then
 else
   w "No shell launcher (or it doesn't export TERMINAL_CWD) — the dashboard may load the wrong context."
   fix "bash $CONFIGURE $VAULT  (then open a new terminal)"
+fi
+# The door must actually OPEN, not just be pointed at: resolve a runnable
+# hermes and prove --version exits 0. Wiring checks alone passed on a machine
+# where the only hermes-named thing was a dep-less repo copy (v1.2).
+HERMES_BIN=""
+if command -v hermes &>/dev/null; then
+  HERMES_BIN=$(command -v hermes)
+elif [[ -x "$HERMES_HOME/hermes-agent/venv/bin/hermes" ]]; then
+  HERMES_BIN="$HERMES_HOME/hermes-agent/venv/bin/hermes"
+fi
+if [[ -z "$HERMES_BIN" ]]; then
+  w "No runnable hermes found (PATH or $HERMES_HOME/hermes-agent/venv/bin) — the shell door cannot open."
+  fix "install hermes-agent (or open a login shell so PATH includes it), then re-run"
+elif { if command -v timeout &>/dev/null; then timeout 60 "$HERMES_BIN" --version; else "$HERMES_BIN" --version; fi; } >/dev/null 2>&1; then
+  p "hermes door opens — $HERMES_BIN runs (--version exits 0)."
+else
+  f "hermes found at $HERMES_BIN but it FAILS to run — broken install (missing python/deps?)."
+  fix "reinstall hermes-agent; note: a repo copy without its venv is not an install"
 fi
 
 # ── 5. Model floor ───────────────────────────────────────────────────────────

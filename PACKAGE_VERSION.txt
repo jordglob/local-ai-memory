@@ -471,3 +471,23 @@ History:
                           vault on the central (~/Documents/ai-memory-media/
                           aistudio/), pointer note in 03-Resources — excluded
                           from sync and any future vault migration by design.
+
+  v30 CC   2026-07-05  — cleanup round from the hermes-door live test: setup
+                          v8.17 — resume.sh is now SELF-LOCATING (vault = its
+                          own parent dir, nothing baked in at generation); a
+                          copied .tools/resume.sh carried /home/<user> WSL
+                          paths onto the macOS central and broke there. New
+                          resume.sh deployed to both vaults. doctor v1.2 —
+                          check 4 now proves the hermes door actually OPENS
+                          (resolvable binary, --version exits 0, with a
+                          ~/.hermes/hermes-agent/venv fallback), not just that
+                          wiring points at it: on the central, hermes was off
+                          PATH and the only hermes-named thing in reach was a
+                          dep-less 198 MB repo copy INSIDE the vault (.tools/
+                          hermes — git-clean, secret-free, deleted; vault
+                          220→22 MB). LIVE: doctor v1.2 on the central 8/8
+                          pass incl. the new door check; tests 49 passed 0
+                          failed. Honest leftover (out of scope, reported):
+                          the WSL machine's own hermes is not vault-wired
+                          (no handover block / TERMINAL_CWD) — doctor now
+                          shows it; fix is a configure run when wanted.
