@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.14
+#  ai-memory-ingest.sh  v2.15
 #  Import scattered AI conversations into the vault — 11 sources
+#  v2.15: gemini-takeout parser rebuilt against a real 2026 export (live round
+#         2026-07-05, Swedish-locale account): (1) locale-independent — entries
+#         are parsed from the My Activity cell STRUCTURE and the verb/prompt
+#         NBSP separator, not the English word "Prompted" (a Swedish export
+#         silently imported 0); (2) Gemini's RESPONSES are captured — modern
+#         Takeout includes them, the old "prompts only" caveat no longer holds;
+#         (3) one conversation per DAY instead of one file for the whole
+#         history; (4) never a silent zero — activity HTML with 0 parsed
+#         entries warns loudly, and an explicit --source always gets its
+#         summary row; (5) end-of-run "Start your agent?" defaults to NO and
+#         is skipped under --yes — a non-interactive run must never exec an
+#         interactive agent (it hijacked a shared tmux pane in the live round).
 #  v2.14: (1) NEW `hermes` source — the local agent's own session history
 #         (~/.hermes/state.db) is archived into the vault, closing the loop:
 #         the agent's short-term memory becomes searchable long-term memory.
@@ -40,9 +52,10 @@ set -euo pipefail
 command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
+import html as htmllib
 from pathlib import Path
 
-VERSION = "2.14"
+VERSION = "2.15"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -577,34 +590,134 @@ def parse_openwebui(db_path, out_root):
         except Exception: st["failed"] += 1
     return st
 
+def _takeout_html_to_text(s):
+    """Flatten response HTML: block tags become newlines, list items a dash,
+    entities decoded. clean_text() tidies the rest downstream in write_conv."""
+    s = re.sub(r"(?i)<li[^>]*>", "\n- ", s)
+    s = re.sub(r"(?i)<(?:/?)(?:p|div|h[1-6]|ul|ol|tr|table|blockquote|hr)[^>]*>", "\n", s)
+    s = re.sub(r"(?i)<br\s*/?>", "\n", s)
+    s = re.sub(r"<[^>]+>", "", s)
+    return htmllib.unescape(s).replace("\xa0", " ")
+
+_TAKEOUT_TIME = re.compile(r"\d{1,2}[:.]\d{2}[:.]\d{2}")
+_TAKEOUT_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+# sv + en month names (full + 3-letter). Other locales fall back to grouping by
+# the raw date string — still one file per day, just without an ISO prefix.
+_TAKEOUT_MONTHS = {
+    "januari": 1, "februari": 2, "mars": 3, "april": 4, "maj": 5, "juni": 6,
+    "juli": 7, "augusti": 8, "september": 9, "oktober": 10, "november": 11,
+    "december": 12, "january": 1, "february": 2, "march": 3, "june": 6,
+    "july": 7, "august": 8, "october": 10,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+def _takeout_iso_date(seg):
+    """'5 juli 2026 07:38:31 CEST' / 'Jul 3, 2026, 9:15:00 AM CEST' → ISO date,
+    or None for an unmapped locale (caller then groups by the raw string)."""
+    t = _TAKEOUT_TIME.search(seg)
+    head = seg[:t.start()] if t else seg
+    y = _TAKEOUT_YEAR.search(head)
+    if not y:
+        return None
+    mon = None
+    for w in re.findall(r"[^\W\d_]+", head, flags=re.UNICODE):
+        mon = _TAKEOUT_MONTHS.get(w.lower()) or _TAKEOUT_MONTHS.get(w.lower()[:3])
+        if mon:
+            break
+    d = re.search(r"(?<!\d)(\d{1,2})(?!\d)", head)
+    if not (mon and d and 1 <= int(d.group(1)) <= 31):
+        return None
+    return f"{int(y.group(0)):04d}-{mon:02d}-{int(d.group(1)):02d}"
+
 def parse_takeout(path, out_root):
-    """Google Takeout — Gemini/Bard. Prompts only; Takeout has no responses."""
+    """Google Takeout — Gemini. Parses the My Activity register STRUCTURALLY
+    (outer-cell blocks; the action verb is separated from the prompt by a
+    non-breaking space; the timestamp is the segment carrying year + time), so
+    any UI language works — the old 'Prompted'-keyed regex imported 0 from a
+    Swedish export, silently (live round 2026-07-05). Modern exports carry
+    Gemini's responses too; grouped one conversation per day (My Activity is a
+    flat log with no thread ids)."""
     st = _stats(); out = out_root / "gemini-takeout"
-    html = None
+    doc = None
     p = Path(path)
     try:
         if p.suffix == ".zip":
             with zipfile.ZipFile(p) as z:
-                name = next((n for n in z.namelist()
-                             if "Gemini" in n and n.endswith(".html")), None)
-                if name: html = _zip_read(z, name).decode("utf-8", "replace")
+                cands = [(n, z.getinfo(n).file_size) for n in z.namelist()
+                         if "Gemini" in n and n.endswith(".html")]
+                # Prefer a real activity register over gems/settings exports
+                # that also carry "Gemini" in their path (they shadowed the
+                # register in the live round); largest wins within a tier.
+                act = [c for c in cands if re.search(r"(?i)a[ck]tivi", Path(c[0]).name)]
+                pool = act or cands
+                if pool:
+                    name = max(pool, key=lambda c: c[1])[0]
+                    doc = _zip_read(z, name).decode("utf-8", "replace")
         elif p.is_dir():
-            f = next(iter(p.rglob("*Gemini*/*.html")), None) or next(iter(p.rglob("MyActivity.html")), None)
-            if f: html = f.read_text(encoding="utf-8", errors="replace")
+            files = list(p.rglob("*Gemini*/*.html"))
+            act = [f for f in files if re.search(r"(?i)a[ck]tivi", f.name)]
+            pool = act or files or [f for f in p.rglob("MyActivity.html")]
+            if pool:
+                f = max(pool, key=lambda f: f.stat().st_size)
+                doc = f.read_text(encoding="utf-8", errors="replace")
         else:
-            html = p.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        st["failed"] += 1; return st
-    if not html:
+            doc = p.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        err(f"takeout: {e}"); st["failed"] += 1; return st
+    if not doc:
         warn("takeout: no Gemini activity HTML found"); return st
-    blocks = re.findall(r"Prompted\s+(.*?)(?:<br|</div)", html, flags=re.S)
-    prompts = [re.sub(r"<[^>]+>", "", b).strip() for b in blocks]
-    prompts = [x for x in prompts if x]
-    if prompts:
+
+    entries = []   # (day_key, iso_or_None, messages) — newest first, as exported
+    for block in re.split(r'(?=<div class="outer-cell)', doc)[1:]:
+        # main cell = first content-cell that is neither the right-aligned
+        # spacer nor the "Products / Why saved" caption cell
+        body = None
+        for part in block.split('<div class="content-cell')[1:]:
+            attrs, _, rest = part.partition(">")
+            if "caption" in attrs or "text-right" in attrs:
+                continue
+            body = rest; break
+        if body is None:
+            continue
+        segs = re.split(r"(?i)<br\s*/?>", body)
+        texts = [_takeout_html_to_text(s).strip() for s in segs]
+        # segment 0 is "<verb>\xa0<prompt>" — split on the NBSP, which Google
+        # emits in every locale, instead of matching the localized verb
+        first = htmllib.unescape(re.sub(r"<[^>]+>", "", segs[0]))
+        prompt = (first.split("\xa0", 1)[1] if "\xa0" in first else first).strip()
+        ts_i = next((i for i in range(1, len(texts))
+                     if _TAKEOUT_YEAR.search(texts[i]) and _TAKEOUT_TIME.search(texts[i])), None)
+        if ts_i is None or not prompt:
+            continue
+        attach = [t for t in texts[1:ts_i] if re.search(r"\.\w{2,4}$", t)]
+        if attach:
+            prompt += "\n\n_[attached: " + ", ".join(attach) + "]_"
+        reply = "\n".join(texts[ts_i + 1:]).strip()
+        iso = _takeout_iso_date(texts[ts_i])
+        t = _TAKEOUT_TIME.search(texts[ts_i])
+        day_key = iso or slugify(texts[ts_i][:t.start()] if t else texts[ts_i], 30)
+        msgs = [("user", prompt)]
+        if reply:
+            msgs.append(("assistant", reply))
+        entries.append((day_key, iso, msgs))
+    if not entries:
+        warn("takeout: activity HTML found but 0 entries parsed — Google may have "
+             "changed the format (or this is a gems/settings file, not My Activity)")
+        return st
+    # group per day, oldest→newest inside each (the register is newest-first)
+    days = {}; order = []
+    for day_key, iso, msgs in reversed(entries):
+        if day_key not in days:
+            days[day_key] = {"iso": iso, "msgs": []}; order.append(day_key)
+        days[day_key]["msgs"].extend(msgs)
+    for day_key in order:
+        d = days[day_key]
         write_conv(out, "gemini-takeout",
-                   {"id": "takeout", "title": "Gemini (Google Takeout) — prompts",
-                    "created": None, "messages": [("user", t) for t in prompts],
-                    "note": "Takeout exports prompts only — responses are not included by Google"}, st)
+                   {"id": f"takeout-{day_key}",
+                    "title": f"Gemini (Google Takeout) — {day_key}",
+                    "created": d["iso"], "messages": d["msgs"]}, st)
+    info(f"takeout: {len(entries)} activity entries → {len(order)} day file(s)")
     return st
 
 # ── source registry ───────────────────────────────────────────────────────────
@@ -1063,7 +1176,10 @@ def main():
     print("  " + "-" * 55)
     tot = _stats()
     for name, s in results.items():
-        if any(s.values()):
+        # An explicitly requested --source always gets its row — an all-zero
+        # result the user asked for must be visible, not silently dropped
+        # (a Swedish takeout imported 0 with no trace, live round 2026-07-05).
+        if any(s.values()) or a.source:
             print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['empty']:>6} {s['failed']:>7}")
         for k in tot: tot[k] += s[k]
     print("  " + "-" * 55)
@@ -1138,7 +1254,10 @@ def main():
         return 0
     # Offer to launch hermes right here
     if have_hermes:
-        if ask_yn("Start your agent (hermes chat) now?"):
+        # Default NO, and never under --yes: a non-interactive run must not
+        # exec an interactive agent (auto-yes here hijacked a shared tmux pane
+        # in the 2026-07-05 live round — the TUI wiped the run's own output).
+        if not ASSUME_YES and ask_yn("Start your agent (hermes chat) now?", default=False):
             os.chdir(vault)
             try:
                 os.execvp("hermes", ["hermes", "chat"])

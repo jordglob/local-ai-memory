@@ -425,3 +425,27 @@ History:
                           push, remote reindex, 844=844 verified. tests/run.sh:
                           sync joined FAMILY (smoke + drift checks) — 38 passed,
                           0 failed. README + CLAUDE.md updated (eight scripts).
+
+  v28 CC   2026-07-05  — ingest v2.15: gemini-takeout parser rebuilt against a
+                          REAL export (Swedish-locale account, 2026-07-05 live
+                          round). The old parser keyed on the English word
+                          "Prompted" and imported 0 from a Swedish register —
+                          silently. Now: structure-keyed parsing (outer-cell
+                          blocks + the NBSP verb/prompt separator Google emits
+                          in every locale), Gemini's RESPONSES captured (modern
+                          Takeout includes them — "prompts only" no longer
+                          holds), one conversation per day, loud warning when
+                          activity HTML parses to 0 entries, an explicit
+                          --source always gets its summary row even at all-zero,
+                          and the end-of-run hermes launch defaults NO and is
+                          skipped under --yes (auto-yes exec'd the TUI over a
+                          shared tmux pane, wiping the run's own output).
+                          tests/run.sh: NEW localized-export regression (sv+en
+                          fixture, gems-decoy shadowing, response capture, verb
+                          strip, re-run idempotency) — 42 passed, 0 failed.
+                          LIVE: 2525 entries → 283 day files from the real
+                          Takeout; re-run 283 skipped/0 new; synced to the
+                          central (1132=1132). The round's test question —
+                          "which Deye inverter did I buy?" — was answered from
+                          a captured RESPONSE (SUN-12K-SG01HP3-EU-AM2, read off
+                          the nameplate photo): data the old parser threw away.

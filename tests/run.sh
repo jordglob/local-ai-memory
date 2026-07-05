@@ -177,6 +177,68 @@ else
   fi
 fi
 
+# ── 6b. regression: gemini-takeout parses a localized export (v2.15) ─────────
+# Locks in the 2026-07-05 live findings: a Swedish "Min aktivitet" register must
+# import (structure-keyed, not the English verb), Gemini's response must be
+# captured, the gems/settings decoy must not shadow the register, and a re-run
+# must not duplicate ("the first run lies").
+hdr "regression: gemini-takeout localized export"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/tovault/05-AI-Sessions"
+  python3 - "$TMP/mini-takeout.zip" << 'PYFIX'
+import sys, zipfile
+entry = ('<div class="outer-cell mdl-cell"><div class="mdl-grid">'
+         '<div class="header-cell mdl-cell"><p>Gemini-appar<br></p></div>'
+         '<div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">'
+         '%s<br>%s<br>%s</div>'
+         '<div class="content-cell mdl-cell mdl-typography--text-right"></div>'
+         '<div class="content-cell mdl-cell mdl-typography--caption">'
+         '<b>Produkter:</b><br>Gemini-appar</div>'
+         '</div></div>')
+doc = ("<html><body>"
+       + entry % ("Gav instruktionen&nbsp;vilken växelriktare ska jag köpa?",
+                  "4 juli 2026 09:15:00 CEST",
+                  "<p>Jag rekommenderar <strong>Deye SUN-12K-TEST</strong>.</p>")
+       + entry % ("Prompted&nbsp;english day-two entry",
+                  "Jul 3, 2026, 9:15:00 AM CEST",
+                  "<p>Second day reply.</p>")
+       + "</body></html>")
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr("Takeout/Gemini/gemini_gems_data.html", "<div></div>")   # decoy
+    z.writestr("Takeout/Min aktivitet/Gemini-appar/MinAktivitet.html", doc)
+PYFIX
+  bash ai-memory-ingest.sh "$TMP/tovault" --source gemini-takeout \
+       --path "$TMP/mini-takeout.zip" --yes >/dev/null 2>&1
+  gcount=$(ls "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null | grep -c .)
+  if [ "$gcount" = 2 ]; then
+    pass "2 day-files from 2 days (sv + en entries)"
+  else
+    fail "expected 2 day-files, got $gcount"
+  fi
+  if grep -q "Deye SUN-12K-TEST" "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null; then
+    pass "Gemini's response captured (not prompts-only)"
+  else
+    fail "response text missing from vault file"
+  fi
+  if grep -q "Gav instruktionen" "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null; then
+    fail "localized action verb leaked into the prompt"
+  else
+    pass "action verb stripped from prompt"
+  fi
+  bash ai-memory-ingest.sh "$TMP/tovault" --source gemini-takeout \
+       --path "$TMP/mini-takeout.zip" --yes >/dev/null 2>&1
+  gcount2=$(ls "$TMP/tovault/05-AI-Sessions/gemini-takeout/"*.md 2>/dev/null | grep -c .)
+  if [ "$gcount2" = 2 ]; then
+    pass "re-run idempotent (still 2 files, no duplicates)"
+  else
+    fail "re-run changed file count: $gcount2"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then
