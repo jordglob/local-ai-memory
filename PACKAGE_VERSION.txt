@@ -449,3 +449,25 @@ History:
                           "which Deye inverter did I buy?" — was answered from
                           a captured RESPONSE (SUN-12K-SG01HP3-EU-AM2, read off
                           the nameplate photo): data the old parser threw away.
+
+  v29 CC   2026-07-05  — ingest v2.16: NEW 13th source `aistudio` — Google AI
+                          Studio autosaves threads to the Drive folder "Google
+                          AI Studio"; its download-zip is now a first-class
+                          import (zip/dir/file). Built against a real export:
+                          extension-less chunkedPrompt JSON, text/parts chunks
+                          merged per turn, isThought reasoning filtered as
+                          noise, driveImage/inlineImage noted as _[attached]_
+                          (verified: the export has NO Drive-id→filename map),
+                          systemInstruction kept as a System turn, real
+                          createTime timestamps. Zip sniffing + discovery
+                          patterns extended ("Google AI Studio*",
+                          "drive-download-*"). tests/run.sh: NEW aistudio
+                          regression (åäö filename, thought-filter, attachment
+                          note, decoys, re-run idempotency) — 49 passed, 0
+                          failed. LIVE: 19 threads imported (responses incl.),
+                          re-run all-skipped, central sync 1152=1152. MEDIA
+                          DECISION (user): thread text is the migrated
+                          artifact; the 817 images (95 MB) live OUTSIDE the
+                          vault on the central (~/Documents/ai-memory-media/
+                          aistudio/), pointer note in 03-Resources — excluded
+                          from sync and any future vault migration by design.

@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.15
-#  Import scattered AI conversations into the vault — 11 sources
+#  ai-memory-ingest.sh  v2.16
+#  Import scattered AI conversations into the vault — 13 sources
+#  v2.16: NEW `aistudio` source — Google AI Studio saves its threads to the
+#         Drive folder "Google AI Studio" (download it → drive zip). Each
+#         extension-less member is one thread: JSON with chunkedPrompt.chunks
+#         (text / parts / driveImage / inlineImage). Full threads INCLUDING
+#         the model's responses and real createTime timestamps. isThought
+#         reasoning chunks are filtered as noise; image chunks become
+#         _[attached ...]_ notes (media itself is deliberately not vaulted).
 #  v2.15: gemini-takeout parser rebuilt against a real 2026 export (live round
 #         2026-07-05, Swedish-locale account): (1) locale-independent — entries
 #         are parsed from the My Activity cell STRUCTURE and the verb/prompt
@@ -32,7 +39,8 @@
 #         path-safe id/date components; uncompressed-size cap on zip members.
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
-#           cursor, aider, lmstudio, open-webui, gemini-takeout, hermes
+#           cursor, aider, lmstudio, open-webui, gemini-takeout, hermes,
+#           aistudio
 #
 #  Discovery (three tiers):
 #    default      known per-source paths + targeted ~/Downloads export sniffing
@@ -55,7 +63,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.15"
+VERSION = "2.16"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -182,7 +190,8 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         L += [f"- note: {conv['note']}"]
     L += ["", "---", ""]
     label = {"user": "**You:**", "human": "**You:**",
-             "assistant": "**Assistant:**", "model": "**Assistant:**", "ai": "**Assistant:**"}
+             "assistant": "**Assistant:**", "model": "**Assistant:**", "ai": "**Assistant:**",
+             "system": "**System:**"}
     for role, text in msgs:
         L += [label.get(str(role).lower(), f"**{role}:**"), "", text.strip(), ""]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -720,6 +729,96 @@ def parse_takeout(path, out_root):
     info(f"takeout: {len(entries)} activity entries → {len(order)} day file(s)")
     return st
 
+def _aistudio_chunk_text(c):
+    """A chunk's visible text: prefer the flat field, else join its parts."""
+    t = c.get("text")
+    if t is None and isinstance(c.get("parts"), list):
+        t = "\n".join(p.get("text", "") for p in c["parts"] if isinstance(p, dict))
+    return (t or "").strip()
+
+def _aistudio_thread(raw, fname, out, st):
+    d = json.loads(raw)
+    chunks = (d.get("chunkedPrompt") or {}).get("chunks") or []
+    msgs = []
+    created = None
+    for c in chunks:
+        if not isinstance(c, dict) or c.get("isThought"):
+            continue                        # model reasoning — noise in an archive
+        role = "assistant" if c.get("role") == "model" else "user"
+        if created is None and c.get("createTime"):
+            created = c["createTime"]
+        bits = []
+        t = _aistudio_chunk_text(c)
+        if t:
+            bits.append(t)
+        # Images: note their presence, never vault the bytes. driveImage carries
+        # only a Drive file id (the export has no id→filename map — verified
+        # against a real export, live round 2026-07-05); inlineImage is base64.
+        di = c.get("driveImage")
+        if isinstance(di, dict):
+            bits.append(f"_[attached image — Drive id {di.get('id', '?')}]_")
+        ii = c.get("inlineImage")
+        if isinstance(ii, dict):
+            bits.append(f"_[attached: inline {ii.get('mimeType', 'image')}]_")
+        if not bits:
+            continue                        # e.g. a bare rate-limit errorMessage chunk
+        if msgs and msgs[-1][0] == role:    # model turns arrive as several chunks
+            msgs[-1] = (role, msgs[-1][1] + "\n\n" + "\n\n".join(bits))
+        else:
+            msgs.append((role, "\n\n".join(bits)))
+    si = d.get("systemInstruction")
+    if isinstance(si, dict):
+        si_text = _aistudio_chunk_text(si)
+        if si_text:
+            msgs.insert(0, ("system", si_text))
+    write_conv(out, "aistudio",
+               {"id": fname, "title": fname, "created": created, "messages": msgs}, st)
+
+def parse_aistudio(path, out_root):
+    """Google AI Studio — the Drive folder "Google AI Studio" (autosaved
+    threads), downloaded as a zip or synced as a directory. Each extension-less
+    member is one thread: JSON with chunkedPrompt.chunks. Full threads
+    INCLUDING the model's responses, with real createTime timestamps —
+    unlike Gemini's Takeout register this is a first-class chat export."""
+    st = _stats(); out = out_root / "aistudio"
+    n_threads = 0
+    def _is_thread(name):
+        base = name.rsplit("/", 1)[-1]
+        return bool(base) and "." not in base
+    try:
+        p = Path(path)
+        if p.is_file() and zipfile.is_zipfile(p):
+            with zipfile.ZipFile(p) as z:
+                for n in z.namelist():
+                    if n.endswith("/") or not _is_thread(n):
+                        continue
+                    try:
+                        _aistudio_thread(_zip_read(z, n).decode("utf-8", "replace"),
+                                         Path(n).name, out, st)
+                        n_threads += 1
+                    except Exception:
+                        st["failed"] += 1
+        elif p.is_dir():
+            for f in sorted(p.rglob("*")):
+                if not f.is_file() or "." in f.name:
+                    continue
+                try:
+                    _aistudio_thread(f.read_text(encoding="utf-8", errors="replace"),
+                                     f.name, out, st)
+                    n_threads += 1
+                except Exception:
+                    st["failed"] += 1
+        else:
+            _aistudio_thread(p.read_text(encoding="utf-8", errors="replace"),
+                             p.stem or p.name, out, st)
+            n_threads += 1
+    except Exception as e:
+        err(f"aistudio: {e}"); st["failed"] += 1; return st
+    if n_threads == 0:
+        warn("aistudio: no thread files found — expected extension-less JSON "
+             "members under 'Google AI Studio/' (did the format change?)")
+    return st
+
 # ── source registry ───────────────────────────────────────────────────────────
 def _appsupport(*parts): return HOME / "Library" / "Application Support" / Path(*parts)
 
@@ -777,6 +876,7 @@ SOURCES = {
                      "paths": [HOME / ".open-webui", HOME / "open-webui"],
                      "pattern": "webui.db",                     "fn": parse_openwebui},
     "gemini-takeout": {"desc": "Google Takeout (Gemini)",       "kind": "zip"},
+    "aistudio":     {"desc": "Google AI Studio (Drive export)", "kind": "zip"},
     "hermes":       {"desc": "Hermes agent session history",    "kind": "glob",
                      "paths": [HOME / ".hermes"]
                               + [h / ".hermes" for h in _wsl_windows_homes()],
@@ -788,13 +888,18 @@ SOURCES = {
 # "Save As") routinely drop or change .zip, and the contents are validated by
 # sniff_zip() anyway (it reads zip magic bytes, not the name). The trailing
 # "*.zip" stays as the generic catch-all for anything still carrying it.
-ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*", "*.zip"]
+ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*",
+                "Google AI Studio*", "drive-download-*", "*.zip"]
 
 def sniff_zip(zpath):
     """Return source name for an export zip, or None."""
     try:
         with zipfile.ZipFile(zpath) as z:
             names = z.namelist()
+            # AI Studio before the Gemini-html check: a Drive export of the
+            # "Google AI Studio" folder is unambiguous from its root folder.
+            if any(n.startswith("Google AI Studio/") for n in names):
+                return "aistudio"
             if any("Gemini" in n and n.endswith(".html") for n in names):
                 return "gemini-takeout"
             cj = next((n for n in names if n.endswith("conversations.json")), None)
@@ -829,7 +934,8 @@ def find_export_zips(roots, max_depth=2):
 # ── §4.55 scan-to-report (hybrid boundary, see §4.5 DECIDED) ─────────────────
 # AI-ish stems only — deliberately NOT the generic "*.zip" catch-all, so random
 # archives (drivers, app bundles) are not flagged as unknown AI candidates.
-SPECIFIC_ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*"]
+SPECIFIC_ZIP_PATTERNS = ["data-*", "*chatgpt*", "*conversations*", "takeout-*",
+                         "Google AI Studio*", "drive-download-*"]
 
 def _human_size(p):
     try: n = float(p.stat().st_size)
@@ -920,7 +1026,7 @@ def find_files(roots, pattern, max_depth=6, shallow=False):
 
 # ── runner ────────────────────────────────────────────────────────────────────
 ZIP_FN = {"claude-web": parse_claude_zip, "chatgpt": parse_chatgpt_zip,
-          "gemini-takeout": parse_takeout}
+          "gemini-takeout": parse_takeout, "aistudio": parse_aistudio}
 
 def warn_path_source_mismatch(source, path):
     """Light sanity check that an explicit --path plausibly matches --source.

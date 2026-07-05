@@ -245,6 +245,75 @@ PYFIX
   fi
 fi
 
+# ── 6c. regression: aistudio Drive export (v2.16) ────────────────────────────
+# Locks in the 2026-07-05 live findings: extension-less chunkedPrompt threads
+# import with the model's responses, isThought reasoning is filtered as noise,
+# image chunks become _[attached ...]_ notes, and a re-run must not duplicate.
+hdr "regression: aistudio Drive export"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/asvault/05-AI-Sessions"
+  python3 - "$TMP/mini-aistudio.zip" << 'PYFIX'
+import sys, json, zipfile
+thread = {
+    "runSettings": {"model": "models/gemini-test"},
+    "systemInstruction": {},
+    "chunkedPrompt": {"chunks": [
+        {"text": "vilken enhjuling ska jag köpa?", "role": "user",
+         "createTime": "2026-06-01T10:00:00.000Z"},
+        {"driveImage": {"id": "DRIVEID123"}, "role": "user"},
+        {"text": "**Reasoning about unicycles**", "role": "model", "isThought": True},
+        {"text": "Jag rekommenderar Begode Falcon-TEST.", "role": "model"},
+    ], "pendingInputs": [{"text": "", "role": "user"}]},
+}
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr("Google AI Studio/applet_access_history.json", "[]")   # decoy (.json)
+    z.writestr("Google AI Studio/image(1).png", b"\x89PNG fake")       # decoy (media)
+    z.writestr("Google AI Studio/Tråd om enhjulingar åäö",
+               json.dumps(thread))
+PYFIX
+  bash ai-memory-ingest.sh "$TMP/asvault" --source aistudio \
+       --path "$TMP/mini-aistudio.zip" --yes >/dev/null 2>&1
+  ascount=0
+  for f in "$TMP/asvault/05-AI-Sessions/aistudio/"*.md; do
+    [ -e "$f" ] && ascount=$((ascount+1))
+  done
+  if [ "$ascount" = 1 ]; then
+    pass "1 thread imported (decoys ignored)"
+  else
+    fail "expected 1 thread file, got $ascount"
+  fi
+  if grep -q "Begode Falcon-TEST" "$TMP/asvault/05-AI-Sessions/aistudio/"*.md 2>/dev/null; then
+    pass "model response captured"
+  else
+    fail "response text missing from vault file"
+  fi
+  if grep -q "Reasoning about unicycles" "$TMP/asvault/05-AI-Sessions/aistudio/"*.md 2>/dev/null; then
+    fail "isThought reasoning leaked into the archive"
+  else
+    pass "isThought reasoning filtered"
+  fi
+  if grep -q "DRIVEID123" "$TMP/asvault/05-AI-Sessions/aistudio/"*.md 2>/dev/null; then
+    pass "image chunk noted as attachment"
+  else
+    fail "driveImage attachment note missing"
+  fi
+  bash ai-memory-ingest.sh "$TMP/asvault" --source aistudio \
+       --path "$TMP/mini-aistudio.zip" --yes >/dev/null 2>&1
+  ascount2=0
+  for f in "$TMP/asvault/05-AI-Sessions/aistudio/"*.md; do
+    [ -e "$f" ] && ascount2=$((ascount2+1))
+  done
+  if [ "$ascount2" = 1 ]; then
+    pass "re-run idempotent (still 1 file, no duplicates)"
+  else
+    fail "re-run changed file count: $ascount2"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then
