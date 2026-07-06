@@ -505,3 +505,13 @@ History:
                           file was read back newline-translated. New 6d
                           regression in tests/run.sh (no raw \r in vault,
                           noise stripped despite CRLF, text intact).
+  v32 CC   2026-07-06  — ingest v2.18: openclaw scheduler-noise filter — live
+                          run on the central found 719 of 724 openclaw sessions
+                          were `[cron:...]` agent runs (car-search jobs etc.)
+                          drowning the 5 human conversations in recall. Cron-
+                          initiated sessions (first user turn starts with
+                          `[cron:`) are now skipped by default and reported
+                          loudly; `--with-cron` vaults them into a separate
+                          openclaw-cron/ dir. New 6e regression in tests/run.sh
+                          (human vaulted / cron not / loud skip / --with-cron
+                          separation). Suite: 56 passed, 0 failed.

@@ -354,6 +354,52 @@ else
   fi
 fi
 
+# ── 6e. regression: openclaw cron sessions filtered (v2.18) ──────────────────
+# Locks in the 2026-07-06 central-node live finding: 719 of 724 openclaw
+# sessions were `[cron:...]` agent runs drowning the 5 human conversations.
+# Default: cron sessions skipped + reported loudly. --with-cron: vaulted into
+# a separate openclaw-cron/ dir, never into openclaw/.
+hdr "regression: openclaw cron filter"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/ocfake/agents/main/sessions" "$TMP/ocvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"message":{"role":"user","content":"[cron:aaaa-bbbb daily job] search the market"}}' \
+    '{"message":{"role":"assistant","content":"searched"}}' \
+    > "$TMP/ocfake/agents/main/sessions/33333333-3333-3333-3333-333333333333.jsonl"
+  printf '%s\n' \
+    '{"message":{"role":"user","content":"hello, are you alive?"}}' \
+    '{"message":{"role":"assistant","content":"very much so"}}' \
+    > "$TMP/ocfake/agents/main/sessions/44444444-4444-4444-4444-444444444444.jsonl"
+  bash ai-memory-ingest.sh "$TMP/ocvault" --source openclaw --path "$TMP/ocfake" --yes > "$TMP/oc.out" 2>&1
+  oc_human=$(ls "$TMP/ocvault/05-AI-Sessions/openclaw/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$oc_human" = 1 ] && grep -q "are you alive" "$TMP/ocvault/05-AI-Sessions/openclaw/"*.md; then
+    pass "human conversation vaulted, cron session not (default)"
+  else
+    fail "expected exactly 1 human conversation in openclaw/" "got $oc_human"
+  fi
+  if [ -d "$TMP/ocvault/05-AI-Sessions/openclaw-cron" ]; then
+    fail "openclaw-cron/ created without --with-cron"
+  else
+    pass "no openclaw-cron/ dir on default run"
+  fi
+  if grep -q "cron-initiated sessions skipped" "$TMP/oc.out"; then
+    pass "skip reported loudly (never a silent zero)"
+  else
+    fail "cron skip happened silently" "$TMP/oc.out"
+  fi
+  bash ai-memory-ingest.sh "$TMP/ocvault" --source openclaw --path "$TMP/ocfake" --with-cron --yes >/dev/null 2>&1
+  oc_cron=$(ls "$TMP/ocvault/05-AI-Sessions/openclaw-cron/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$oc_cron" = 1 ]; then
+    pass "--with-cron vaults cron session into openclaw-cron/"
+  else
+    fail "expected exactly 1 cron conversation in openclaw-cron/" "got $oc_cron"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then

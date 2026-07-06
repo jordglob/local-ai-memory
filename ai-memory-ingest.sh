@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.17
+#  ai-memory-ingest.sh  v2.18
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.18: openclaw source filters SCHEDULER NOISE — live run 2026-07-06 found
+#         719 of 724 sessions were `[cron:...]` agent runs (car-search jobs
+#         etc.) drowning the 5 human conversations. Cron-initiated sessions
+#         (first user message starts with `[cron:`) are now SKIPPED by default
+#         and reported loudly (never a silent zero); `--with-cron` imports
+#         them into a separate `openclaw-cron/` dir so recall on the main
+#         `openclaw/` dir stays signal-dense.
 #  v2.16: NEW `aistudio` source — Google AI Studio saves its threads to the
 #         Drive folder "Google AI Studio" (download it → drive zip). Each
 #         extension-less member is one thread: JSON with chunkedPrompt.chunks
@@ -63,7 +70,8 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.17"
+VERSION = "2.18"
+WITH_CRON = False
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -478,6 +486,7 @@ def parse_gemini_cli(root, out_root):
 
 def parse_openclaw(root, out_root):
     st = _stats(); out = out_root / "openclaw"
+    cron_out = out_root / "openclaw-cron"; cron_seen = 0
     for jl in Path(root).rglob("sessions/*.jsonl"):
         try:
             msgs = []
@@ -489,11 +498,27 @@ def parse_openclaw(root, out_root):
                 t = text_from_blocks(m.get("content"))
                 if role in ("user", "assistant") and t.strip():
                     msgs.append((role, t))
+            # Scheduler noise: a session whose FIRST user turn is a `[cron:...]`
+            # dispatch is an agent run, not a conversation (live run 2026-07-06:
+            # 719 of 724). Skipped by default; --with-cron vaults them apart.
+            first_user = next((t for r, t in msgs if r == "user"), "")
+            if first_user.lstrip().startswith("[cron:"):
+                cron_seen += 1
+                if not WITH_CRON:
+                    continue
+                write_conv(cron_out, "openclaw",
+                           {"id": jl.stem[:12], "title": f"OpenClaw cron — {jl.stem}",
+                            "created": datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat(),
+                            "messages": msgs}, st)
+                continue
             write_conv(out, "openclaw",
                        {"id": jl.stem[:12], "title": f"OpenClaw — {jl.stem}",
                         "created": datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat(),
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
+    if cron_seen and not WITH_CRON:
+        print(f"  → openclaw: {cron_seen} cron-initiated sessions skipped "
+              f"(scheduler noise — rerun with --with-cron to vault them in openclaw-cron/)")
     return st
 
 def parse_cursor(db_path, out_root):
@@ -1159,7 +1184,7 @@ def build_index(vault):
     return total
 
 def main():
-    global ASSUME_YES
+    global ASSUME_YES, WITH_CRON
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("positional", nargs="*")
     ap.add_argument("--source"); ap.add_argument("--path")
@@ -1169,18 +1194,22 @@ def main():
     ap.add_argument("--deep-scan", action="store_true")
     ap.add_argument("--scan-report", action="store_true")
     ap.add_argument("--reindex", action="store_true")
+    ap.add_argument("--with-cron", action="store_true")
     ap.add_argument("--yes", "-y", action="store_true")
     ap.add_argument("--help", "-h", action="store_true")
     ap.add_argument("--version", "-V", action="store_true")
     a = ap.parse_args()
     ASSUME_YES = a.yes
+    WITH_CRON = a.with_cron
 
     if a.version:
         print(f"ai-memory-ingest.sh v{VERSION}"); return 0
     if a.help:
         print("Usage: ai-memory-ingest.sh [vault] [export.zip] "
               "[--source NAME] [--path P] [--scan DIR] [--deep-scan] "
-              "[--scan-report] [--reindex] [--list-sources] [--yes]\n"
+              "[--scan-report] [--reindex] [--with-cron] [--list-sources] [--yes]\n"
+              "--with-cron: also vault openclaw cron/scheduler sessions "
+              "(into openclaw-cron/; skipped by default).\n"
               "--scan-report: map exports/unknowns to <vault>/ai-scan-report.md, "
               "import nothing.\n--reindex: rebuild <vault>/05-AI-Sessions/INDEX.md "
               "from what's on disk, import nothing.\nSee script header for details.")

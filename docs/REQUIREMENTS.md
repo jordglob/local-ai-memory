@@ -1621,3 +1621,11 @@ scheduler noise. Backlog candidate: the openclaw parser should detect
 cron-initiated sessions (first user message starts with `[cron:`) and either
 skip them behind a `--with-cron` flag or write them to a separate
 `openclaw-cron/` dir so search stays signal-dense by default.
+
+**BUILT (ingest v2.18, same day):** both halves — cron sessions are skipped by
+default with a loud per-run report (never a silent zero), and `--with-cron`
+vaults them into a separate `openclaw-cron/` dir, never into `openclaw/`.
+New 6e regression in tests/run.sh (human vaulted / cron not / loud skip /
+`--with-cron` separation); suite 56 passed, 0 failed. Verified live on the
+central: vault purged of the 719 cron files (5 human kept), re-ingest skipped
+714 loudly and resurrected nothing; INDEX rebuilt at 617 conversations.
