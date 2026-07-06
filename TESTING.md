@@ -111,6 +111,23 @@ spot: `tests/run.sh` linted every script except itself.
   forces LF on every checkout regardless of `autocrlf`. After renormalizing, all
   8 scripts pass `bash -n` **and** the full harness in WSL from `/mnt/c`.
 
+### ingest v2.17 — CRLF inside transcripts (2026-07-06) — finding + fix
+
+- **Finding (proven, cc-session-sync live round):** Claude Code `.jsonl`
+  transcripts written on **Windows** carry literal `\r\n` inside message text.
+  `clean_text`'s line-anchored regexes (`(?m)^…$`, `\n{3,}`) silently miss CRLF
+  text — noise placeholders survived — and raw `\r` landed in the vault's
+  markdown. On the macOS central this also made a naive read-back comparison
+  see the same conversation as "changed" forever (universal-newline
+  translation on read).
+- **Fix (proven):** `clean_text` folds `CRLF`/`CR` → `LF` before any cleaning,
+  for **every** source (pattern-hunt class fix). New harness section **6d**
+  locks it in: no raw `\r` in the vault file, noise stripped despite CRLF,
+  text intact.
+- **Evidence:** WSL harness run 2026-07-06 → **52 passed, 0 failed, 1
+  skipped**; red-check proven — the same fixture against HEAD@v2.16 leaks both
+  raw `\r` and the noise placeholder.
+
 ### Hygiene / config files (new, 2026-07-02)
 
 `.gitattributes`, `.shellcheckrc`, `.editorconfig`, `.github/workflows/ci.yml`,

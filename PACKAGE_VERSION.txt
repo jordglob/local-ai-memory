@@ -491,3 +491,17 @@ History:
                           the WSL machine's own hermes is not vault-wired
                           (no handover block / TERMINAL_CWD) — doctor now
                           shows it; fix is a configure run when wanted.
+
+  v31 CC   2026-07-06  — ingest v2.17: CRLF transcripts normalized — Claude
+                          Code .jsonl written on Windows carries literal \r\n
+                          inside message text; un-normalized, every line-
+                          anchored regex in clean_text silently missed (noise
+                          placeholders survived) and raw \r landed in the
+                          vault's markdown. clean_text now folds CRLF/CR → LF
+                          before any cleaning, for EVERY source (pattern-hunt
+                          class fix). Found live in the cc-session-sync round
+                          (Windows box → macOS central): the same conversation
+                          re-imported as "changed" forever because the on-disk
+                          file was read back newline-translated. New 6d
+                          regression in tests/run.sh (no raw \r in vault,
+                          noise stripped despite CRLF, text intact).

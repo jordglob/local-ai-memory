@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.16
+#  ai-memory-ingest.sh  v2.17
 #  Import scattered AI conversations into the vault — 13 sources
 #  v2.16: NEW `aistudio` source — Google AI Studio saves its threads to the
 #         Drive folder "Google AI Studio" (download it → drive zip). Each
@@ -63,7 +63,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.16"
+VERSION = "2.17"
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -207,6 +207,12 @@ _NOISE_LINES = (
 def clean_text(t):
     if not t:
         return ""
+    # Normalize CRLF/CR → LF first. Transcripts written on Windows (e.g. Claude
+    # Code .jsonl synced off that box) carry literal \r\n INSIDE message text;
+    # every line-anchored regex below ((?m)^…$, \n{3,}) silently misses CRLF
+    # text, and the \r would survive into the vault's markdown (live finding,
+    # cc-session-sync round 2026-07-06).
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
     for noise in _NOISE_LINES:
         # the placeholder, optionally wrapped in a ``` code fence
         t = re.sub(r"```[ \t]*\n[ \t]*" + re.escape(noise) + r"[ \t]*\n[ \t]*```", "", t)

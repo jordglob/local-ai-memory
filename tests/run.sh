@@ -314,6 +314,46 @@ PYFIX
   fi
 fi
 
+# ── 6d. regression: CRLF transcripts normalized (v2.17) ──────────────────────
+# Locks in the 2026-07-06 cc-session-sync live finding: Claude Code .jsonl
+# written on Windows carries literal \r\n inside message text. Un-normalized,
+# every line-anchored regex in clean_text misses (noise placeholder survives),
+# and raw \r lands in the vault's markdown.
+hdr "regression: CRLF transcript normalized"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/crlffake/proj" "$TMP/crlfvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"type":"ai-title","aiTitle":"CRLF test"}' \
+    '{"type":"user","timestamp":"2026-01-02T00:00:00Z","message":{"role":"user","content":"first line\r\nsecond line\r\n\r\n\r\n\r\nafter big gap"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reply\r\nThis block is not supported on your current device yet.\r\ndone"}]}}' \
+    > "$TMP/crlffake/proj/22222222-2222-2222-2222-222222222222.jsonl"
+  bash ai-memory-ingest.sh "$TMP/crlfvault" --source claude-code --path "$TMP/crlffake" --yes >/dev/null 2>&1
+  crlffile=$(ls "$TMP/crlfvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | head -1)
+  if [ -z "$crlffile" ]; then
+    fail "import produced no vault file"
+  else
+    if LC_ALL=C grep -q "$(printf '\r')" "$crlffile"; then
+      fail "raw \\r survived into the vault markdown" "$crlffile"
+    else
+      pass "no raw \\r in vault file"
+    fi
+    if grep -q "not supported on your current device" "$crlffile"; then
+      fail "noise placeholder survived CRLF text (line-anchor miss)" "$crlffile"
+    else
+      pass "noise placeholder stripped despite CRLF endings"
+    fi
+    if grep -q "after big gap" "$crlffile"; then
+      pass "message text intact after normalization"
+    else
+      fail "message text lost" "$crlffile"
+    fi
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then
