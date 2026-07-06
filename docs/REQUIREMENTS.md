@@ -1613,3 +1613,11 @@ end-to-end; lessons flagged for the spec:
 5. **Remote-ollama mode in configure is still missing** (known candidate,
    re-confirmed 2026-07-06: a satellite's model block pointing at another
    node's Ollama had to be restored from backup after a configure run).
+
+**2026-07-06 addendum — openclaw source live run (central node):** 724 sessions
+ingested cleanly, but 719 of them (99%) were `[cron:...]` agent runs (scheduled
+car-search jobs etc.) and only 5 were human conversations. Recall drowns in
+scheduler noise. Backlog candidate: the openclaw parser should detect
+cron-initiated sessions (first user message starts with `[cron:`) and either
+skip them behind a `--with-cron` flag or write them to a separate
+`openclaw-cron/` dir so search stays signal-dense by default.
