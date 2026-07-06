@@ -1580,3 +1580,36 @@ honestly-verified last hop is the project's actual contribution.
 reached via an SSH tunnel `ssh -fNL 9119:localhost:9119 <user>@<node-ip>` →
 Brave `http://localhost:9119` — left running on purpose. All code committed +
 pushed (origin/main 733021d); v13 bundle in ~/Downloads.
+
+## 2026-07-06 live-run lessons — satellite retirement + central backup round
+
+Round: the WSL satellite's Hermes agent was retired (capability moved to the
+central node), and the central vault got a nightly snapshot backup. Run live
+end-to-end; lessons flagged for the spec:
+
+1. **Retiring a satellite's AGENT is not `uninstall`'s job.** The plan first
+   reached for `uninstall --backup` — wrong altitude. The stack (vault, ingest,
+   sync) STAYS; only the agent goes. What worked: archive agent state
+   (`~/.hermes` minus repo/venv/caches) + the shell integration blocks, then
+   remove agent binary + wrapper functions, marker-based (not line-number)
+   deletion in rc-files. Backlog candidate: document an "agent-only retire"
+   path so the next person doesn't reach for uninstall either.
+2. **sync.sh's add-only design carried the round.** The satellite→central
+   autosync could stay ENABLED through the whole migration precisely because
+   push is add-only — no clobber risk on the central. Design validated in
+   anger; keep it sacred.
+3. **Central-vault backup was a product gap, filled machine-side this round:**
+   nightly pull snapshot (rsync `--link-dest` hardlink dirs, 14-day retention,
+   monthly tarball) with `sqlite3 .backup` staging for live DBs (agent
+   state.db, gateway sqlite) and source/dest file-count verification —
+   sync.sh's "a green log that moved nothing is a bug" reapplied. Backlog
+   candidate: a ninth script `ai-memory-backup.sh` generalizing this.
+4. **Speed-dial portability (bash→zsh) is a 3-edit job:** model base_url to
+   localhost when the agent runs ON the Ollama host, ingest path via the
+   vault's own `.tools/`, and the interactive-shell guard (`[[ -o interactive ]]`
+   plus SSH_TTY/TERM_PROGRAM check so non-interactive ssh commands never
+   trigger the menu). The `hermes()` cwd/TERMINAL_CWD launcher already existed
+   on the central — keystone wiring held.
+5. **Remote-ollama mode in configure is still missing** (known candidate,
+   re-confirmed 2026-07-06: a satellite's model block pointing at another
+   node's Ollama had to be restored from backup after a configure run).
