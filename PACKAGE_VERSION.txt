@@ -580,3 +580,17 @@ History:
                           "prefer a non-reasoning model" guidance obsolete.
                           New 6f sub-test: path-aware stub (blank chat/
                           completions + real /api/generate) → title rescued.
+           CORRECTION (2026-07-07, post-cleanup): the v2.20–v2.23 diagnosis
+                          "ollama's OpenAI endpoint drops reasoning replies"
+                          was WRONG. Root cause: TWO ollama servers shared
+                          port 11434 on the central (the desktop app owned
+                          127.0.0.1 with OLLAMA_KEEP_ALIVE=-1 + a 24 GB
+                          deepseek pinned "Forever"; launchd's serve owned the
+                          LAN side) — localhost calls hit the sick app server,
+                          whose memory pressure produced blank zero-usage
+                          200-responses. After consolidating to ONE server
+                          (keep_alive 5m), the SAME qwen3.6:35b test answers
+                          perfectly via /v1/chat/completions (reasoning in its
+                          own field; give thinking models max_tokens headroom).
+                          v2.21-23's retry/per-conv-fallback/native-rescue all
+                          remain valid resilience, just against a rarer enemy.
