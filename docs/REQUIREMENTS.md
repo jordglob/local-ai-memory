@@ -367,6 +367,22 @@ cloud mode). A non-TTY run without `--yes` never execs ingest (same bug class
 as the ingest v2.15 hermes-autostart fix — the observed "configure started
 hermes" was configure exec'ing a stale ingest whose old default exec'd hermes).
 
+SOUL handover — search-persistence recipe (v5.2, target-picture round
+2026-07-07). Live protocol on the central (7 models, 5.2–23 GB): the §4.2
+recall floor is NOT model size — every model ran real greps with file+line
+citations. The real failure was giving up after ONE empty grep: all 7
+(incl. the 23 GB qwen3.6:35b) failed a question whose keyword wasn't present
+verbatim, yet with a search strategy in the prompt (don't stop at the first
+miss; try synonyms / English+native / acronyms / brand / model number; also
+scan INDEX.md) even a 5.2 GB model answered exactly (Begode Falcon Pro,
+$1,880, source file). That recipe now lives in the SOUL handover so it applies
+to EVERY model without the user prompting it — plus a precision note
+(distinguish what the user DID from options/links merely mentioned; sonde 1
+showed 6/7 models offered a Blocket ad link as "your purchase"). Practical
+floor with the recipe present: ~5 GB. Caveat: hermes loads Ollama models at
+the configured context (128K here), so a 5 GB model's KV-cache dominates —
+the real limiter on a 48 GB box is context, not weights.
+
 Changes:
 - Soften consolidation advice: present Ollama as *an option*, point to
   `huggingface-cli delete-cache` (interactive) instead of `rm -rf` commands.

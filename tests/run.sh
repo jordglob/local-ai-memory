@@ -719,6 +719,14 @@ PYEOF
     else
       fail "ai-config.json base_url wrong" "$(cat "$TMP/cfgvault/.mcp/ai-config.json" 2>/dev/null | head -3)"
     fi
+    # v5.2: SOUL handover carries the search-persistence recipe (target-picture
+    # round: the recall floor is search strategy, not model size)
+    if grep -q "DO NOT STOP AT THE FIRST EMPTY RESULT" "$TMP/hh1/SOUL.md" 2>/dev/null \
+       && grep -q "INDEX.md" "$TMP/hh1/SOUL.md" 2>/dev/null; then
+      pass "SOUL.md carries the search-persistence recipe (don't-give-up + INDEX)"
+    else
+      fail "SOUL.md missing the search recipe" "$(grep -c EMPTY "$TMP/hh1/SOUL.md" 2>/dev/null)"
+    fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1

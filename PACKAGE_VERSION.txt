@@ -630,3 +630,19 @@ History:
                           single-quoted YAML scalars parsed (base_url: '').
                           6g extended: dead-endpoint kept under --yes /
                           flag replaces with backup / moa block survives.
+  v40 CC   2026-07-07  — configure v5.2: SOUL handover carries the search-
+                          persistence recipe. Target-picture round (7 models
+                          on the central, 5.2-23 GB) found the recall floor is
+                          the SEARCH STRATEGY, not model size — every model ran
+                          real greps, but all 7 (incl. 23 GB qwen3.6:35b) gave
+                          up after one empty grep on a question whose keyword
+                          wasn't verbatim; with "don't stop at first miss, try
+                          synonyms/EN+native/acronyms/brand/model, scan INDEX"
+                          in the prompt even a 5.2 GB model answered exactly.
+                          Recipe now in SOUL.md (marker-bounded, applies to
+                          every model, no user prompting) + a precision note
+                          (what the user DID vs links/options merely mentioned
+                          — 6/7 offered a Blocket ad as "your purchase"). New
+                          6g assertion: SOUL.md carries the recipe. Floor with
+                          recipe: ~5 GB (context KV-cache, not weights, is the
+                          real limiter on 48 GB).

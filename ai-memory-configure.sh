@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.1
+#  ai-memory-configure.sh  v5.2
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,13 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.2:  SOUL handover carries the proven SEARCH-PERSISTENCE recipe — the
+#         target-picture round (2026-07-07) found the recall floor is the
+#         search strategy, not model size: every model (incl. 35B) gave up
+#         after one empty grep, but with "don't stop at the first miss, try
+#         synonyms/EN+native/acronyms/brand/model, also scan INDEX" in the
+#         prompt even a 5 GB model answered exactly. That recipe now lives in
+#         SOUL.md so it applies to EVERY model without the user prompting it.
 #  v5.1:  --yes NEVER replaces an existing model block (probeable or not) —
 #         the v5.0 answer-probe rule clobbered a live moa-provider block
 #         (empty base_url → unprobeable → rewritten) on the central. Replace
@@ -48,7 +55,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.1"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.2"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -76,7 +83,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.1 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.2 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -996,12 +1003,21 @@ block = (
     "3. For a SPECIFIC topic, SEARCH with absolute paths — actually CALL the tool,\n"
     "   do not just describe the command:\n"
     "       grep -rli \"KEYWORD\" \"" + vault + "/05-AI-Sessions/\"\n"
-    "   then read the matching files and answer from them. Try keyword variants\n"
-    "   (synonyms, names, project titles). Never guess or invent filenames. Only\n"
-    "   say you found nothing AFTER that grep has actually run and returned nothing.\n\n"
+    "   DO NOT STOP AT THE FIRST EMPTY RESULT. A grep that returns nothing means\n"
+    "   THAT WORD was absent — not that the topic is missing. Try several keyword\n"
+    "   variants, one at a time, before concluding anything: synonyms, the term in\n"
+    "   English AND in the user's own language, acronyms and their full forms,\n"
+    "   brand names, model numbers, and project titles. (For a purchase, say, try\n"
+    "   the product category, the brand, and the model number as separate greps.)\n"
+    "   ALSO scan the index titles for the topic:\n"
+    "       grep -i \"KEYWORD\" \"" + vault + "/05-AI-Sessions/INDEX.md\"\n"
+    "   Only say you found nothing AFTER several variants have ALL returned empty.\n"
+    "   Then read the matching files and answer from them; distinguish what the\n"
+    "   USER actually did from options, links or products merely mentioned in a\n"
+    "   conversation. Never guess or invent filenames.\n\n"
     "You DO have filesystem and command tools available — use them. If a listing or\n"
     "search returns entries, the memory is there; claiming \"no access\" or \"empty\"\n"
-    "without having run the tool is a mistake.\n"
+    "without having run the tool — or after only ONE search term — is a mistake.\n"
     + end
 )
 p = Path(soul)
