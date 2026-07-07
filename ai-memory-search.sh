@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v1.2
+#  ai-memory-search.sh  v1.3
+#  v1.3: --hook also surfaces VALUE/PRICE lines from the top file even when the
+#        query word missed them (asked "dollar", file wrote "USD"). Live proof:
+#        with v1.2 glm4 read the injection and named the product but said the
+#        price was "not specified" — the term-ranked snippet had skipped the
+#        "$1,880" line. Now "what did it cost" answers land.
 #  v1.2: PORTABILITY FIX — the v1.1 fd-3 source trick (python3 /dev/fd/3 3<<EOF)
 #        read stdin on Linux but SILENTLY failed on macOS bash 3.2 (the Mac
 #        mini), so --hook produced nothing there (live 2026-07-08). The source
@@ -48,7 +53,7 @@ cat > "$_AIMS_PY" <<'PYMAIN'
 import sys, os, re, json, argparse
 from pathlib import Path
 
-VERSION = "1.2"
+VERSION = "1.3"
 HOME = Path.home()
 
 # Grammatical/filler words only — NOT domain words. Dropping "unicycle" or
@@ -120,6 +125,19 @@ def run_search(sess, terms):
 HOOK_MIN_TERMS = 2       # top hit must cover >= this many DISTINCT query terms
 HOOK_MAX_CHARS = 1500    # keep the injected blob small (prompt-cache friendly)
 
+# "How much did it cost" answers often sit on a line whose currency word the
+# QUERY missed ("dollar" asked, "USD" written), so the term-ranked snippets can
+# skip the very line with the number. Pull value/price lines from the top file
+# regardless of query-term match (live 2026-07-08: glm4 got the product right
+# from an injection but said the price was "not specified" — it wasn't in the
+# snippet).
+_VALUE_RE = re.compile(
+    r"[€$£]\s?\d"
+    r"|\d[\d\s.,]*\s?(?:kr|sek|usd|eur|dollar|euro|kronor)\b"
+    r"|\b(?:usd|sek|eur|dollar|euro)\b[\s:]*[$€£]?\s?\d"
+    r"|\b(?:pris|price|cost|kostar|kostade|kostnad)\b[^\n]*\d",
+    re.I)
+
 def _hook_user_message(payload):
     """Pull the latest user text out of a pre_llm_call payload (defensive:
     hermes nests it under `extra`, older/other shapes vary)."""
@@ -149,37 +167,57 @@ def _hook_user_message(payload):
 def run_hook(vault):
     """Read a pre_llm_call payload on stdin, emit {"context": ...} or nothing."""
     _dbg = os.environ.get("AI_MEMORY_HOOK_DEBUG")
-    def d(m):
+    def dbg(m):
         if _dbg: print(f"[hook] {m}", file=sys.stderr)
     sess = vault / "05-AI-Sessions"
     try:
         payload = json.load(sys.stdin)
     except Exception as e:
-        d(f"json.load failed: {e}"); return 0
+        dbg(f"json.load failed: {e}"); return 0
     if not sess.is_dir():
-        d(f"sess not dir: {sess}"); return 0
+        dbg(f"sess not dir: {sess}"); return 0
     msg = _hook_user_message(payload)
     if not msg:
-        d("no user message"); return 0
+        dbg("no user message"); return 0
     terms = tokenize(msg)
-    d(f"msg={msg!r} terms={terms}")
+    dbg(f"msg={msg!r} terms={terms}")
     if len(terms) < HOOK_MIN_TERMS:
-        d("too few terms"); return 0             # too vague (e.g. "hej")
+        dbg("too few terms"); return 0           # too vague (e.g. "hej")
     results = run_search(sess, terms)
-    d(f"results={len(results)} best={results[0][1] if results else 0}")
+    dbg(f"results={len(results)} best={results[0][1] if results else 0}")
     if not results or results[0][1] < HOOK_MIN_TERMS:
-        d("no strong hit"); return 0             # stay silent
+        dbg("no strong hit"); return 0           # stay silent
     rel = lambda p: str(p.relative_to(vault))
     lines = ["[Relevant memory from the user's own vault — they may be asking "
              "about this. Answer from it if it fits; ignore if not:]"]
-    for score, nterms, path, hit_terms, snips in results[:3]:
+    for ri, (score, nterms, path, hit_terms, snips) in enumerate(results[:3]):
         if nterms < HOOK_MIN_TERMS:
             break
         lines.append(f"- {rel(path)}")
-        for d, lineno, snip in snips[:2]:
+        shown = set()
+        for cnt, lineno, snip in snips[:3]:
+            shown.add(lineno)
             if len(snip) > 200:
                 snip = snip[:200] + "…"
             lines.append(f"    L{lineno}: {snip}")
+        # Top file only: also surface up to 2 value/price lines the query terms
+        # may have missed (currency word mismatch), so "what did it cost" answers.
+        if ri == 0:
+            try:
+                flines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                flines = []
+            added = 0
+            for i, ln in enumerate(flines):
+                if added >= 2:
+                    break
+                if (i + 1) in shown or not _VALUE_RE.search(ln):
+                    continue
+                s = ln.strip()
+                if len(s) > 200:
+                    s = s[:200] + "…"
+                lines.append(f"    L{i+1}: {s}")
+                added += 1
     context = "\n".join(lines)[:HOOK_MAX_CHARS]
     print(json.dumps({"context": context}))
     return 0

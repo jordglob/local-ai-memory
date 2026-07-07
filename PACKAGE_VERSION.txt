@@ -691,6 +691,23 @@ History:
                           silent tool-turn / conversation_history fallback /
                           empty-payload no-op) + 6g asserts the hook is
                           registered. Suite: 94 passed, 0 failed.
+  v44 CC   2026-07-08  — ai-memory-search v1.2/v1.3: two live-found fixes to
+                          the hook. v1.2 PORTABILITY: the v1.1 fd-3 source trick
+                          (python3 /dev/fd/3 3<<EOF) read stdin on Linux but
+                          SILENTLY failed on macOS bash 3.2 (the mini) → the
+                          hook produced nothing there. Now the source is written
+                          to a temp file and run from there (stdin free on both
+                          platforms). VERIFIED LIVE: hermes -z DOES fire the
+                          pre_llm_call hook, it injects, and glm4 — which failed
+                          9/9 before — read the injection and named the product
+                          (Begode Falcon Pro), impossible without the hook.
+                          v1.3 ANSWER QUALITY: glm4 got the product but said the
+                          price was "not specified" — the term-ranked snippet
+                          skipped the "$1,880" line because the query said
+                          "dollar" and the file wrote "USD". --hook now also
+                          surfaces VALUE/PRICE lines (currency/number regex)
+                          from the top file regardless of term match, so
+                          cost questions land. 6i asserts the value-line path.
   v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
                           v5.2 recipe's live proof FAILED — small models, given
                           hermes' native memory tools, called session_search /

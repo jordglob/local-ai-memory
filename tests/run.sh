@@ -884,13 +884,16 @@ elif [ ! -f ai-memory-search.sh ]; then
 else
   HV="$TMP/hookvault/05-AI-Sessions/aistudio"
   mkdir -p "$HV"
-  printf '# Kop\nDu bestallde en Begode Falcon Pro (elektrisk enhjuling, EUC) i december 2025. Priset var 1,880 USD.\n' > "$HV/kop.md"
-  # strong hit → injects context containing the answer
-  strong=$(printf '%s' '{"hook_event_name":"pre_llm_call","extra":{"turn_type":"user","user_message":"vilken elektrisk enhjuling EUC bestallde jag i december 2025 pris USD"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  # price on its OWN line, written "USD" — the query below says "dollar", so the
+  # term-ranked snippet skips it and only the VALUE-line rule can surface it.
+  printf '# Kop\nDu bestallde en Begode Falcon Pro (elektrisk enhjuling, EUC) i december 2025.\nEn massa ovidkommande text pa den har raden helt utan siffror.\nPris: 1,880 USD\n' > "$HV/kop.md"
+  # strong hit → injects context; the value-line rule pulls in the price even
+  # though the query said "dollar" and the file wrote "USD".
+  strong=$(printf '%s' '{"hook_event_name":"pre_llm_call","extra":{"turn_type":"user","user_message":"vilken elektrisk enhjuling EUC bestallde jag i december 2025 och vad kostade den i dollar"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
   if printf '%s' "$strong" | grep -q '"context"' && printf '%s' "$strong" | grep -q "1,880 USD"; then
-    pass "strong hit injects {context} with the answer (stdin read despite fd-3 source)"
+    pass "strong hit injects {context}, incl. the price via the value-line rule (query 'dollar' vs file 'USD')"
   else
-    fail "hook did not inject on a strong hit" "$strong"
+    fail "hook did not inject the answer/price on a strong hit" "$strong"
   fi
   # chit-chat → silent (no injection)
   weak=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"hej"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
