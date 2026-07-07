@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.19
+#  ai-memory-ingest.sh  v2.20
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.20: --ai-titles EMPTY-REPLY fix (live run 2026-07-07): ollama's OpenAI
+#         endpoint can 200-OK a BLANK completion for a reasoning model (the
+#         reply is generated but arrives as empty content, zero usage —
+#         seen with qwen3.6:35b on ollama 0.31.1; the model itself was fine
+#         via /api/generate). v2.19 silently fell back for every conversation
+#         — a silent zero. Now: one loud warn on the first empty reply, then
+#         fallback titles for the rest of the run. Practical guidance: point
+#         --ai-titles at a small non-reasoning model (AI_MEMORY_MODEL=gemma…);
+#         titling needs speed, not reasoning.
 #  v2.19: BETTER TITLES (live round 2026-07-07 — vault listings showed raw
 #         first-prompt headings like "Uppgift, svara direkt utan att...").
 #         (1) hermes source reads the session's OWN title from state.db
@@ -85,7 +94,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.19"
+VERSION = "2.20"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -217,7 +226,16 @@ def _ai_title(msgs):
     # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
     line = next((ln.strip().strip('\'" .')
                  for ln in text.splitlines() if ln.strip()), "")
-    return " ".join(line.split())[:80] or None
+    title = " ".join(line.split())[:80]
+    if not title:
+        # NEVER a silent zero: an empty/eaten reply (all-<think>, truncated,
+        # or a server that 200-OKs a blank completion) must be visible — one
+        # loud warn, then fallback titles for the rest of the run.
+        _AI["dead"] = "model returned an empty reply"
+        warn("--ai-titles: model returned an empty reply — check the model "
+             "with a plain chat first; fallback titles from here on")
+        return None
+    return title
 
 # ── shared output ─────────────────────────────────────────────────────────────
 def slugify(s, n=55):

@@ -534,3 +534,18 @@ History:
                           model server (db title / raw fallback / retitle-in-
                           place same filename / no-churn re-runs / no downgrade
                           / graceful degrade). Suite: 65 passed, 0 failed.
+  v34 CC   2026-07-07  — ingest v2.20: --ai-titles empty-reply fix — the v2.19
+                          live run on the central imported 19 hermes convs
+                          correctly (the mini's own hermes history had never
+                          been ingested; the ugly-titled files were the retired
+                          WSL-hermes') but every AI title silently fell back:
+                          ollama 0.31.1's OpenAI endpoint 200-OKs a BLANK
+                          completion for a reasoning model (qwen3.6:35b —
+                          fine via /api/generate, empty via /v1/chat/
+                          completions, zero usage). A silent zero in _ai_title
+                          (empty parsed reply → None with no warning). Now:
+                          first empty reply warns loudly + fallback for the
+                          rest of the run. New 6f sub-test (all-<think> stub →
+                          loud + fallback). Guidance: point --ai-titles at a
+                          small non-reasoning model. Side-finding reported:
+                          deepseek-r1:8b parked at 24 GB "Forever" on the mini.

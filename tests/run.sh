@@ -518,6 +518,42 @@ PYEOF
     fi
   fi
   kill "$STUB_PID" 2>/dev/null
+  # an empty/all-<think> reply must be LOUD (never a silent zero) + fall back
+  cat > "$TMP/stub2.py" <<'PYEOF'
+import http.server, json
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.dumps({"choices": [{"message": {"content":
+            "<think>bara resonemang som aldrig avslutas"}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+PYEOF
+  python3 "$TMP/stub2.py" > "$TMP/stub2.port" 2>/dev/null &
+  STUB_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/stub2.port" ] && break; sleep 0.3; done
+  port2=$(cat "$TMP/stub2.port" 2>/dev/null)
+  if [ -z "$port2" ]; then
+    skip "empty-reply stub did not start"
+  else
+    mkdir -p "$TMP/hvault4/05-AI-Sessions"
+    AI_MEMORY_MODEL_URL="http://127.0.0.1:$port2/v1" AI_MEMORY_MODEL=stub \
+      bash ai-memory-ingest.sh "$TMP/hvault4" --source hermes --path "$TMP/state.db" --ai-titles --yes > "$TMP/h8.out" 2>&1
+    if grep -q "empty reply" "$TMP/h8.out" \
+       && grep -q "^# Uppgift: svara med en halsning" "$TMP/hvault4/05-AI-Sessions/hermes/"*-hermtest3.md 2>/dev/null; then
+      pass "empty model reply is loud + falls back (never a silent zero)"
+    else
+      fail "empty model reply was silent or heading wrong" "$(tail -3 "$TMP/h8.out")"
+    fi
+  fi
+  kill "$STUB_PID" 2>/dev/null
   # graceful degrade: dead endpoint → warn, fall back, import still succeeds
   mkdir -p "$TMP/hvault3/05-AI-Sessions"
   if AI_MEMORY_MODEL_URL="http://127.0.0.1:1/v1" AI_MEMORY_MODEL=stub \
