@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.4
+#  ai-memory-configure.sh  v5.5
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,11 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.5:  registers the memory-search HOOK (hermes pre_llm_call) so recall is
+#         MODEL-AGNOSTIC: small models won't call a tool from SOUL (0/9 live),
+#         so the hook runs the search automatically and injects hits into the
+#         user message — any model just reads them. Sets hooks_auto_accept:true
+#         for non-TTY runs. Targeted config edits; the model/moa block is safe.
 #  v5.4:  SOUL points at ai-memory-search.sh — the deterministic memory-search
 #         tool (§4.5). Live tests proved the recall floor is a small model's
 #         inability to CARRY OUT a multi-step search, not tool access: even
@@ -69,7 +74,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.4"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.5"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -97,7 +102,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.4 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.5 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1076,6 +1081,65 @@ install_search_tool() {
   fi
 }
 install_search_tool
+
+# ── v5.5: register the memory-search HOOK so recall is model-agnostic ─────────
+# Live tests proved small models won't CALL the search tool from SOUL (0/9). A
+# hermes `pre_llm_call` shell hook runs the search automatically and injects the
+# hits into the user's message, so ANY model — however small — just reads them.
+# We add the hook to config.yaml's top-level `hooks:` and flip `hooks_auto_accept`
+# to true so a non-interactive/auto-started agent runs it without a TTY consent
+# prompt. Targeted edits only — the model/moa block is never touched.
+install_search_hook() {
+  local cmd="bash $VAULT/.tools/ai-memory-search.sh --hook $VAULT"
+  python3 - "$HERMES_CONFIG" "$cmd" << 'PYHOOK'
+import sys, os, re
+path, cmd = sys.argv[1], sys.argv[2]
+if not os.path.exists(path):
+    print("nocfg"); sys.exit(0)
+text = open(path).read()
+changed = False
+# 1) hooks_auto_accept: true  (needed for non-TTY runs to fire the hook)
+if re.search(r"(?m)^hooks_auto_accept:\s*true\b", text):
+    pass
+elif re.search(r"(?m)^hooks_auto_accept:", text):
+    text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text); changed = True
+else:
+    text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"; changed = True
+# 2) hooks: pre_llm_call — inject our command if not already present
+if cmd in text:
+    pass
+else:
+    block = ("hooks:\n"
+             "  pre_llm_call:\n"
+             "    - command: " + cmd + "\n"
+             "      timeout: 20\n")
+    m = re.search(r"(?m)^hooks:\s*(\{\}\s*)?$", text)
+    if m and (m.group(1) or "").strip() == "{}":
+        # `hooks: {}` → replace that one line with the real block
+        text = text[:m.start()] + block + text[m.end():]; changed = True
+    elif m:
+        # `hooks:` with existing children — splice our pre_llm_call under it
+        ins = ("  pre_llm_call:\n"
+               "    - command: " + cmd + "\n"
+               "      timeout: 20\n")
+        text = text[:m.end()] + "\n" + ins + text[m.end():]; changed = True
+    else:
+        text = text.rstrip("\n") + "\n" + block; changed = True
+if changed:
+    tmp = path + ".tmp"
+    open(tmp, "w").write(text); os.replace(tmp, path)
+    print("written")
+else:
+    print("present")
+PYHOOK
+}
+if [[ -f "$HERMES_CONFIG" ]]; then
+  case "$(install_search_hook)" in
+    written) ok "Memory hook registered (pre_llm_call → ai-memory-search.sh --hook); auto-recall for ANY model" ;;
+    present) ok "Memory hook already registered in config.yaml" ;;
+    *)       warn "Could not register the memory hook — add it under hooks: pre_llm_call in ~/.hermes/config.yaml" ;;
+  esac
+fi
 
 # ai-config.json for resume.sh and other tooling — carries the REAL base_url
 # (v5.0 fix: this used to hardcode localhost even for cloud/remote setups, so

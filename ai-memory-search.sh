@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v1.0
+#  ai-memory-search.sh  v1.1
+#  v1.1: NEW --hook mode — a hermes `pre_llm_call` shell hook that reads the
+#        turn on stdin, searches the vault for the user's message, and INJECTS
+#        the top hits into the turn. This is the MODEL-AGNOSTIC path: live tests
+#        proved small models will not CALL a search tool from SOUL (0/9), so we
+#        stop relying on the model — the search runs automatically and the model
+#        just reads the results. Silent (no injection) on weak/no hits.
 #  Deterministic memory retrieval for the AI Memory Stack — ONE command an
 #  agent (any model, however small) can call instead of hand-rolling a
 #  multi-term grep strategy it may not follow.
@@ -28,12 +34,14 @@ set -euo pipefail
 command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 
 # Family convention (§2.8): self-copy into $VAULT/.tools/ so every door finds
-# the same tool. Resolve the vault from args first (mirrors the python arg parse).
-exec python3 - "$@" << 'PYMAIN'
-import sys, os, re, argparse
+# the same tool. The python source is fed on fd 3 (not stdin) so that --hook
+# mode can read the hermes payload on stdin — `python3 - << EOF` would make the
+# heredoc BE stdin and the piped payload would never arrive (live bug 2026-07-08).
+exec python3 /dev/fd/3 "$@" 3<<'PYMAIN'
+import sys, os, re, json, argparse
 from pathlib import Path
 
-VERSION = "1.0"
+VERSION = "1.1"
 HOME = Path.home()
 
 # Grammatical/filler words only — NOT domain words. Dropping "unicycle" or
@@ -61,11 +69,120 @@ def tokenize(q):
             seen.add(t); toks.append(t)
     return toks
 
+def run_search(sess, terms):
+    """Score every 05-AI-Sessions/*.md by DISTINCT query terms covered (then hit
+    frequency). Returns a ranked list of (score, nterms, path, hit_terms, snips)."""
+    results = []
+    for path in sess.rglob("*.md"):
+        if path.name == "INDEX.md":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        low = text.lower()
+        hit_terms, total = [], 0
+        for t in terms:
+            c = low.count(t)
+            if c:
+                hit_terms.append(t); total += c
+        if not hit_terms:
+            continue
+        lines = text.splitlines()
+        scored_lines = []
+        for i, ln in enumerate(lines):
+            ll = ln.lower()
+            d = sum(1 for t in hit_terms if t in ll)
+            if d:
+                scored_lines.append((d, i + 1, ln.strip()))
+        scored_lines.sort(key=lambda x: (-x[0], x[1]))
+        score = len(hit_terms) * 100000 + min(total, 99999)
+        results.append((score, len(hit_terms), path, hit_terms, scored_lines[:3]))
+    results.sort(key=lambda r: -r[0])
+    return results
+
+# ── hook mode (--hook): the model-agnostic path ──────────────────────────────
+# Live tests proved small models will not CALL a search tool from SOUL guidance
+# (0/9). So instead of relying on the model, a hermes `pre_llm_call` shell hook
+# runs THIS search on the user's message and INJECTS the top hits into the turn
+# — the model just reads them. Hermes passes the turn as JSON on stdin (keys in
+# `extra`: user_message, turn_type, conversation_history, ...); a
+# `{"context": "..."}` on stdout is appended to the user message. We stay silent
+# (no injection) unless a hit is strong, so ordinary chit-chat is untouched and
+# every turn is not inflated (hermes spills oversized context to disk anyway).
+HOOK_MIN_TERMS = 2       # top hit must cover >= this many DISTINCT query terms
+HOOK_MAX_CHARS = 1500    # keep the injected blob small (prompt-cache friendly)
+
+def _hook_user_message(payload):
+    """Pull the latest user text out of a pre_llm_call payload (defensive:
+    hermes nests it under `extra`, older/other shapes vary)."""
+    def _txt(v):
+        if isinstance(v, str):
+            return v
+        if isinstance(v, dict):
+            return v.get("content") or v.get("text") or ""
+        if isinstance(v, list) and v:
+            # conversation_history: last user turn
+            for m in reversed(v):
+                if isinstance(m, dict) and str(m.get("role", "")).lower() == "user":
+                    return _txt(m.get("content") or m.get("text") or "")
+            return _txt(v[-1])
+        return ""
+    for scope in (payload.get("extra") or {}), payload:
+        if not isinstance(scope, dict):
+            continue
+        if scope.get("turn_type") and str(scope["turn_type"]).lower() != "user":
+            return ""          # tool-result / non-user turn → do not inject
+        for k in ("user_message", "user_msg", "message", "conversation_history"):
+            t = _txt(scope.get(k))
+            if t and t.strip():
+                return t.strip()
+    return ""
+
+def run_hook(vault):
+    """Read a pre_llm_call payload on stdin, emit {"context": ...} or nothing."""
+    _dbg = os.environ.get("AI_MEMORY_HOOK_DEBUG")
+    def d(m):
+        if _dbg: print(f"[hook] {m}", file=sys.stderr)
+    sess = vault / "05-AI-Sessions"
+    try:
+        payload = json.load(sys.stdin)
+    except Exception as e:
+        d(f"json.load failed: {e}"); return 0
+    if not sess.is_dir():
+        d(f"sess not dir: {sess}"); return 0
+    msg = _hook_user_message(payload)
+    if not msg:
+        d("no user message"); return 0
+    terms = tokenize(msg)
+    d(f"msg={msg!r} terms={terms}")
+    if len(terms) < HOOK_MIN_TERMS:
+        d("too few terms"); return 0             # too vague (e.g. "hej")
+    results = run_search(sess, terms)
+    d(f"results={len(results)} best={results[0][1] if results else 0}")
+    if not results or results[0][1] < HOOK_MIN_TERMS:
+        d("no strong hit"); return 0             # stay silent
+    rel = lambda p: str(p.relative_to(vault))
+    lines = ["[Relevant memory from the user's own vault — they may be asking "
+             "about this. Answer from it if it fits; ignore if not:]"]
+    for score, nterms, path, hit_terms, snips in results[:3]:
+        if nterms < HOOK_MIN_TERMS:
+            break
+        lines.append(f"- {rel(path)}")
+        for d, lineno, snip in snips[:2]:
+            if len(snip) > 200:
+                snip = snip[:200] + "…"
+            lines.append(f"    L{lineno}: {snip}")
+    context = "\n".join(lines)[:HOOK_MAX_CHARS]
+    print(json.dumps({"context": context}))
+    return 0
+
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("positional", nargs="*")
     ap.add_argument("--query")
     ap.add_argument("--top", type=int, default=5)
+    ap.add_argument("--hook", action="store_true")
     ap.add_argument("--help", "-h", action="store_true")
     ap.add_argument("--version", "-V", action="store_true")
     ap.add_argument("--yes", "-y", action="store_true")   # accepted for family symmetry
@@ -75,6 +192,8 @@ def main():
         print(f"ai-memory-search.sh v{VERSION}"); return 0
     if a.help:
         print('Usage: ai-memory-search.sh [vault] "your topic" [--top N]\n'
+              '       ai-memory-search.sh --hook [vault]   (reads a hermes\n'
+              '         pre_llm_call payload on stdin; emits {"context":...} to inject)\n'
               "Ranks 05-AI-Sessions/*.md by how many distinct query terms each\n"
               "file contains, prints the top files with answer-bearing snippets.")
         return 0
@@ -93,6 +212,10 @@ def main():
         query = " ".join(rest)
     if vault is None:
         vault = HOME / "Documents" / "ai-memory"
+
+    # Hook mode short-circuits: query comes from the stdin payload, not args.
+    if a.hook:
+        return run_hook(vault)
     if not query or not query.strip():
         print("ai-memory-search: no query given. Usage: ai-memory-search.sh [vault] \"topic\"",
               file=sys.stderr)
@@ -109,36 +232,7 @@ def main():
               "(all stopwords). Try naming the topic, brand, or year.")
         return 0
 
-    # Score every markdown file: coverage (distinct terms) dominates, then hits.
-    results = []
-    for path in sess.rglob("*.md"):
-        if path.name == "INDEX.md":
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        low = text.lower()
-        hit_terms, total = [], 0
-        for t in terms:
-            c = low.count(t)
-            if c:
-                hit_terms.append(t); total += c
-        if not hit_terms:
-            continue
-        # Best snippet lines: those containing the most DISTINCT query terms.
-        lines = text.splitlines()
-        scored_lines = []
-        for i, ln in enumerate(lines):
-            ll = ln.lower()
-            d = sum(1 for t in hit_terms if t in ll)
-            if d:
-                scored_lines.append((d, i + 1, ln.strip()))
-        scored_lines.sort(key=lambda x: (-x[0], x[1]))
-        score = len(hit_terms) * 100000 + min(total, 99999)
-        results.append((score, len(hit_terms), path, hit_terms, scored_lines[:3]))
-
-    results.sort(key=lambda r: -r[0])
+    results = run_search(sess, terms)
     rel = lambda p: str(p.relative_to(vault))
 
     print(f'MEMORY SEARCH — query: "{query}"')

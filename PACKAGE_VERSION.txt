@@ -669,6 +669,28 @@ History:
                           polluted the vault (reversible move + reindex; no
                           auto-ingest exists, so they stay gone).
                           Suite: 88 passed, 0 failed.
+  v43 CC   2026-07-08  — ai-memory-search.sh v1.1 (--hook) + configure v5.5:
+                          MODEL-AGNOSTIC memory recall. The målbild finding:
+                          single small models won't CALL the search tool from
+                          SOUL (6/6 "ej-verktyg" live) — so stop relying on the
+                          model. NEW --hook mode is a hermes `pre_llm_call`
+                          shell hook: reads the turn on stdin, searches the
+                          vault for the user's message, and INJECTS the top
+                          hits into the user message ({"context":...}); any
+                          model just READS them. Silent on weak/chit-chat/non-
+                          user turns (no turn inflation). Load-bearing fix: the
+                          python source now rides on fd 3 (exec python3
+                          /dev/fd/3 3<<EOF) so --hook can read the payload on
+                          STDIN — `python3 - <<EOF` made the heredoc BE stdin
+                          and the piped payload never arrived. Also added a
+                          missing `import json`. configure v5.5 registers the
+                          hook (config.yaml hooks: pre_llm_call) + sets
+                          hooks_auto_accept: true for non-TTY runs; targeted
+                          edits leave the model/moa block untouched. New 6i
+                          regression (strong-inject / silent chit-chat /
+                          silent tool-turn / conversation_history fallback /
+                          empty-payload no-op) + 6g asserts the hook is
+                          registered. Suite: 94 passed, 0 failed.
   v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
                           v5.2 recipe's live proof FAILED — small models, given
                           hermes' native memory tools, called session_search /

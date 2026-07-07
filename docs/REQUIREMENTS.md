@@ -472,6 +472,23 @@ SOUL handover instructs the agent to run it (grep fallback kept for absence).
 Future escalation if lexical ever misses (noted, not built): a `--semantic`
 mode via the already-present `nomic-embed-text` for zero-lexical-overlap topics.
 
+Model-agnostic recall — the `--hook` mode (v1.1, 2026-07-08). The search tool
+alone was not enough: a follow-up live round proved single small models will
+not CALL the tool from SOUL guidance either (6/6 "didn't invoke it"). So recall
+must not depend on the model *deciding* anything. `ai-memory-search.sh --hook`
+is a hermes `pre_llm_call` shell hook: hermes passes the turn as JSON on stdin
+(keys in `extra`: `user_message`, `turn_type`, `conversation_history`), the hook
+searches the vault for the user's message and prints `{"context": "..."}`, which
+hermes appends to the user message — so ANY model, however small, simply reads
+the hits. It stays silent (no injection) on weak/no hits, chit-chat, and non-
+user turns, so ordinary turns are not inflated (hermes also spills oversized
+hook context to disk). `configure` registers it under `hooks: pre_llm_call` and
+sets `hooks_auto_accept: true` so a non-interactive/auto-started agent fires it
+without a TTY consent prompt. Architecture note (bit us live): a bash→python
+wrapper that feeds the source on **stdin** (`python3 - <<EOF`) makes the heredoc
+BE stdin, so a stdin-reading mode gets nothing — feed the source on fd 3
+(`python3 /dev/fd/3 3<<EOF`) and leave stdin for the payload.
+
 ### 2.4 Update Advisor (AGENTS.md section / scheduled Hermes task)
 
 - Read-only by design: inventories installed components (Hermes, Ollama,

@@ -749,6 +749,14 @@ PYEOF
     else
       fail "configure did not install the memory-search tool"
     fi
+    # v5.5: configure registers the pre_llm_call hook + flips hooks_auto_accept
+    if grep -q "pre_llm_call:" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "ai-memory-search.sh --hook" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "hooks_auto_accept: true" "$TMP/hh1/config.yaml" 2>/dev/null; then
+      pass "configure registers the memory hook (pre_llm_call + auto_accept)"
+    else
+      fail "configure did not register the memory hook" "$(grep -nE 'hooks|auto_accept' "$TMP/hh1/config.yaml" 2>/dev/null | head -4)"
+    fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1
@@ -859,6 +867,45 @@ MD
     pass "no-match query reports clearly (never a silent empty)"
   else
     fail "no-match query was silent/unclear" "$out2"
+  fi
+fi
+
+# ── 6i. regression: ai-memory-search --hook (pre_llm_call injection) (v1.1) ──
+# The model-agnostic path: a hermes pre_llm_call hook reads the turn on stdin
+# and INJECTS vault hits into the user message so even a model that never calls
+# a tool gets memory recall. Must: inject {"context":...} on a STRONG hit, stay
+# SILENT on weak/chit-chat and on non-user turns, and — the load-bearing fix —
+# read the payload on STDIN even though the python source rides on fd 3.
+hdr "regression: memory-search --hook injection (v1.1)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-search.sh ]; then
+  skip "ai-memory-search.sh absent"
+else
+  HV="$TMP/hookvault/05-AI-Sessions/aistudio"
+  mkdir -p "$HV"
+  printf '# Kop\nDu bestallde en Begode Falcon Pro (elektrisk enhjuling, EUC) i december 2025. Priset var 1,880 USD.\n' > "$HV/kop.md"
+  # strong hit → injects context containing the answer
+  strong=$(printf '%s' '{"hook_event_name":"pre_llm_call","extra":{"turn_type":"user","user_message":"vilken elektrisk enhjuling EUC bestallde jag i december 2025 pris USD"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  if printf '%s' "$strong" | grep -q '"context"' && printf '%s' "$strong" | grep -q "1,880 USD"; then
+    pass "strong hit injects {context} with the answer (stdin read despite fd-3 source)"
+  else
+    fail "hook did not inject on a strong hit" "$strong"
+  fi
+  # chit-chat → silent (no injection)
+  weak=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"hej"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  if [ -z "$weak" ]; then pass "chit-chat injects nothing (no turn inflation)"; else fail "hook injected on chit-chat" "$weak"; fi
+  # non-user (tool) turn → silent even with strong content
+  toolturn=$(printf '%s' '{"extra":{"turn_type":"tool","user_message":"Begode Falcon enhjuling EUC december 2025 USD"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  if [ -z "$toolturn" ]; then pass "non-user turn injects nothing"; else fail "hook injected on a tool turn" "$toolturn"; fi
+  # conversation_history fallback (no user_message key) → still finds the message
+  hist=$(printf '%s' '{"extra":{"turn_type":"user","conversation_history":[{"role":"assistant","content":"hi"},{"role":"user","content":"vilken enhjuling EUC Begode december 2025 USD"}]}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  if printf '%s' "$hist" | grep -q '"context"'; then pass "conversation_history fallback extracts the last user turn"; else fail "hook missed conversation_history" "$hist"; fi
+  # malformed/empty stdin → silent, exit 0 (never breaks the turn)
+  if printf '' | bash ai-memory-search.sh --hook "$TMP/hookvault" >/dev/null 2>&1; then
+    pass "empty payload is a silent no-op (exit 0)"
+  else
+    fail "empty payload broke the hook (non-zero exit)"
   fi
 fi
 
