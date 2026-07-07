@@ -729,16 +729,37 @@ PYEOF
     else
       fail "working block was clobbered or keep not reported" "$(grep -E 'base_url|default' "$CFGYAML" | head -3)"
     fi
-    # t3: a DEAD endpoint is not kept — block gets rewritten (with a backup)
+    # t3: --yes NEVER replaces an existing block — even with a DEAD endpoint
+    # (v5.1: the v5.0 probe rule clobbered a live moa block on the central)
     mkdir -p "$TMP/hh3"
     printf 'model:\n  default: gammal:7b\n  provider: custom\n  base_url: "http://127.0.0.1:1/v1"\n  context_length: 64000\n' > "$TMP/hh3/config.yaml"
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh3" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg3.out" 2>&1
-    if ! grep -q "127.0.0.1:1/v1" "$TMP/hh3/config.yaml" \
-       && ls "$TMP/hh3/config.yaml.bak."* >/dev/null 2>&1; then
-      pass "dead endpoint is rewritten, original backed up"
+    if grep -q "127.0.0.1:1/v1" "$TMP/hh3/config.yaml" \
+       && grep -q "never replaces an existing model block" "$TMP/cfg3.out"; then
+      pass "--yes keeps even a dead-endpoint block (replace needs intent)"
     else
-      fail "dead endpoint survived or no backup" "$(grep base_url "$TMP/hh3/config.yaml")"
+      fail "--yes replaced an existing block or kept silently" "$(grep base_url "$TMP/hh3/config.yaml")"
+    fi
+    # t3b: an explicit --remote-ollama flag IS the intent — replaces (with backup)
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh3" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes --remote-ollama=127.0.0.1:$oport > "$TMP/cfg3b.out" 2>&1
+    if grep -qF "base_url: \"http://127.0.0.1:$oport/v1\"" "$TMP/hh3/config.yaml" \
+       && ls "$TMP/hh3/config.yaml.bak."* >/dev/null 2>&1; then
+      pass "--remote-ollama replaces the block (explicit intent), original backed up"
+    else
+      fail "--remote-ollama did not replace / no backup" "$(grep base_url "$TMP/hh3/config.yaml")"
+    fi
+    # t3c: a non-probeable provider block (moa, empty base_url) survives --yes
+    mkdir -p "$TMP/hh3c"
+    printf "model:\n  default: default\n  provider: moa\n  base_url: ''\n  ollama_num_ctx: 128000\n  max_tokens: 32000\n" > "$TMP/hh3c/config.yaml"
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh3c" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg3c.out" 2>&1
+    if grep -q "provider: moa" "$TMP/hh3c/config.yaml" \
+       && grep -q "max_tokens: 32000" "$TMP/hh3c/config.yaml"; then
+      pass "moa-provider block (no base_url) survives --yes untouched"
+    else
+      fail "moa block was clobbered" "$(head -6 "$TMP/hh3c/config.yaml")"
     fi
     # t4: with an OpenRouter key the fallback chain is WRITTEN — exactly once
     mkdir -p "$TMP/hh4"

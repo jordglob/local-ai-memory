@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.0
+#  ai-memory-configure.sh  v5.1
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,10 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.1:  --yes NEVER replaces an existing model block (probeable or not) —
+#         the v5.0 answer-probe rule clobbered a live moa-provider block
+#         (empty base_url → unprobeable → rewritten) on the central. Replace
+#         now requires an interactive yes or an explicit --remote-ollama.
 #  v5.0:  three model sources (local/remote/cloud); a model config whose
 #         endpoint ANSWERS is never clobbered (the WSL live wound, 2026-07-06);
 #         fallback chain written for real; ai-config.json carries the real
@@ -44,7 +48,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.0"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.1"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -72,7 +76,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.0 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.1 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -353,11 +357,16 @@ for ln in open(sys.argv[1]).read().splitlines():
             k, v = s.split(":", 1)
             blk[k.strip()] = v.strip()
 def sc(v):
+    v = v.strip()
     try:
         d = json.loads(v)
-        return d if isinstance(d, str) else v
+        if isinstance(d, str):
+            return d
     except Exception:
-        return v
+        pass
+    if len(v) >= 2 and v[0] == "'" and v[-1] == "'":
+        return v[1:-1]    # single-quoted YAML scalar (e.g. base_url: '')
+    return v
 print(sc(blk.get("default", "")))
 print(sc(blk.get("base_url", "")))
 print((blk.get("context_length", "").split() or [""])[0])
@@ -389,18 +398,38 @@ REMOTE_HOST=""
 # intent to change and skips the keep-check.
 if [[ -z "$REMOTE_OLLAMA" ]]; then
   read_existing_model_block
-  if [[ -n "$EXIST_MODEL" && "$EXIST_BASE" == http* ]] \
-     && probe_models "$EXIST_BASE" >/dev/null 2>&1; then
+  if [[ -n "$EXIST_MODEL" ]]; then
+    # v5.1: --yes NEVER replaces an EXISTING model block — probeable or not.
+    # The v5.0 rule ("keep only when the endpoint answers") clobbered a live
+    # moa-provider block (base_url empty → unprobeable → rewritten) on the
+    # central, 2026-07-07. Unattended runs must be conservative: only an
+    # interactive yes or an explicit --remote-ollama flag may replace.
+    _answers=false
+    [[ "$EXIST_BASE" == http* ]] && probe_models "$EXIST_BASE" >/dev/null 2>&1 && _answers=true
+    _baseshow="${EXIST_BASE:-[no base_url — e.g. a moa/aggregate provider]}"
     echo ""
-    ok "Existing model config found — and its endpoint answers:"
-    echo -e "     ${GREEN}$EXIST_MODEL${NC}  via  ${CYAN}$EXIST_BASE${NC}"
+    if $_answers; then
+      ok "Existing model config found — and its endpoint answers:"
+    else
+      info "Existing model config found (endpoint not probeable/answering right now):"
+    fi
+    echo -e "     ${GREEN}$EXIST_MODEL${NC}  via  ${CYAN}$_baseshow${NC}"
     if $ASSUME_YES; then
       MODE="keep"
-      info "Non-interactive: keeping it (a working config is never clobbered under --yes)"
-    else
+      if $_answers; then
+        info "Non-interactive: keeping it (a working config is never clobbered under --yes)"
+      else
+        info "Non-interactive: keeping it — --yes never replaces an existing model block."
+        info "To change it: re-run interactively, or pass --remote-ollama=HOST"
+      fi
+    elif $_answers; then
       ask "Keep this model config? [Y/n]"
       read -r _keep || _keep=""
       [[ "$(lc "${_keep:-y}")" != "n" ]] && MODE="keep"
+    else
+      ask "Replace it? (endpoint did not answer — it may be off right now) [y/N]"
+      read -r _repl || _repl=""
+      [[ "$(lc "${_repl:-n}")" == "y" ]] || MODE="keep"
     fi
   fi
 fi
@@ -1026,7 +1055,9 @@ if [[ "$MODE" == "cloud" ]]; then
 elif [[ "$MODE" == "remote" || "$MODE" == "keep" ]]; then
   # Validate the ENDPOINT we actually wrote/kept — local ollama CLI says
   # nothing about a model served on another machine.
-  if probe_models "$BASE_URL" >/dev/null 2>&1; then
+  if [[ -z "$BASE_URL" || "$BASE_URL" != http* ]]; then
+    info "Kept a non-probeable provider config (no base_url) — endpoint check skipped"
+  elif probe_models "$BASE_URL" >/dev/null 2>&1; then
     ok "Model endpoint answering: $BASE_URL"
   else
     warn "Model endpoint not answering right now: $BASE_URL"

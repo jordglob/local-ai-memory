@@ -618,3 +618,15 @@ History:
                           tests/run.sh (stub ollama: remote write / keep on
                           rerun / dead endpoint rewritten+backup / fallback
                           once+idempotent / non-TTY no-exec).
+  v39 CC   2026-07-07  — configure v5.1: --yes NEVER replaces an existing
+                          model block. The v5.0 keep-rule ("keep when the
+                          endpoint answers") CLOBBERED a live moa-provider
+                          block on the central during its own live test —
+                          empty base_url → unprobeable → rewritten to
+                          localhost/qwen (restored from configure's backup).
+                          Unattended runs are now conservative: replace
+                          requires an interactive yes or an explicit
+                          --remote-ollama. Dead endpoints keep + loud hint;
+                          single-quoted YAML scalars parsed (base_url: '').
+                          6g extended: dead-endpoint kept under --yes /
+                          flag replaces with backup / moa block survives.
