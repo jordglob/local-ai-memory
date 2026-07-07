@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v1.1
+#  ai-memory-search.sh  v1.2
+#  v1.2: PORTABILITY FIX — the v1.1 fd-3 source trick (python3 /dev/fd/3 3<<EOF)
+#        read stdin on Linux but SILENTLY failed on macOS bash 3.2 (the Mac
+#        mini), so --hook produced nothing there (live 2026-07-08). The source
+#        is now written to a temp file and run from there — stdin stays free for
+#        the hook payload on BOTH platforms.
 #  v1.1: NEW --hook mode — a hermes `pre_llm_call` shell hook that reads the
 #        turn on stdin, searches the vault for the user's message, and INJECTS
 #        the top hits into the turn. This is the MODEL-AGNOSTIC path: live tests
@@ -33,15 +38,17 @@
 set -euo pipefail
 command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 
-# Family convention (§2.8): self-copy into $VAULT/.tools/ so every door finds
-# the same tool. The python source is fed on fd 3 (not stdin) so that --hook
-# mode can read the hermes payload on stdin — `python3 - << EOF` would make the
-# heredoc BE stdin and the piped payload would never arrive (live bug 2026-07-08).
-exec python3 /dev/fd/3 "$@" 3<<'PYMAIN'
+# The python source is written to a temp FILE and run from there — NOT piped on
+# stdin (`python3 - << EOF`), because that makes the heredoc BE stdin and the
+# hook's payload (piped in for --hook mode) would never arrive. The fd-3 trick
+# (`python3 /dev/fd/3 3<<EOF`) reads stdin correctly on Linux but silently fails
+# on macOS bash 3.2 (the mini) — the temp file works on both (live 2026-07-08).
+_AIMS_PY=$(mktemp 2>/dev/null || echo "/tmp/ai-memory-search.$$.py")
+cat > "$_AIMS_PY" <<'PYMAIN'
 import sys, os, re, json, argparse
 from pathlib import Path
 
-VERSION = "1.1"
+VERSION = "1.2"
 HOME = Path.home()
 
 # Grammatical/filler words only — NOT domain words. Dropping "unicycle" or
@@ -263,3 +270,9 @@ def main():
 
 sys.exit(main())
 PYMAIN
+# Run the source file with stdin left intact (so --hook reads the payload),
+# then clean up. Non-exec + rc capture so `set -e` can't skip the cleanup.
+_rc=0
+python3 "$_AIMS_PY" "$@" || _rc=$?
+rm -f "$_AIMS_PY"
+exit $_rc
