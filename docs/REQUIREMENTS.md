@@ -556,7 +556,20 @@ Opt-in. Never part of setup.sh. First question: machine role.
   client. No sshd, no always-on. Prints a client checklist block
   (fingerprint — nothing secret).
 - **NODE**: the flow below (SSH server, key install, hardening, optional
-  Tailscale/RustDesk host, always-on power, identity block).
+  Tailscale/RustDesk host, always-on power, hermes dashboard, identity block).
+- **Hermes web dashboard** (v2.9, step 7/7 — from the 2026-07-08 dogfood arc):
+  the dashboard binds `127.0.0.1` by default → unreachable remotely, which reads
+  as "hermes works badly from outside" when the real cause is the bind, not the
+  network. The step offers an SSH tunnel (localhost bind, no password) or a
+  LAN/VPN `0.0.0.0` bind (hermes REQUIRES a password after the June-2026
+  hardening; the user sets it — the script never handles passwords) and
+  auto-starts it at login via launchd. Two live findings are encoded: (a) a
+  launchd-launched dashboard can DEADLOCK in macOS dyld/dlopen (verified:
+  `OBJC_DISABLE_INITIALIZE_FORK_SAFETY` and `LimitLoadToSessionType Aqua` both
+  fail; a shell/nohup start works) → the step verifies the bind and falls back
+  to a detached start with a reboot-restart warning; (b) hermes v0.18's
+  basic-auth login page 500s on `/` (the OAuth `start_login` path) → users are
+  pointed at `/login` (== `/auth/password-login`) directly.
 - **SOLO** (only computer): explains remote access is unnecessary and exits.
 - Key policy: one key per client; private keys never leave their machine;
   public keys distributed via github.com/<user>.keys; revocation = remove

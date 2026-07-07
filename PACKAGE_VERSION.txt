@@ -708,6 +708,20 @@ History:
                           surfaces VALUE/PRICE lines (currency/number regex)
                           from the top file regardless of term match, so
                           cost questions land. 6i asserts the value-line path.
+  v45 CC   2026-07-08  — remote.sh v2.9: NEW step 7/7 — reach the hermes WEB
+                          DASHBOARD remotely (the dogfood arc's dashboard
+                          learnings folded back). Default bind is 127.0.0.1
+                          (unreachable outside); offers SSH tunnel (no password)
+                          or LAN/VPN 0.0.0.0 bind (hermes requires a password
+                          the USER sets — script never handles passwords), and
+                          auto-starts at login via launchd. Live findings baked
+                          in: a launchd-launched dashboard deadlocks in macOS
+                          dyld/dlopen (OBJC-fork-safety AND Aqua-session
+                          workarounds both failed) → the step verifies the bind
+                          and falls back to a detached start with a
+                          reboot-restart warning; and hermes v0.18's login page
+                          500s on `/` so it points users to /login directly.
+                          hdr steps renumbered 1/6→1/7. Suite: 94 passed.
   v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
                           v5.2 recipe's live proof FAILED — small models, given
                           hermes' native memory tools, called session_search /

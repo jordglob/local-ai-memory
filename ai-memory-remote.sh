@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.8
+#  ai-memory-remote.sh  v2.9
 #  Remote access & always-on setup for AI Memory Stack nodes
+#  v2.9: NEW step 7/7 — reach the hermes WEB DASHBOARD remotely. It binds to
+#        127.0.0.1 by default (unreachable from outside); this offers an SSH
+#        tunnel (no password) or a LAN/VPN 0.0.0.0 bind (hermes requires a
+#        password you set yourself) and auto-starts it at login via launchd.
+#        Live findings baked in: a launchd-launched dashboard can deadlock in
+#        macOS dyld/dlopen — we verify the bind and fall back to a detached
+#        start; and the v0.18 login page 500s on `/` (go to /login directly).
 #  v2.8: lockout-proof SSH hardening — real key-login test, live-daemon verify,
 #        and a timed auto-revert net before password auth is ever disabled.
 #
@@ -24,7 +31,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.8"
+VERSION="2.9"
 
 case "${1:-}" in
   -h|--help)
@@ -108,7 +115,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.8          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.9          ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -223,7 +230,7 @@ trap 'kill $SUDO_PID 2>/dev/null || true' EXIT
 REMOTE_USER="${USER:-$(id -un)}"
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "1/6  SSH server"
+hdr "1/7  SSH server"
 # ═════════════════════════════════════════════════════════════════════════════
 ssh_running() { nc -z localhost 22 2>/dev/null || pgrep -x sshd >/dev/null 2>&1; }
 
@@ -262,7 +269,7 @@ if [[ "$OS" != "macos" ]] && command -v ufw &>/dev/null && sudo ufw status 2>/de
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "2/6  Your public key"
+hdr "2/7  Your public key"
 # ═════════════════════════════════════════════════════════════════════════════
 AUTH="$HOME/.ssh/authorized_keys"
 mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"; touch "$AUTH"; chmod 600 "$AUTH"
@@ -331,7 +338,7 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "3/6  SSH hardening (disable password login)"
+hdr "3/7  SSH hardening (disable password login)"
 # ═════════════════════════════════════════════════════════════════════════════
 if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
   IPGUESS="$( { [[ "$OS" == "macos" ]] && ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}'; } || true )"
@@ -499,7 +506,7 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "4/6  Remote networking — analysis, then your choice"
+hdr "4/7  Remote networking — analysis, then your choice"
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ── Network analysis (facts before recommendation) ───────────────────────────
@@ -751,7 +758,7 @@ case "$NETCHOICE" in
 esac
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "5/6  RustDesk (optional — graphical access, e.g. for macOS popups)"
+hdr "5/7  RustDesk (optional — graphical access, e.g. for macOS popups)"
 # ═════════════════════════════════════════════════════════════════════════════
 if ask_yn "Install RustDesk?" n; then
   if [[ "$OS" == "macos" ]]; then
@@ -767,7 +774,7 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-hdr "6/6  Always-on power profile"
+hdr "6/7  Always-on power profile"
 # ═════════════════════════════════════════════════════════════════════════════
 if ask_yn "Is this an always-on node? (disable sleep, auto-restart after power loss)" y; then
   if [[ "$OS" == "macos" ]]; then
@@ -791,6 +798,101 @@ if ask_yn "Is this an always-on node? (disable sleep, auto-restart after power l
   fi
 else
   info "Power profile unchanged"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+hdr "7/7  Hermes web dashboard (optional — reach the agent's UI remotely)"
+# ═════════════════════════════════════════════════════════════════════════════
+# The hermes dashboard binds to 127.0.0.1 by default (unreachable remotely).
+# Two safe ways out: an SSH tunnel (localhost bind, no password) or a LAN/VPN
+# bind (0.0.0.0) that hermes REQUIRES a password for. This step can auto-start
+# it at login. Live finding (2026-07-08): a launchd-launched hermes dashboard
+# can deadlock in dyld/dlopen on macOS — we verify the bind and fall back to a
+# detached start, warning that it then needs a manual restart after reboot.
+HERMES_BIN="$(command -v hermes 2>/dev/null || echo "$HOME/.hermes/hermes-agent/venv/bin/hermes")"
+if [[ ! -x "$HERMES_BIN" && ! -d "$HOME/.hermes" ]]; then
+  info "Hermes not detected on this node — skipping the dashboard step."
+elif ! ask_yn "Make the hermes web dashboard reachable remotely?" n; then
+  info "Dashboard step skipped — start it any time with: hermes dashboard"
+else
+  DASH_PORT=9119
+  echo -e "  How should it be reachable?"
+  echo -e "    1) SSH tunnel  ${GREEN}(most secure)${NC} — stays on 127.0.0.1, no password."
+  echo -e "    2) LAN / VPN bind — 0.0.0.0, browse directly; hermes requires a password."
+  ask "Choice [1/2] (ENTER = 1):"
+  read -r _dc < /dev/tty || _dc=""
+  if [[ "$_dc" == "2" ]]; then DASH_HOST="0.0.0.0"; else DASH_HOST="127.0.0.1"; fi
+
+  # LAN bind needs the password set FIRST (a non-interactive start can't prompt).
+  if [[ "$DASH_HOST" == "0.0.0.0" ]]; then
+    pause_for "  Set your dashboard password NOW (this script never handles passwords):\n    ${BOLD}$HERMES_BIN dashboard --host 0.0.0.0 --port $DASH_PORT --no-open${NC}\n  choose [1] username & password, set them, confirm it serves, then Ctrl-C.\n  The auto-started dashboard below reuses that password."
+    pkill -f "hermes dashboard" 2>/dev/null || true; sleep 1
+  fi
+
+  if [[ "$OS" == "macos" ]]; then
+    DASH_SC="$HOME/.hermes/start-dashboard.sh"
+    DASH_PL="$HOME/Library/LaunchAgents/com.hermes.dashboard.plist"
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.hermes/logs"
+    cat > "$DASH_SC" <<SCRIPT
+#!/bin/bash
+export HOME="$HOME"
+export PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export TERMINAL_CWD="$VAULT"
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+export PYTHONUNBUFFERED=1
+cd "$VAULT" || exit 1
+exec "$HERMES_BIN" dashboard --host $DASH_HOST --port $DASH_PORT --no-open --skip-build
+SCRIPT
+    chmod +x "$DASH_SC"
+    cat > "$DASH_PL" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.hermes.dashboard</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$DASH_SC</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/.hermes/logs/dashboard.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.hermes/logs/dashboard.log</string>
+</dict></plist>
+PLIST
+    launchctl bootout "gui/$(id -u)/com.hermes.dashboard" 2>/dev/null || true
+    pkill -f "hermes dashboard" 2>/dev/null || true
+    sleep 2
+    launchctl bootstrap "gui/$(id -u)" "$DASH_PL" 2>/dev/null || true
+    _dash_bound=false
+    for _i in $(seq 1 20); do
+      curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$DASH_PORT/login" 2>/dev/null && { _dash_bound=true; break; }
+      sleep 2
+    done
+    if $_dash_bound; then
+      ok "Dashboard auto-starts at login (launchd) on $DASH_HOST:$DASH_PORT"
+    else
+      warn "launchd start did not bind — a known macOS hermes dyld/dlopen deadlock."
+      warn "Starting it detached instead (works now, but needs a manual restart"
+      warn "after reboot):  bash $DASH_SC &"
+      launchctl bootout "gui/$(id -u)/com.hermes.dashboard" 2>/dev/null || true
+      nohup bash "$DASH_SC" >/dev/null 2>&1 &
+      sleep 5
+      curl -s -o /dev/null --max-time 4 "http://127.0.0.1:$DASH_PORT/login" 2>/dev/null \
+        && ok "Dashboard up (detached) on $DASH_HOST:$DASH_PORT" \
+        || warn "Dashboard did not come up — start manually: bash $DASH_SC"
+    fi
+  else
+    info "Linux: run it under systemd --user or tmux —"
+    info "  hermes dashboard --host $DASH_HOST --port $DASH_PORT --no-open"
+  fi
+
+  echo ""
+  warn "Login page is at /login — go there DIRECTLY. The root URL redirect is"
+  warn "broken in hermes v0.18 (basic-auth throws a 500 on /; /login is fine)."
+  if [[ "$DASH_HOST" == "0.0.0.0" ]]; then
+    info "On your LAN/VPN, browse:  http://<node-ip>:$DASH_PORT/login"
+  else
+    info "Tunnel from your client, then browse http://localhost:$DASH_PORT/login :"
+    info "  ssh -L $DASH_PORT:127.0.0.1:$DASH_PORT $REMOTE_USER@<node> -N"
+  fi
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
