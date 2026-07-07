@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.22
+#  ai-memory-ingest.sh  v2.23
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.23: --ai-titles treats ALL models equally — reasoning models included.
+#         (1) The qwen-specific /no_think prompt hack is gone (no model gets
+#         special prompt text). (2) A blank from the OpenAI endpoint gets a
+#         second chance via ollama's NATIVE /api/generate (think:false, then
+#         without the key for models that reject it) — the live-verified path
+#         qwen3.6:35b answers on while ollama 0.31.1's OpenAI endpoint blanks
+#         its replies. Non-ollama servers 404 the fallback and lose nothing.
+#         v2.20's "prefer a non-reasoning model" guidance is hereby obsolete.
 #  v2.22: --ai-titles: one blank reply no longer kills the whole run. Live
 #         evidence (2026-07-07): blanks are CONTENT-dependent — one specific
 #         tiny conversation reliably drew an empty completion while its
@@ -104,7 +112,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.22"
+VERSION = "2.23"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -200,11 +208,31 @@ def _ai_setup(vault):
     else:
         info(f"AI titles: {model} @ {base}")
 
+def _ai_post(url, payload):
+    """POST json, return parsed json. Generous timeout: the FIRST call may
+    load a large model from disk."""
+    import urllib.request
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=180) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+def _ai_clean(text):
+    """Model reply → one clean heading line ('' if nothing usable)."""
+    # Reasoning models may wrap the answer in <think> blocks — strip them.
+    text = re.sub(r"<think>.*?(</think>|$)", "", text or "", flags=re.S)
+    # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
+    line = next((ln.strip().strip('\'" .')
+                 for ln in text.splitlines() if ln.strip()), "")
+    return " ".join(line.split())[:80]
+
 def _ai_title(msgs):
-    """One short heading from the configured model, or None — never raises."""
+    """One short heading from the configured model, or None — never raises.
+    Model-agnostic on purpose: no model-specific prompt magic, and a blank
+    from the OpenAI endpoint gets a second chance via ollama's native
+    generate API, so reasoning and plain models are treated the same."""
     if _AI["dead"] or not _AI["model"]:
         return None
-    import urllib.request
     first_user = next((t for r, t in msgs
                        if str(r).lower() in ("user", "human")), "")
     first_asst = next((t for r, t in msgs
@@ -212,37 +240,47 @@ def _ai_title(msgs):
     excerpt = first_user.strip()[:900]
     if first_asst:
         excerpt += "\n---\n" + first_asst.strip()[:600]
-    prompt = ("/no_think Give this archived AI conversation a short title: "
+    prompt = ("Give this archived AI conversation a short title: "
               "3-8 words, in the same language as the conversation, plain "
               "text, no quotes, no trailing period. Reply with ONLY the "
               "title.\n\n" + excerpt)
-    payload = json.dumps({"model": _AI["model"], "stream": False,
-                          "temperature": 0.2, "max_tokens": 500,
-                          "messages": [{"role": "user", "content": prompt}]}
-                         ).encode("utf-8")
-    req = urllib.request.Request(f"{_AI['base']}/chat/completions", data=payload,
-                                 headers={"Content-Type": "application/json"})
-    # Two attempts: ollama can 200-OK a BLANK first completion right after a
-    # model (re)load (live 2026-07-07 — first call after load, zero usage).
+    # Two attempts: blanks proved transient/flaky in the live round.
     for _attempt in (1, 2):
         try:
-            # Generous timeout: the FIRST call may load a large model from disk.
-            with urllib.request.urlopen(req, timeout=180) as r:
-                data = json.loads(r.read().decode("utf-8", "replace"))
+            data = _ai_post(f"{_AI['base']}/chat/completions",
+                            {"model": _AI["model"], "stream": False,
+                             "temperature": 0.2, "max_tokens": 500,
+                             "messages": [{"role": "user", "content": prompt}]})
             text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         except Exception as e:
             _AI["dead"] = str(e)
             warn(f"--ai-titles: call failed ({e}) — fallback titles from here on")
             return None
-        # Reasoning models may wrap the answer in <think> blocks — strip them.
-        text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S)
-        # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
-        line = next((ln.strip().strip('\'" .')
-                     for ln in text.splitlines() if ln.strip()), "")
-        title = " ".join(line.split())[:80]
+        title = _ai_clean(text)
         if title:
             _AI["empties"] = 0
             return title
+        # EQUAL TREATMENT for reasoning models: ollama's OpenAI endpoint can
+        # 200-OK a blank for them (qwen3.6:35b live 2026-07-07) while the
+        # native generate API answers fine — try it before counting a blank.
+        # `think: false` first (silences reasoning); plain models reject the
+        # key, so retry without it. Non-ollama servers just 404 → skip.
+        if _AI["base"].endswith("/v1"):
+            root = _AI["base"][:-3]
+            for extra in ({"think": False}, {}):
+                try:
+                    data = _ai_post(f"{root}/api/generate",
+                                    {"model": _AI["model"], "stream": False,
+                                     "prompt": prompt,
+                                     "options": {"temperature": 0.2,
+                                                 "num_predict": 500}, **extra})
+                    title = _ai_clean(data.get("response") or "")
+                    if title:
+                        _AI["empties"] = 0
+                        return title
+                    break                  # answered but blank → count it
+                except Exception:
+                    continue               # think-key rejected / not ollama
     # NEVER a silent zero — but blanks proved CONTENT-dependent in the live
     # round (one specific tiny conversation reliably drew an empty reply while
     # its neighbours titled fine), so one blank must not kill the whole run:

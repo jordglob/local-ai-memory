@@ -568,3 +568,15 @@ History:
                           conversation, continue; 3 consecutive blanks = real
                           failure → loud disable. 6f updated (per-conv warn +
                           3-streak circuit breaker asserted).
+  v37 CC   2026-07-07  — ingest v2.23: --ai-titles model equality — user call-
+                          out ("behandla alla modeller lika"). Removed the
+                          qwen-specific /no_think prompt hack; a blank from
+                          the OpenAI endpoint now gets a second chance via
+                          ollama's native /api/generate (think:false, retry
+                          without the key if rejected) — the live-verified
+                          path qwen3.6:35b answers on while ollama 0.31.1's
+                          OpenAI endpoint blanks reasoning replies. Non-ollama
+                          servers 404 the fallback and lose nothing. v2.20's
+                          "prefer a non-reasoning model" guidance obsolete.
+                          New 6f sub-test: path-aware stub (blank chat/
+                          completions + real /api/generate) → title rescued.
