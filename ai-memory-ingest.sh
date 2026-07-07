@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.21
+#  ai-memory-ingest.sh  v2.22
 #  Import scattered AI conversations into the vault — 13 sources
-#  v2.21: --ai-titles retries ONCE on an empty reply — the live pattern
-#         (2026-07-07) is ollama 200-OKing a blank FIRST completion right
-#         after a model (re)load; the second call succeeds. Still-empty
+#  v2.22: --ai-titles: one blank reply no longer kills the whole run. Live
+#         evidence (2026-07-07): blanks are CONTENT-dependent — one specific
+#         tiny conversation reliably drew an empty completion while its
+#         neighbours titled fine, so the v2.20 dead-flag benched titling for
+#         every later conversation. Now: warn + fallback for THAT conversation
+#         and continue; only 3 consecutive blanks (a real model/endpoint
+#         failure) disable titling for the rest of the run.
+#  v2.21: --ai-titles retries ONCE on an empty reply — ollama can 200-OK a
+#         blank completion; the retry rescues transient blanks. Still-empty
 #         after the retry stays loud (v2.20 promise) + fallback titles.
 #  v2.20: --ai-titles EMPTY-REPLY fix (live run 2026-07-07): ollama's OpenAI
 #         endpoint can 200-OK a BLANK completion for a reasoning model (the
@@ -98,7 +104,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.21"
+VERSION = "2.22"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -165,7 +171,7 @@ def scrub_secrets(t):
 # the first failure disables it for the rest of the run (loudly) and the
 # raw-prompt fallback is used.
 AI_TITLES = False
-_AI = {"base": None, "model": None, "dead": None}
+_AI = {"base": None, "model": None, "dead": None, "empties": 0}
 
 def _ai_setup(vault):
     import urllib.request
@@ -235,13 +241,21 @@ def _ai_title(msgs):
                      for ln in text.splitlines() if ln.strip()), "")
         title = " ".join(line.split())[:80]
         if title:
+            _AI["empties"] = 0
             return title
-    # NEVER a silent zero: still empty after the retry (all-<think>, truncated,
-    # or a server that keeps 200-OKing blanks) must be visible — one loud warn,
-    # then fallback titles for the rest of the run.
-    _AI["dead"] = "model returned an empty reply"
-    warn("--ai-titles: model returned an empty reply (retried once) — check "
-         "the model with a plain chat first; fallback titles from here on")
+    # NEVER a silent zero — but blanks proved CONTENT-dependent in the live
+    # round (one specific tiny conversation reliably drew an empty reply while
+    # its neighbours titled fine), so one blank must not kill the whole run:
+    # warn, fall back for THIS conversation, keep going. Only a STREAK of
+    # blanks (3 in a row) means the model/endpoint is actually broken.
+    _AI["empties"] += 1
+    if _AI["empties"] >= 3:
+        _AI["dead"] = "3 consecutive empty replies"
+        warn("--ai-titles: 3 consecutive empty replies — model/endpoint looks "
+             "broken; fallback titles from here on")
+    else:
+        warn("--ai-titles: empty reply for this conversation (retried once) — "
+             "using its fallback title, continuing")
     return None
 
 # ── shared output ─────────────────────────────────────────────────────────────

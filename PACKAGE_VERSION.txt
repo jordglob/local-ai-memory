@@ -557,3 +557,14 @@ History:
                           One retry rescues it; still-empty stays loud
                           (v2.20 promise). New 6f sub-test: blank-then-good
                           stub → retried, no warn.
+  v36 CC   2026-07-07  — ingest v2.22: one blank reply no longer benches
+                          --ai-titles for the whole run — live isolation showed
+                          blanks are FLAKY and content/emoji-correlated (the
+                          same tiny "hej" conversation drew blanks in three
+                          runs, then titled fine in a direct A/B test; a
+                          no-emoji variant blanked once too), so the v2.20
+                          dead-flag threw away titling for every conversation
+                          after the first flake. Now: warn + fallback for THAT
+                          conversation, continue; 3 consecutive blanks = real
+                          failure → loud disable. 6f updated (per-conv warn +
+                          3-streak circuit breaker asserted).

@@ -518,7 +518,9 @@ PYEOF
     fi
   fi
   kill "$STUB_PID" 2>/dev/null
-  # an empty/all-<think> reply must be LOUD (never a silent zero) + fall back
+  # empty/all-<think> replies must be LOUD (never a silent zero) + fall back
+  # per conversation; a 3-streak disables titling for the rest of the run
+  python3 -c "import sqlite3; c = sqlite3.connect('$TMP/state.db'); c.execute(\"INSERT INTO sessions VALUES ('hermtest4','qwen',1751700300.0,NULL)\"); c.execute(\"INSERT INTO messages (session_id, role, content, timestamp) VALUES ('hermtest4','user','Fraga fyra',6.0)\"); c.execute(\"INSERT INTO sessions VALUES ('hermtest5','qwen',1751700400.0,NULL)\"); c.execute(\"INSERT INTO messages (session_id, role, content, timestamp) VALUES ('hermtest5','user','Fraga fem',7.0)\"); c.commit()"
   cat > "$TMP/stub2.py" <<'PYEOF'
 import http.server, json
 class H(http.server.BaseHTTPRequestHandler):
@@ -546,11 +548,16 @@ PYEOF
     mkdir -p "$TMP/hvault4/05-AI-Sessions"
     AI_MEMORY_MODEL_URL="http://127.0.0.1:$port2/v1" AI_MEMORY_MODEL=stub \
       bash ai-memory-ingest.sh "$TMP/hvault4" --source hermes --path "$TMP/state.db" --ai-titles --yes > "$TMP/h8.out" 2>&1
-    if grep -q "empty reply" "$TMP/h8.out" \
+    if grep -q "empty reply for this conversation" "$TMP/h8.out" \
        && grep -q "^# Uppgift: svara med en halsning" "$TMP/hvault4/05-AI-Sessions/hermes/"*-hermtest3.md 2>/dev/null; then
-      pass "empty model reply is loud + falls back (never a silent zero)"
+      pass "empty model reply is loud + falls back for that conversation"
     else
       fail "empty model reply was silent or heading wrong" "$(tail -3 "$TMP/h8.out")"
+    fi
+    if grep -q "3 consecutive empty replies" "$TMP/h8.out"; then
+      pass "3-streak of empty replies disables titling loudly"
+    else
+      fail "3-streak did not trip the circuit breaker" "$(tail -3 "$TMP/h8.out")"
     fi
   fi
   kill "$STUB_PID" 2>/dev/null
