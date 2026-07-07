@@ -515,3 +515,22 @@ History:
                           openclaw-cron/ dir. New 6e regression in tests/run.sh
                           (human vaulted / cron not / loud skip / --with-cron
                           separation). Suite: 56 passed, 0 failed.
+  v33 CC   2026-07-07  — ingest v2.19: better titles — vault listings showed raw
+                          first-prompt headings ("Uppgift, svara direkt utan
+                          att..."). (1) hermes source now reads the session's
+                          OWN title (sessions.title — existed since v2.14 but
+                          was never SELECTed; old schemas w/o the column still
+                          work). (2) Generic retitle-in-place in write_conv:
+                          same content + better title → heading rewritten in
+                          the SAME file; filenames never change after first
+                          import (the add-only sync would duplicate a rename).
+                          A heading once upgraded is never downgraded back.
+                          (3) Opt-in --ai-titles: untitled conversations get a
+                          short heading from the already-configured local model
+                          (env/ai-config.json/localhost ollama; §4.5 hybrid —
+                          without the flag ingest stays fully offline; any
+                          failure falls back loudly, import never breaks).
+                          New 6f regression in tests/run.sh incl. a local stub
+                          model server (db title / raw fallback / retitle-in-
+                          place same filename / no-churn re-runs / no downgrade
+                          / graceful degrade). Suite: 65 passed, 0 failed.

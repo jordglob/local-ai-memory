@@ -385,6 +385,24 @@ Discovery — three-tier model:
 Export guides: per-service one-pagers describing the *manual* export flow
 (none of the consumer services offer history APIs — document this honestly).
 
+Titles (v2.19, live finding 2026-07-07 — a vault listing full of raw
+first-prompt headings is noise):
+- A source's OWN title is always preferred (claude-code `aiTitle`, hermes
+  `sessions.title` — that column existed all along but was never read).
+- **Retitle-in-place**: same content + a better title → the heading is
+  rewritten in the SAME file. Filenames never change after first import —
+  the id is the identity, the slug is cosmetic, and the add-only sync
+  (`--ignore-existing`) would turn a rename into a duplicate on the central.
+- A heading once upgraded (source titled the chat later, or an `--ai-titles`
+  run) is never downgraded back to the raw-prompt fallback.
+- **`--ai-titles` (opt-in)**: untitled conversations get a short heading from
+  the already-configured local model — §4.5 hybrid: the deterministic import
+  stays a script, only the interpretation step is a model. Without the flag
+  ingest is fully offline; with it, endpoint/model resolve from
+  `AI_MEMORY_MODEL_URL`/`AI_MEMORY_MODEL`, else the vault's
+  `.mcp/ai-config.json`, else localhost ollama. Titling must never break an
+  import: the first failure disables it loudly for the rest of the run.
+
 Optional final step: distill imported history into a `USER.md` /
 `MEMORY.md` seed for `~/.hermes` so Hermes knows the user from day one.
 

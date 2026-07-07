@@ -67,7 +67,7 @@ fi
 
 TMP=$(mktemp -d 2>/dev/null || echo "/tmp/aimtest.$$")
 mkdir -p "$TMP"
-cleanup() { rm -rf "$TMP" 2>/dev/null; command -v tmux >/dev/null 2>&1 && tmux kill-session -t aimtest_mux 2>/dev/null; return 0; }
+cleanup() { rm -rf "$TMP" 2>/dev/null; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null; command -v tmux >/dev/null 2>&1 && tmux kill-session -t aimtest_mux 2>/dev/null; return 0; }
 trap cleanup EXIT
 
 # ── 1. bash -n parse ─────────────────────────────────────────────────────────
@@ -397,6 +397,139 @@ else
     pass "--with-cron vaults cron session into openclaw-cron/"
   else
     fail "expected exactly 1 cron conversation in openclaw-cron/" "got $oc_cron"
+  fi
+fi
+
+# ── 6f. regression: hermes titles — db title, retitle-in-place, --ai-titles (v2.19)
+# Locks in the 2026-07-07 live finding: vault listings showed raw first-prompt
+# headings ("Uppgift, svara direkt utan att...") because parse_hermes never read
+# sessions.title. Also locks the two structural rules: a heading upgrade rewrites
+# the SAME file (a rename would duplicate through the add-only sync), and a
+# heading once upgraded is never downgraded back to the raw-prompt fallback.
+hdr "regression: hermes titles (v2.19)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/hvault/05-AI-Sessions"
+  cat > "$TMP/mkhermdb.py" <<'PYEOF'
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+con.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, model TEXT,"
+            " started_at REAL, title TEXT)")
+con.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " session_id TEXT, role TEXT, content TEXT, timestamp REAL)")
+con.executemany("INSERT INTO sessions VALUES (?,?,?,?)", [
+    ("hermtest1", "qwen", 1751700000.0, "Riktig titel fran hermes"),
+    ("hermtest2", "qwen", 1751700100.0, None),
+])
+con.executemany("INSERT INTO messages (session_id, role, content, timestamp)"
+                " VALUES (?,?,?,?)", [
+    ("hermtest1", "user", "hej dar", 1.0),
+    ("hermtest1", "assistant", "hej sjalv", 2.0),
+    ("hermtest2", "user",
+     "Uppgift, svara direkt utan verktyg: Skriv en dikt om enhjulingar", 3.0),
+    ("hermtest2", "assistant", "En dikt kommer har", 4.0),
+])
+con.commit(); con.close()
+PYEOF
+  python3 "$TMP/mkhermdb.py" "$TMP/state.db"
+  bash ai-memory-ingest.sh "$TMP/hvault" --source hermes --path "$TMP/state.db" --yes >/dev/null 2>&1
+  if grep -q "^# Riktig titel fran hermes" "$TMP/hvault/05-AI-Sessions/hermes/"*-hermtest1.md 2>/dev/null; then
+    pass "session's own db title used as heading"
+  else
+    fail "db title not used as heading"
+  fi
+  if grep -q "^# Uppgift, svara direkt" "$TMP/hvault/05-AI-Sessions/hermes/"*-hermtest2.md 2>/dev/null; then
+    pass "untitled session falls back to raw first prompt"
+  else
+    fail "raw-prompt fallback heading missing"
+  fi
+  # hermes titles the session AFTER first import → heading updates, SAME file
+  f2_before=$(ls "$TMP/hvault/05-AI-Sessions/hermes/"*-hermtest2.md 2>/dev/null)
+  python3 -c "import sqlite3; c = sqlite3.connect('$TMP/state.db'); c.execute(\"UPDATE sessions SET title='Dikt om enhjulingar' WHERE id='hermtest2'\"); c.commit()"
+  bash ai-memory-ingest.sh "$TMP/hvault" --source hermes --path "$TMP/state.db" --yes > "$TMP/h2.out" 2>&1
+  f2_after=$(ls "$TMP/hvault/05-AI-Sessions/hermes/"*-hermtest2.md 2>/dev/null)
+  if grep -q "^# Dikt om enhjulingar" "$f2_after" 2>/dev/null && [ "$f2_before" = "$f2_after" ]; then
+    pass "late db title retitles IN PLACE (same filename)"
+  else
+    fail "retitle-in-place failed" "before=$f2_before after=$f2_after"
+  fi
+  if grep -q "retitle:" "$TMP/h2.out"; then
+    pass "retitle reported loudly"
+  else
+    fail "retitle happened silently" "$TMP/h2.out"
+  fi
+  bash ai-memory-ingest.sh "$TMP/hvault" --source hermes --path "$TMP/state.db" --yes > "$TMP/h3.out" 2>&1
+  if grep -q "Nothing new" "$TMP/h3.out"; then
+    pass "third run is a no-op (idempotent)"
+  else
+    fail "re-run not idempotent" "$(tail -3 "$TMP/h3.out")"
+  fi
+
+  # --ai-titles: a local stub endpoint plays the model — no network leaves 127.0.0.1
+  python3 -c "import sqlite3; c = sqlite3.connect('$TMP/state.db'); c.execute(\"INSERT INTO sessions VALUES ('hermtest3','qwen',1751700200.0,NULL)\"); c.execute(\"INSERT INTO messages (session_id, role, content, timestamp) VALUES ('hermtest3','user','Uppgift: svara med en halsning',5.0)\"); c.commit()"
+  cat > "$TMP/stub.py" <<'PYEOF'
+import http.server, json
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.dumps({"choices": [{"message": {"content":
+            "<think>resonemang</think>\n\"Stubbtitel fran modellen\"."}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+PYEOF
+  python3 "$TMP/stub.py" > "$TMP/stub.port" 2>/dev/null &
+  STUB_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/stub.port" ] && break; sleep 0.3; done
+  port=$(cat "$TMP/stub.port" 2>/dev/null)
+  if [ -z "$port" ]; then
+    skip "stub model server did not start"
+  else
+    mkdir -p "$TMP/hvault2/05-AI-Sessions"
+    AI_MEMORY_MODEL_URL="http://127.0.0.1:$port/v1" AI_MEMORY_MODEL=stub \
+      bash ai-memory-ingest.sh "$TMP/hvault2" --source hermes --path "$TMP/state.db" --ai-titles --yes >/dev/null 2>&1
+    # think-block, quotes and trailing period must all be stripped
+    if grep -q "^# Stubbtitel fran modellen$" "$TMP/hvault2/05-AI-Sessions/hermes/"*-hermtest3.md 2>/dev/null; then
+      pass "--ai-titles: untitled session got a model-written heading"
+    else
+      fail "--ai-titles heading missing/unclean" "$(head -1 "$TMP/hvault2/05-AI-Sessions/hermes/"*-hermtest3.md 2>/dev/null)"
+    fi
+    AI_MEMORY_MODEL_URL="http://127.0.0.1:$port/v1" AI_MEMORY_MODEL=stub \
+      bash ai-memory-ingest.sh "$TMP/hvault2" --source hermes --path "$TMP/state.db" --ai-titles --yes > "$TMP/h5.out" 2>&1
+    if grep -q "Nothing new" "$TMP/h5.out"; then
+      pass "--ai-titles re-run is a no-op (no churn)"
+    else
+      fail "--ai-titles re-run rewrote files" "$(tail -3 "$TMP/h5.out")"
+    fi
+    bash ai-memory-ingest.sh "$TMP/hvault2" --source hermes --path "$TMP/state.db" --yes > "$TMP/h6.out" 2>&1
+    if grep -q "Nothing new" "$TMP/h6.out"; then
+      pass "plain re-run never downgrades an upgraded heading"
+    else
+      fail "plain re-run downgraded the AI heading" "$(tail -3 "$TMP/h6.out")"
+    fi
+  fi
+  kill "$STUB_PID" 2>/dev/null
+  # graceful degrade: dead endpoint → warn, fall back, import still succeeds
+  mkdir -p "$TMP/hvault3/05-AI-Sessions"
+  if AI_MEMORY_MODEL_URL="http://127.0.0.1:1/v1" AI_MEMORY_MODEL=stub \
+      bash ai-memory-ingest.sh "$TMP/hvault3" --source hermes --path "$TMP/state.db" --ai-titles --yes > "$TMP/h7.out" 2>&1; then
+    if grep -q "fallback titles" "$TMP/h7.out" \
+       && grep -q "^# Uppgift: svara med en halsning" "$TMP/hvault3/05-AI-Sessions/hermes/"*-hermtest3.md 2>/dev/null; then
+      pass "--ai-titles degrades gracefully when the model is unreachable"
+    else
+      fail "degrade path silent or heading wrong" "$(tail -3 "$TMP/h7.out")"
+    fi
+  else
+    fail "--ai-titles with dead endpoint broke the import (non-zero exit)"
   fi
 fi
 

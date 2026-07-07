@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.18
+#  ai-memory-ingest.sh  v2.19
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.19: BETTER TITLES (live round 2026-07-07 — vault listings showed raw
+#         first-prompt headings like "Uppgift, svara direkt utan att...").
+#         (1) hermes source reads the session's OWN title from state.db
+#         (sessions.title — the column was always there, never read); the
+#         raw-prompt fallback remains for untitled sessions. (2) Generic
+#         RETITLE-IN-PLACE in write_conv: same content + a better title →
+#         the heading is rewritten in the SAME file (filenames never change
+#         after first import — the add-only sync would duplicate a rename).
+#         (3) Opt-in `--ai-titles`: untitled conversations get a short title
+#         from the already-configured local model (§4.5 hybrid; env
+#         AI_MEMORY_MODEL_URL/AI_MEMORY_MODEL or .mcp/ai-config.json, else
+#         localhost ollama). Never a hard dependency: any failure falls back
+#         to the raw-prompt title and the import still succeeds. A heading
+#         once upgraded (by hermes or the model) is never downgraded back.
 #  v2.18: openclaw source filters SCHEDULER NOISE — live run 2026-07-06 found
 #         719 of 724 sessions were `[cron:...]` agent runs (car-search jobs
 #         etc.) drowning the 5 human conversations. Cron-initiated sessions
@@ -59,6 +73,7 @@
 #    bash ai-memory-ingest.sh --list-sources
 #    bash ai-memory-ingest.sh --source chatgpt --path ~/Downloads/export.zip
 #    bash ai-memory-ingest.sh --all --yes               non-interactive
+#    bash ai-memory-ingest.sh --source hermes --ai-titles   model-titled headings
 #
 #  Idempotent: matched by stable conversation id — identical chats are skipped,
 #  grown/edited chats are refreshed in place (content hash), never duplicated.
@@ -70,7 +85,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.18"
+VERSION = "2.19"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -125,6 +140,85 @@ def scrub_secrets(t):
         t = rx.sub(repl, t)
     return t
 
+# ── optional AI titles (--ai-titles) ──────────────────────────────────────────
+# Some sources have no real title — the heading falls back to the raw first
+# prompt, and a vault listing full of "Uppgift, svara direkt utan att..." is
+# noise. Opt-in: the ALREADY-CONFIGURED local model writes a short title for
+# those conversations (§4.5 hybrid — deterministic import stays a script; only
+# the interpretation step is a model). WITHOUT the flag ingest is fully offline.
+# Endpoint/model: AI_MEMORY_MODEL_URL / AI_MEMORY_MODEL env, else the vault's
+# .mcp/ai-config.json (primary.base_url / .model), else localhost ollama + the
+# first model its /models endpoint reports. Titling must never break an import:
+# the first failure disables it for the rest of the run (loudly) and the
+# raw-prompt fallback is used.
+AI_TITLES = False
+_AI = {"base": None, "model": None, "dead": None}
+
+def _ai_setup(vault):
+    import urllib.request
+    base = os.environ.get("AI_MEMORY_MODEL_URL", "")
+    model = os.environ.get("AI_MEMORY_MODEL", "")
+    cfg = vault / ".mcp" / "ai-config.json"
+    if (not base or not model) and cfg.is_file():
+        try:
+            prim = json.loads(cfg.read_text(encoding="utf-8")).get("primary") or {}
+            base = base or prim.get("base_url") or ""
+            model = model or prim.get("model") or ""
+        except (OSError, ValueError, AttributeError):
+            pass
+    base = (base or "http://localhost:11434/v1").rstrip("/")
+    if not model:
+        try:
+            with urllib.request.urlopen(f"{base}/models", timeout=10) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            model = (data.get("data") or [{}])[0].get("id") or ""
+        except Exception as e:
+            _AI["dead"] = str(e)
+    _AI["base"], _AI["model"] = base, model
+    if _AI["dead"] or not model:
+        _AI["dead"] = _AI["dead"] or "no model configured"
+        warn(f"--ai-titles: model unavailable ({_AI['dead']}) — using fallback titles")
+    else:
+        info(f"AI titles: {model} @ {base}")
+
+def _ai_title(msgs):
+    """One short heading from the configured model, or None — never raises."""
+    if _AI["dead"] or not _AI["model"]:
+        return None
+    import urllib.request
+    first_user = next((t for r, t in msgs
+                       if str(r).lower() in ("user", "human")), "")
+    first_asst = next((t for r, t in msgs
+                       if str(r).lower() in ("assistant", "model", "ai")), "")
+    excerpt = first_user.strip()[:900]
+    if first_asst:
+        excerpt += "\n---\n" + first_asst.strip()[:600]
+    prompt = ("/no_think Give this archived AI conversation a short title: "
+              "3-8 words, in the same language as the conversation, plain "
+              "text, no quotes, no trailing period. Reply with ONLY the "
+              "title.\n\n" + excerpt)
+    payload = json.dumps({"model": _AI["model"], "stream": False,
+                          "temperature": 0.2, "max_tokens": 500,
+                          "messages": [{"role": "user", "content": prompt}]}
+                         ).encode("utf-8")
+    req = urllib.request.Request(f"{_AI['base']}/chat/completions", data=payload,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        # Generous timeout: the FIRST call may load a large model from disk.
+        with urllib.request.urlopen(req, timeout=180) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    except Exception as e:
+        _AI["dead"] = str(e)
+        warn(f"--ai-titles: call failed ({e}) — fallback titles from here on")
+        return None
+    # Reasoning models may wrap the answer in <think> blocks — strip them.
+    text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S)
+    # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
+    line = next((ln.strip().strip('\'" .')
+                 for ln in text.splitlines() if ln.strip()), "")
+    return " ".join(line.split())[:80] or None
+
 # ── shared output ─────────────────────────────────────────────────────────────
 def slugify(s, n=55):
     s = re.sub(r"[^\w\s-]", "", s or "untitled", flags=re.UNICODE).strip()
@@ -171,7 +265,20 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     existing = None
     if cid != "noid" and out_dir.is_dir():
         existing = next(iter(sorted(out_dir.glob(f"*-{cid}.md"))), None)
-    path = existing if existing is not None else (out_dir / f"{date}-{slugify(conv.get('title'))}-{cid}.md")
+    prior = prior_title = None
+    if existing is not None and existing.exists():
+        prior = existing.read_text(encoding="utf-8", errors="replace")
+        first = prior.split("\n", 1)[0]
+        prior_title = first[2:].strip() if first.startswith("# ") else None
+    # Resolve the heading. A parser marks `untitled` when its title is only a
+    # raw-prompt fallback; a heading a prior run already upgraded (the source
+    # titled the chat later, or an --ai-titles run) is never downgraded back.
+    title = (conv.get("title") or "Untitled").strip() or "Untitled"
+    if conv.get("untitled") and prior_title and prior_title != title:
+        title = prior_title
+    elif conv.get("untitled") and AI_TITLES:
+        title = _ai_title(msgs) or title
+    path = existing if existing is not None else (out_dir / f"{date}-{slugify(title)}-{cid}.md")
     # Belt-and-suspenders: the resolved target must stay inside the vault, even
     # though id/date are now sanitized above.
     try:
@@ -180,16 +287,20 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         err(f"{source}: refusing to write outside vault: {path}")
         stats["failed"] += 1
         return
-    if existing is not None and existing.exists():
-        prior = existing.read_text(encoding="utf-8", errors="replace")
+    if prior is not None:
         m = re.search(r"(?m)^- hash: (\S+)$", prior)
         if m and m.group(1) == content_hash:
-            stats["skipped"] += 1          # byte-for-byte the same conversation
-            return
-        updated = True                     # grown/edited (or legacy file w/o hash)
+            if prior_title == title:
+                stats["skipped"] += 1      # byte-for-byte the same conversation
+                return
+            # Same content, better title → RETITLE IN PLACE. The filename never
+            # changes after first import: the add-only sync (--ignore-existing)
+            # would turn a rename into a duplicate on the central vault.
+            info(f"retitle: {path.name} → {title}")
+        updated = True                     # grown/edited/retitled (or legacy w/o hash)
     else:
         updated = False
-    L = [f"# {conv.get('title') or 'Untitled'}", "",
+    L = [f"# {title}", "",
          f"- source: {source}",
          f"- created: {conv.get('created') or '?'}",
          f"- id: {conv.get('id') or '?'}",
@@ -404,8 +515,17 @@ def parse_hermes(db_path, out_root):
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         cur = con.cursor()
-        sessions = cur.execute(
-            "SELECT id, model, started_at FROM sessions ORDER BY started_at").fetchall()
+        try:
+            # Hermes titles its own sessions (sessions.title) — use that first;
+            # v2.14–v2.18 never read the column and every heading fell back to
+            # the raw first prompt (ugly-listing live finding, 2026-07-07).
+            sessions = cur.execute(
+                "SELECT id, model, started_at, title FROM sessions "
+                "ORDER BY started_at").fetchall()
+        except sqlite3.OperationalError:   # older hermes: no title column
+            sessions = [(i, m, s, None) for i, m, s in cur.execute(
+                "SELECT id, model, started_at FROM sessions "
+                "ORDER BY started_at").fetchall()]
         rows = cur.execute(
             "SELECT session_id, role, content FROM messages "
             "WHERE role IN ('user','assistant') ORDER BY timestamp, id").fetchall()
@@ -416,7 +536,7 @@ def parse_hermes(db_path, out_root):
     for sid, role, content in rows:
         if isinstance(content, str) and content.strip():
             by_session.setdefault(sid, []).append((role, content))
-    for sid, model, started in sessions:
+    for sid, model, started, db_title in sessions:
         try:
             msgs = by_session.get(sid) or []
             if not any(r == "user" for r, _ in msgs):
@@ -424,12 +544,15 @@ def parse_hermes(db_path, out_root):
             created = None
             if isinstance(started, (int, float)):
                 created = datetime.datetime.fromtimestamp(started).isoformat()
+            db_title = " ".join((db_title or "").split())
             first_user = next((t for r, t in msgs if r == "user"), "")
-            title = " ".join(first_user.split())[:60] or f"Hermes — {sid}"
-            write_conv(out, "hermes",
-                       {"id": sid, "title": title, "created": created,
-                        "note": f"model: {model}" if model else None,
-                        "messages": msgs}, st)
+            fallback = " ".join(first_user.split())[:60] or f"Hermes — {sid}"
+            conv = {"id": sid, "title": db_title or fallback, "created": created,
+                    "note": f"model: {model}" if model else None,
+                    "messages": msgs}
+            if not db_title:
+                conv["untitled"] = True    # raw-prompt fallback → --ai-titles eligible
+            write_conv(out, "hermes", conv, st)
         except Exception: st["failed"] += 1
     return st
 
@@ -1184,7 +1307,7 @@ def build_index(vault):
     return total
 
 def main():
-    global ASSUME_YES, WITH_CRON
+    global ASSUME_YES, WITH_CRON, AI_TITLES
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("positional", nargs="*")
     ap.add_argument("--source"); ap.add_argument("--path")
@@ -1195,24 +1318,33 @@ def main():
     ap.add_argument("--scan-report", action="store_true")
     ap.add_argument("--reindex", action="store_true")
     ap.add_argument("--with-cron", action="store_true")
+    ap.add_argument("--ai-titles", action="store_true")
     ap.add_argument("--yes", "-y", action="store_true")
     ap.add_argument("--help", "-h", action="store_true")
     ap.add_argument("--version", "-V", action="store_true")
     a = ap.parse_args()
     ASSUME_YES = a.yes
     WITH_CRON = a.with_cron
+    AI_TITLES = a.ai_titles
 
     if a.version:
         print(f"ai-memory-ingest.sh v{VERSION}"); return 0
     if a.help:
         print("Usage: ai-memory-ingest.sh [vault] [export.zip] "
               "[--source NAME] [--path P] [--scan DIR] [--deep-scan] "
-              "[--scan-report] [--reindex] [--with-cron] [--list-sources] [--yes]\n"
+              "[--scan-report] [--reindex] [--with-cron] [--ai-titles] "
+              "[--list-sources] [--yes]\n"
               "--with-cron: also vault openclaw cron/scheduler sessions "
               "(into openclaw-cron/; skipped by default).\n"
               "--scan-report: map exports/unknowns to <vault>/ai-scan-report.md, "
               "import nothing.\n--reindex: rebuild <vault>/05-AI-Sessions/INDEX.md "
-              "from what's on disk, import nothing.\nSee script header for details.")
+              "from what's on disk, import nothing.\n"
+              "--ai-titles: let your configured local model write short headings "
+              "for untitled\n  conversations (raw-prompt fallbacks). Off by "
+              "default — without it ingest is fully\n  offline. Uses "
+              "AI_MEMORY_MODEL_URL/AI_MEMORY_MODEL, else .mcp/ai-config.json, "
+              "else\n  localhost ollama; on failure falls back to raw-prompt "
+              "titles.\nSee script header for details.")
         return 0
     if a.list_sources:
         print(f"\n{'source':<16} description")
@@ -1241,6 +1373,8 @@ def main():
     print(c("1", "╚══════════════════════════════════════════╝"))
     print()
     info(f"Vault: {vault}")
+    if AI_TITLES:
+        _ai_setup(vault)
 
     if a.reindex:                                  # rebuild INDEX.md only, import nothing
         n = build_index(vault)
