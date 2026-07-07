@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.2
+#  ai-memory-configure.sh  v5.3
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,13 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.3:  SOUL handover STEERS TO FILESYSTEM TOOLS. The v5.2 recipe shipped
+#         but its live proof failed: small models, seeing hermes' native
+#         memory tools, called session_search / the memory tool (which read
+#         the agent's OWN session db, not the vault) and came back empty.
+#         The handover now says explicitly: the vault is markdown FILES — use
+#         grep/ls/cat, NOT session_search or the memory tool, for vault
+#         questions.
 #  v5.2:  SOUL handover carries the proven SEARCH-PERSISTENCE recipe — the
 #         target-picture round (2026-07-07) found the recall floor is the
 #         search strategy, not model size: every model (incl. 35B) gave up
@@ -55,7 +62,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.2"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.3"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -83,7 +90,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.2 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.3 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -989,6 +996,13 @@ block = (
     "    " + vault + "\n"
     "It holds the user's profile and their imported AI-conversation history, and\n"
     "is your long-term memory — reachable no matter where this session launched.\n\n"
+    "CRITICAL — the vault is plain markdown FILES on disk. Reach it ONLY with your\n"
+    "FILESYSTEM tools (shell grep / ls / cat / read-file on the paths below). Do\n"
+    "NOT use session_search, the memory tool, skill search, or any built-in\n"
+    "\"memory\" feature to answer these questions: those look at this agent's OWN\n"
+    "session database and skills, NOT the user's vault, so they will falsely come\n"
+    "back empty. If you catch yourself calling session_search / a memory tool for a\n"
+    "vault question, STOP and run grep on the vault path instead.\n\n"
     "When the user asks what you know, about your memory, or any past topic, BEFORE\n"
     "you say \"I don't have that\", \"I don't remember\", or \"nothing is imported\":\n"
     "1. Read the user's profile:  " + vault + "/entities/user.md\n"

@@ -727,6 +727,13 @@ PYEOF
     else
       fail "SOUL.md missing the search recipe" "$(grep -c EMPTY "$TMP/hh1/SOUL.md" 2>/dev/null)"
     fi
+    # v5.3: SOUL steers to filesystem tools, away from session_search/memory tool
+    if grep -q "NOT use session_search" "$TMP/hh1/SOUL.md" 2>/dev/null \
+       && grep -qi "markdown FILES" "$TMP/hh1/SOUL.md" 2>/dev/null; then
+      pass "SOUL.md steers to filesystem tools, away from session_search/memory tool"
+    else
+      fail "SOUL.md missing the tool-steering guidance" "$(grep -c session_search "$TMP/hh1/SOUL.md" 2>/dev/null)"
+    fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1

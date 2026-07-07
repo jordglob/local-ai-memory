@@ -646,3 +646,17 @@ History:
                           6g assertion: SOUL.md carries the recipe. Floor with
                           recipe: ~5 GB (context KV-cache, not weights, is the
                           real limiter on 48 GB).
+  v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
+                          v5.2 recipe's live proof FAILED — small models, given
+                          hermes' native memory tools, called session_search /
+                          the memory tool (which read the agent's OWN session
+                          db, not the vault markdown) and returned empty. SOUL
+                          now says explicitly: the vault is markdown FILES —
+                          use grep/ls/cat, NOT session_search or the memory
+                          tool, for vault questions; if you catch yourself
+                          calling them, STOP and grep the vault path. New 6g
+                          assertion. (Also learned + recorded: hermes -z -m
+                          MODEL PERSISTS the model to config.yaml — it silently
+                          overwrote the user's moa block during the probes;
+                          restored from backup. Never -m against a real config;
+                          plain -z is read-only.)
