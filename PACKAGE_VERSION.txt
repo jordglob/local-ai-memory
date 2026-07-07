@@ -646,6 +646,29 @@ History:
                           6g assertion: SOUL.md carries the recipe. Floor with
                           recipe: ~5 GB (context KV-cache, not weights, is the
                           real limiter on 48 GB).
+  v42 CC   2026-07-07  — NEW ai-memory-search.sh v1.0 + configure v5.4. The
+                          verified finding drove this: single small models
+                          fail vault recall 9/9 even with tools + the strategy
+                          in SOUL, because they can't CARRY OUT a multi-step
+                          search; MoA was only ~50%. §4.5 says deterministic
+                          work is a SCRIPT — so the multi-term, INDEX-aware,
+                          ranked search is now a family script the model calls
+                          in ONE step. It tokenizes the query (Sv+En stopword
+                          list), scores every 05-AI-Sessions/*.md by DISTINCT
+                          terms covered then hit-frequency, prints top files
+                          with the answer-bearing lines already quoted. Live:
+                          surfaces the real aistudio Begode file #1 for the EUC
+                          question (Pris $1,880 USD in the snippet). configure
+                          v5.4 installs it into .tools/ and the SOUL handover
+                          tells the agent to run it (grep fallback kept). New
+                          6h regression (target ranked #1 / answer surfaced /
+                          no-match is loud) + 6g asserts SOUL points at the
+                          tool and configure installs it. ai-memory-search.sh
+                          joins $FAMILY (version/help/shellcheck-checked).
+                          Also: cleaned 42 of my own probe sessions that had
+                          polluted the vault (reversible move + reindex; no
+                          auto-ingest exists, so they stay gone).
+                          Suite: 88 passed, 0 failed.
   v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
                           v5.2 recipe's live proof FAILED — small models, given
                           hermes' native memory tools, called session_search /

@@ -451,6 +451,27 @@ first-prompt headings is noise):
 Optional final step: distill imported history into a `USER.md` /
 `MEMORY.md` seed for `~/.hermes` so Hermes knows the user from day one.
 
+### 2.3.1 `ai-memory-search.sh` (deterministic memory retrieval — BUILT v1.0)
+
+The target-picture round (2026-07-07) proved the recall floor is NOT model
+size, tool access, or context — it is a small model's inability to CARRY OUT
+a multi-step search. Verified on the central: single small models (5–23 GB)
+failed the vault-recall question 9/9 even with working tools AND the search
+strategy in SOUL; MoA was only ~50%; the strategy worked reliably only when
+placed in the immediate user turn. §4.5 resolves this: multi-term, INDEX-aware,
+persistent search is DETERMINISTIC work → a script, not model reasoning.
+
+`ai-memory-search.sh [vault] "topic"` tokenizes the query (Sv+En stopword list,
+keeps domain words), scores every `05-AI-Sessions/*.md` by DISTINCT query terms
+covered (coverage dominates) then hit frequency, and prints the top files with
+the lines matching the most terms already quoted — so any model, however small,
+answers in ONE tool call instead of executing a search strategy it cannot
+follow. Family conventions (§2.8): self-contained, `--help/--version/--yes`,
+python3 core (åäö-safe paths). configure v5.4 installs it into `.tools/` and the
+SOUL handover instructs the agent to run it (grep fallback kept for absence).
+Future escalation if lexical ever misses (noted, not built): a `--semantic`
+mode via the already-present `nomic-embed-text` for zero-lexical-overlap topics.
+
 ### 2.4 Update Advisor (AGENTS.md section / scheduled Hermes task)
 
 - Read-only by design: inventories installed components (Hermes, Ollama,

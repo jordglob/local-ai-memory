@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.3
+#  ai-memory-configure.sh  v5.4
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,13 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.4:  SOUL points at ai-memory-search.sh — the deterministic memory-search
+#         tool (§4.5). Live tests proved the recall floor is a small model's
+#         inability to CARRY OUT a multi-step search, not tool access: even
+#         with the strategy in SOUL, single models failed 9/9 and MoA was ~50%.
+#         So the search itself is now a SCRIPT the model calls in one step;
+#         configure installs it into .tools/ and the handover tells the model
+#         to run it. Grep fallback kept for when the tool is absent.
 #  v5.3:  SOUL handover STEERS TO FILESYSTEM TOOLS. The v5.2 recipe shipped
 #         but its live proof failed: small models, seeing hermes' native
 #         memory tools, called session_search / the memory tool (which read
@@ -62,7 +69,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.3"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.4"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -90,7 +97,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.3 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.4 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1014,21 +1021,20 @@ block = (
     "   NEVER say the history is empty without having listed that folder first. The\n"
     "   sub-folders (claude-web/, claude-code/, openclaw/, lmstudio/, ...) hold the\n"
     "   imported conversations; an absent INDEX.md does NOT mean there is no history.\n"
-    "3. For a SPECIFIC topic, SEARCH with absolute paths — actually CALL the tool,\n"
-    "   do not just describe the command:\n"
+    "3. For a SPECIFIC topic, run your MEMORY SEARCH TOOL — ONE command that does\n"
+    "   the whole multi-term, INDEX-aware search FOR you (so a weak model does not\n"
+    "   have to craft the strategy). Actually CALL it, do not just describe it:\n"
+    "       bash \"" + vault + "/.tools/ai-memory-search.sh\" \"" + vault + "\" \"<the topic in your own words>\"\n"
+    "   It prints the most relevant files ranked, with the answer-bearing lines\n"
+    "   already quoted — read the top hit(s) and answer from them. Pass the topic\n"
+    "   in plain words (include the brand/model/year if you know them); the tool\n"
+    "   handles the variants and never stops at the first empty word.\n"
+    "   If that script is missing, FALL BACK to grep and do not give up after one\n"
+    "   empty result — try synonyms, English AND the user's language, acronyms,\n"
+    "   brand names, model numbers, and scan INDEX.md:\n"
     "       grep -rli \"KEYWORD\" \"" + vault + "/05-AI-Sessions/\"\n"
-    "   DO NOT STOP AT THE FIRST EMPTY RESULT. A grep that returns nothing means\n"
-    "   THAT WORD was absent — not that the topic is missing. Try several keyword\n"
-    "   variants, one at a time, before concluding anything: synonyms, the term in\n"
-    "   English AND in the user's own language, acronyms and their full forms,\n"
-    "   brand names, model numbers, and project titles. (For a purchase, say, try\n"
-    "   the product category, the brand, and the model number as separate greps.)\n"
-    "   ALSO scan the index titles for the topic:\n"
-    "       grep -i \"KEYWORD\" \"" + vault + "/05-AI-Sessions/INDEX.md\"\n"
-    "   Only say you found nothing AFTER several variants have ALL returned empty.\n"
-    "   Then read the matching files and answer from them; distinguish what the\n"
-    "   USER actually did from options, links or products merely mentioned in a\n"
-    "   conversation. Never guess or invent filenames.\n\n"
+    "   Either way: distinguish what the USER actually did from options, links or\n"
+    "   products merely mentioned in a conversation. Never invent filenames.\n\n"
     "You DO have filesystem and command tools available — use them. If a listing or\n"
     "search returns entries, the memory is there; claiming \"no access\" or \"empty\"\n"
     "without having run the tool — or after only ONE search term — is a mistake.\n"
@@ -1049,6 +1055,27 @@ PYSOUL
   ok "Memory handover installed in ${soul/#$HOME/~} (loaded by every Hermes door)"
 }
 install_soul_handover
+
+# The handover tells the agent to run .tools/ai-memory-search.sh — make sure it
+# is actually there. Copy the sibling shipped alongside this script (bundle
+# install); if absent, the handover's grep fallback still works.
+install_search_tool() {
+  local here src dst
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  src="$here/ai-memory-search.sh"
+  dst="$VAULT/.tools/ai-memory-search.sh"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$VAULT/.tools"
+    cp "$src" "$dst" && chmod +x "$dst" 2>/dev/null
+    ok "Memory-search tool installed → ${dst/#$HOME/~}"
+  elif [[ -f "$dst" ]]; then
+    ok "Memory-search tool already present in .tools/"
+  else
+    warn "ai-memory-search.sh not found next to configure — the handover's grep"
+    warn "fallback will be used until it is placed in $VAULT/.tools/"
+  fi
+}
+install_search_tool
 
 # ai-config.json for resume.sh and other tooling — carries the REAL base_url
 # (v5.0 fix: this used to hardcode localhost even for cloud/remote setups, so

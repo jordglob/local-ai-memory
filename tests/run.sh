@@ -39,7 +39,7 @@ hdr()  { printf "\n${B}── %s ──${N}\n" "$1"; }
 
 # Family scripts must carry --help/--version/--yes and a consistent version
 # (§2.8). publish-to-github.sh is an internal helper: syntax + shellcheck only.
-FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-remote.sh ai-memory-uninstall.sh ai-memory-mux.sh ai-memory-sync.sh"
+FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-remote.sh ai-memory-uninstall.sh ai-memory-mux.sh ai-memory-sync.sh ai-memory-search.sh"
 HELPERS="publish-to-github.sh"
 SCRIPTS="$FAMILY $HELPERS"
 
@@ -721,11 +721,15 @@ PYEOF
     fi
     # v5.2: SOUL handover carries the search-persistence recipe (target-picture
     # round: the recall floor is search strategy, not model size)
-    if grep -q "DO NOT STOP AT THE FIRST EMPTY RESULT" "$TMP/hh1/SOUL.md" 2>/dev/null \
+    # persistence now lives in the tool ("never stops at the first empty word")
+    # + the grep fallback ("do not give up after one empty result"); either way
+    # the handover must not tell the agent to quit on the first miss, and must
+    # still name INDEX.md.
+    if grep -qi "empty" "$TMP/hh1/SOUL.md" 2>/dev/null \
        && grep -q "INDEX.md" "$TMP/hh1/SOUL.md" 2>/dev/null; then
-      pass "SOUL.md carries the search-persistence recipe (don't-give-up + INDEX)"
+      pass "SOUL.md carries search persistence (don't-quit-on-first-empty + INDEX)"
     else
-      fail "SOUL.md missing the search recipe" "$(grep -c EMPTY "$TMP/hh1/SOUL.md" 2>/dev/null)"
+      fail "SOUL.md missing the search-persistence guidance"
     fi
     # v5.3: SOUL steers to filesystem tools, away from session_search/memory tool
     if grep -q "NOT use session_search" "$TMP/hh1/SOUL.md" 2>/dev/null \
@@ -733,6 +737,17 @@ PYEOF
       pass "SOUL.md steers to filesystem tools, away from session_search/memory tool"
     else
       fail "SOUL.md missing the tool-steering guidance" "$(grep -c session_search "$TMP/hh1/SOUL.md" 2>/dev/null)"
+    fi
+    # v5.4: SOUL points at the memory-search tool, and configure installs it
+    if grep -q "ai-memory-search.sh" "$TMP/hh1/SOUL.md" 2>/dev/null; then
+      pass "SOUL.md points the agent at ai-memory-search.sh"
+    else
+      fail "SOUL.md does not reference the memory-search tool"
+    fi
+    if [ -x "$TMP/cfgvault/.tools/ai-memory-search.sh" ]; then
+      pass "configure installed ai-memory-search.sh into .tools/"
+    else
+      fail "configure did not install the memory-search tool"
     fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
@@ -802,6 +817,49 @@ PYEOF
     fi
   fi
   kill "$STUB_PID" 2>/dev/null
+fi
+
+# ── 6h. regression: ai-memory-search ranks the right file (v1.0) ─────────────
+# The deterministic memory-search tool must surface the file that covers the
+# MOST distinct query terms as the #1 hit — the property that lets a weak model
+# answer in one tool call (§4.5). Fixture: a target file rich in the query's
+# terms + decoys that share only one, incl. an åäö filename (python3 path-safe).
+hdr "regression: memory-search ranking (v1.0)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-search.sh ]; then
+  skip "ai-memory-search.sh absent"
+else
+  SV="$TMP/searchvault/05-AI-Sessions/aistudio"
+  mkdir -p "$SV" "$TMP/searchvault/05-AI-Sessions/decoys"
+  # target: covers enhjuling + EUC + Begode + Falcon + december + 2025 + 1,880 + USD
+  cat > "$SV/2026-03-11-köp-av-enhjuling-åäö.md" <<'MD'
+# Köpbeslut enhjuling
+Du beställde en Begode Falcon Pro (en elektrisk enhjuling, EUC) i december 2025.
+Priset var 1,880 USD. Levereras från Kina.
+MD
+  # decoy 1: only "EUC" (shares one term)
+  printf '# Allmänt om EUC\nEUC är kul att åka.\n' > "$TMP/searchvault/05-AI-Sessions/decoys/euc-only.md"
+  # decoy 2: only "december 2025" (a date, shares one/two)
+  printf '# Kalender\nMöte i december 2025 om annat.\n' > "$TMP/searchvault/05-AI-Sessions/decoys/kalender.md"
+  out=$(bash ai-memory-search.sh "$TMP/searchvault" "vilken elektrisk enhjuling EUC beställde jag i december 2025 pris USD" --top 3 2>&1)
+  top=$(printf '%s\n' "$out" | grep -E '^1\. ' | head -1)
+  case "$top" in
+    *"köp-av-enhjuling"*) pass "target file ranked #1 (most distinct terms)" ;;
+    *) fail "wrong #1 hit" "$top" ;;
+  esac
+  if printf '%s\n' "$out" | grep -q "1,880 USD"; then
+    pass "answer-bearing line surfaced in the snippet"
+  else
+    fail "snippet did not surface the answer line" "$out"
+  fi
+  # no-match query must say so clearly, never a silent empty
+  out2=$(bash ai-memory-search.sh "$TMP/searchvault" "kärnkraftverk fusion plasma" 2>&1)
+  if printf '%s\n' "$out2" | grep -qi "no file"; then
+    pass "no-match query reports clearly (never a silent empty)"
+  else
+    fail "no-match query was silent/unclear" "$out2"
+  fi
 fi
 
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
