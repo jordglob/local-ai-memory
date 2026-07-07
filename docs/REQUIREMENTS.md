@@ -334,9 +334,38 @@ Changes for next round:
 
 Carry over from v2.0: hardware analysis (RAM/GPU/Apple Silicon/NVIDIA),
 local model scan, model selection table, writes real Hermes config
-(`~/.hermes/config.yaml`, provider `custom`, base_url
-`http://localhost:11434/v1`, context_length scaled to RAM), optional API keys
-to `~/.hermes/.env` (chmod 600), inventory report into the vault.
+(`~/.hermes/config.yaml`, provider `custom`, context_length scaled to RAM),
+optional API keys to `~/.hermes/.env` (chmod 600), inventory report into the
+vault.
+
+Model sources (v5.0 — live finding 2026-07-06/07): THREE, not two.
+- **local** — Ollama on this machine (`http://localhost:11434/v1`).
+- **remote** — Ollama on another LAN machine (the mini-as-model-server
+  scenario): configure probes `host:11434/v1/models`, offers THAT machine's
+  model list, asks the model itself for its context (`/api/show`,
+  clamped to [64K floor, 128K]), and writes `ollama_num_ctx` — the serving
+  side loads with num_ctx too (§4.35 applies across the LAN).
+  Non-interactive: `--remote-ollama=HOST[:PORT]`.
+- **cloud** — OpenRouter (unchanged).
+
+KEEP-CHECK (v5.0, the WSL live wound): if the existing model block's endpoint
+ANSWERS a probe, keeping it is the interactive default and under `--yes` it is
+NEVER overwritten — a working config must survive a re-run. An explicit
+`--remote-ollama` flag is a stated intent to change and skips the check.
+Same preserve principle for `fallback_providers`: an existing non-empty chain
+is the user's own.
+
+Fallback chain (v5.0): with an OpenRouter key present the chain is WRITTEN
+(top-level `fallback_providers`, hermes' own format/manager `hermes fallback`)
+— pre-v5.0 the banner printed a three-step chain that no code ever wrote.
+End-of-run teaches the native switching hermes already has: `/model` mid-chat,
+`hermes fallback add`, dashboard. (The LiteLLM sovereign gateway, §2.11,
+remains its own future round — configure does not preempt it.)
+
+`ai-config.json` carries the REAL `base_url` (was hardcoded localhost even in
+cloud mode). A non-TTY run without `--yes` never execs ingest (same bug class
+as the ingest v2.15 hermes-autostart fix — the observed "configure started
+hermes" was configure exec'ing a stale ingest whose old default exec'd hermes).
 
 Changes:
 - Soften consolidation advice: present Ollama as *an option*, point to

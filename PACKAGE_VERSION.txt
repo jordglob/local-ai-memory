@@ -594,3 +594,27 @@ History:
                           own field; give thinking models max_tokens headroom).
                           v2.21-23's retry/per-conv-fallback/native-rescue all
                           remain valid resilience, just against a rarer enemy.
+  v38 CC   2026-07-07  — configure v5.0: model-source round. THREE sources
+                          (local / REMOTE ollama over LAN / cloud) — remote
+                          probes host:11434/v1/models, offers that machine's
+                          model list, asks the model for its context via
+                          /api/show (clamped floor..128K), writes
+                          ollama_num_ctx; non-interactive via
+                          --remote-ollama=HOST[:PORT]. KEEP-CHECK: a model
+                          block whose endpoint ANSWERS is never clobbered
+                          under --yes and is the interactive default (the
+                          2026-07-06 WSL live wound). Fallback chain WRITTEN
+                          for real (fallback_providers, hermes' own format)
+                          when an OpenRouter key exists — pre-v5.0 the banner
+                          printed a chain no code wrote. ai-config.json now
+                          carries the real base_url (was always localhost).
+                          Non-TTY runs never exec ingest (the "configure
+                          started hermes" chain: configure exec'd stale ingest
+                          which exec'd hermes). End-of-run teaches hermes'
+                          native switching (/model, hermes fallback add,
+                          dashboard). Latent v4.13 bug fixed: migration count
+                          died under pipefail on a vault without
+                          05-AI-Sessions/. New 6g regression block in
+                          tests/run.sh (stub ollama: remote write / keep on
+                          rerun / dead endpoint rewritten+backup / fallback
+                          once+idempotent / non-TTY no-exec).

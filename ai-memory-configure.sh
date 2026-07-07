@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v4.13
+#  ai-memory-configure.sh  v5.0
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
 #    1. Analyzes hardware (RAM, GPU, CPU)
 #    2. Scans the disk for local AI models (Ollama, LM Studio, HF cache, ...)
-#    3. Picks the best model for your hardware
-#    4. Writes the real Hermes config (~/.hermes/config.yaml) for local Ollama
-#    5. Optionally stores API keys in ~/.hermes/.env (fallback chain)
+#    3. Picks the model source: local Ollama, REMOTE Ollama (LAN) or cloud
+#    4. Writes the real Hermes config (~/.hermes/config.yaml)
+#    5. Optionally stores API keys in ~/.hermes/.env and WRITES the fallback
+#       chain (hermes fallback_providers) so failover actually happens
 #    6. Writes ai-config.json + model inventory report into the vault
 #
 #  Usage: bash ai-memory-configure.sh [path/to/vault]
+#         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.0:  three model sources (local/remote/cloud); a model config whose
+#         endpoint ANSWERS is never clobbered (the WSL live wound, 2026-07-06);
+#         fallback chain written for real; ai-config.json carries the real
+#         base_url; non-TTY runs never exec ingest; /model + hermes fallback
+#         switching taught at the end.
 #  v4.13: safe YAML quoting; exact ollama tag match; atomic .env; Windows/WSL RAM; shell-safe launcher.
 # =============================================================================
 
@@ -36,15 +43,17 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 case "${1:-}" in
   -h|--help)
-    sed -n '2,18p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v4.13"; exit 0 ;;
+    sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.0"; exit 0 ;;
 esac
 
 ASSUME_YES=false
 VAULT=""
+REMOTE_OLLAMA=""
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=true ;;
+    --remote-ollama=*) REMOTE_OLLAMA="${arg#*=}" ;;
     -*) ;;
     *)  [[ -z "$VAULT" ]] && VAULT="$arg" ;;
   esac
@@ -63,7 +72,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v4.13 — Configure     ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.0 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -77,7 +86,9 @@ echo ""
 # §4.12 migration-awareness: a populated vault with NO prior Hermes config on this
 # machine means you restored/synced a vault onto a new box — welcome you back and
 # set expectations honestly (config + API keys did NOT travel, by design).
-_CONV_COUNT=$(find "$VAULT/05-AI-Sessions" -type f -name '*.md' ! -name 'INDEX.md' 2>/dev/null | wc -l | tr -d ' ')
+# pipefail-safe: a vault without 05-AI-Sessions/ (unusual but legal) must not
+# kill the run — find's rc=1 would otherwise abort under set -euo pipefail.
+_CONV_COUNT=$(find "$VAULT/05-AI-Sessions" -type f -name '*.md' ! -name 'INDEX.md' 2>/dev/null | wc -l | tr -d ' ') || _CONV_COUNT=0
 if [[ "${_CONV_COUNT:-0}" -gt 0 && "$CONFIG_PREEXISTED" == false ]]; then
   hdr "🧳 Migration detected — welcome back"
   ok "Found a restored memory vault with ${_CONV_COUNT} imported conversation(s)."
@@ -302,6 +313,61 @@ MODEL_TAG=$(sget model); DESC=$(sget desc); REASON=$(sget reason)
 # Hermes Agent refuses any model below this context floor.
 HERMES_CTX_FLOOR=64000
 
+# ── v5.0 probe helpers ────────────────────────────────────────────────────────
+# GET <base>/models on an OpenAI-compatible endpoint; prints one model id per
+# line, rc 1 when unreachable/empty. Works for Ollama and OpenRouter alike.
+probe_models() {  # probe_models <base_url>
+  curl -s --max-time 6 "${1%/}/models" 2>/dev/null | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    ids = [m.get("id", "") for m in (data.get("data") or []) if m.get("id")]
+except Exception:
+    sys.exit(1)
+if not ids:
+    sys.exit(1)
+print("\n".join(ids))'
+}
+
+# Parse the CURRENT top-level model: block out of config.yaml (best effort).
+# Sets EXIST_MODEL/EXIST_BASE/EXIST_CTX ("" when absent). Handles both our
+# json-quoted scalars and hand-edited plain ones.
+EXIST_MODEL=""; EXIST_BASE=""; EXIST_CTX=""
+read_existing_model_block() {
+  EXIST_MODEL=""; EXIST_BASE=""; EXIST_CTX=""
+  [[ -f "$HERMES_CONFIG" ]] || return 0
+  local out
+  out=$(python3 - "$HERMES_CONFIG" << 'PYREAD'
+import sys, json
+blk, in_model = {}, False
+for ln in open(sys.argv[1]).read().splitlines():
+    if ln.startswith("model:"):
+        in_model = True; continue
+    if in_model:
+        if ln.strip() == "":
+            continue
+        if ln[:1] not in (" ", "\t"):
+            break
+        s = ln.split(" #", 1)[0].strip()
+        if ":" in s:
+            k, v = s.split(":", 1)
+            blk[k.strip()] = v.strip()
+def sc(v):
+    try:
+        d = json.loads(v)
+        return d if isinstance(d, str) else v
+    except Exception:
+        return v
+print(sc(blk.get("default", "")))
+print(sc(blk.get("base_url", "")))
+print((blk.get("context_length", "").split() or [""])[0])
+PYREAD
+) || return 0
+  EXIST_MODEL=$(printf '%s\n' "$out" | sed -n 1p)
+  EXIST_BASE=$(printf '%s\n' "$out" | sed -n 2p)
+  EXIST_CTX=$(printf '%s\n' "$out" | sed -n 3p)
+}
+
 # Is this machine too weak for a useful local model?
 # Heuristic: under ~6 GB RAM, a local model is either too small to be useful
 # (0.5b) or too slow (3b). Offer cloud-only instead of forcing a local model.
@@ -310,21 +376,64 @@ RAM_INT=$(printf '%.0f' "$RAM_GB" 2>/dev/null || echo 0)  # round, don't truncat
 WEAK_FOR_LOCAL=false
 [[ "$RAM_INT" -lt 6 ]] && WEAK_FOR_LOCAL=true
 
-MODE="local"   # local | cloud
-if $WEAK_FOR_LOCAL && ! $ASSUME_YES; then
-  echo ""
-  warn "This machine has ~${RAM_GB} GB RAM — small for a useful local model."
-  echo -e "  A tiny local model runs but is weak; a 3B model runs but is slow."
-  echo -e "  ${BOLD}Recommended here: cloud-only${NC} — Hermes uses a cloud model"
-  echo -e "  (via OpenRouter), nothing heavy runs on this machine."
-  echo ""
-  echo -e "  1) Cloud-only   ${GREEN}★ recommended for this hardware${NC}"
-  echo -e "  2) Local model  (download one anyway — slower, but private/offline)"
-  ask "Choice [1/2] (ENTER = 1):"
-  read -r _modechoice || _modechoice=""
-  [[ "$_modechoice" == "2" ]] && MODE="local" || MODE="cloud"
-elif $WEAK_FOR_LOCAL && $ASSUME_YES; then
-  MODE="cloud"   # non-interactive on weak hardware defaults to cloud
+MODE="local"        # local | remote | cloud | keep
+BASE_URL="http://localhost:11434/v1"
+REMOTE_HOST=""
+
+# ── v5.0 keep-check: NEVER clobber a model config that provably works ─────────
+# The live wound this heals: a WSL machine wired to the central's Ollama over
+# LAN ran configure and got silently rewritten to localhost — the working
+# setup had to be restored from backup by hand (2026-07-06). Now: if the
+# existing block's endpoint ANSWERS, keeping it is the default, and under
+# --yes it is never overwritten. An explicit --remote-ollama flag is a stated
+# intent to change and skips the keep-check.
+if [[ -z "$REMOTE_OLLAMA" ]]; then
+  read_existing_model_block
+  if [[ -n "$EXIST_MODEL" && "$EXIST_BASE" == http* ]] \
+     && probe_models "$EXIST_BASE" >/dev/null 2>&1; then
+    echo ""
+    ok "Existing model config found — and its endpoint answers:"
+    echo -e "     ${GREEN}$EXIST_MODEL${NC}  via  ${CYAN}$EXIST_BASE${NC}"
+    if $ASSUME_YES; then
+      MODE="keep"
+      info "Non-interactive: keeping it (a working config is never clobbered under --yes)"
+    else
+      ask "Keep this model config? [Y/n]"
+      read -r _keep || _keep=""
+      [[ "$(lc "${_keep:-y}")" != "n" ]] && MODE="keep"
+    fi
+  fi
+fi
+if [[ "$MODE" == "keep" ]]; then
+  MODEL_TAG="$EXIST_MODEL"
+  BASE_URL="$EXIST_BASE"
+else
+  # ── model source: local / remote (LAN) / cloud ──────────────────────────────
+  if [[ -n "$REMOTE_OLLAMA" ]]; then
+    MODE="remote"
+  elif ! $ASSUME_YES; then
+    _def=1; $WEAK_FOR_LOCAL && _def=3
+    echo ""
+    echo -e "  ${BOLD}Where should Hermes' model run?${NC}"
+    if $WEAK_FOR_LOCAL; then
+      warn "This machine has ~${RAM_GB} GB RAM — small for a useful local model."
+    fi
+    _rec1=""; _rec3=""
+    [[ "$_def" == 1 ]] && _rec1="   ${GREEN}★ recommended${NC}"
+    [[ "$_def" == 3 ]] && _rec3="           ${GREEN}★ recommended for this hardware${NC}"
+    echo -e "   1) Local Ollama on this machine${_rec1}"
+    echo -e "   2) Ollama on another machine (LAN) — e.g. a Mac mini serving models"
+    echo -e "   3) Cloud via OpenRouter${_rec3}"
+    ask "Choice [1/2/3] (ENTER = $_def):"
+    read -r _modechoice || _modechoice=""
+    case "${_modechoice:-$_def}" in
+      2) MODE="remote" ;;
+      3) MODE="cloud" ;;
+      *) MODE="local" ;;
+    esac
+  else
+    $WEAK_FOR_LOCAL && MODE="cloud" || MODE="local"
+  fi
 fi
 
 echo ""
@@ -399,14 +508,54 @@ if [[ "$MODE" == "cloud" ]]; then
     read -r _cloudmodel || _cloudmodel=""
     MODEL_TAG="${_cloudmodel:-openai/gpt-4o-mini}"
   fi
+  BASE_URL="https://openrouter.ai/api/v1"
   ok "Primary model (cloud): $MODEL_TAG"
-else
+elif [[ "$MODE" == "remote" ]]; then
+  # Remote Ollama over LAN: probe the endpoint, offer ITS model list — never
+  # write a base_url that was not seen answering.
+  if [[ -n "$REMOTE_OLLAMA" ]]; then
+    REMOTE_HOST="$REMOTE_OLLAMA"
+  else
+    ask "Host/IP of the machine running Ollama (host or host:port):"
+    read -r REMOTE_HOST || REMOTE_HOST=""
+  fi
+  [[ -z "$REMOTE_HOST" ]] && die "Remote Ollama chosen but no host given."
+  [[ "$REMOTE_HOST" != *:* ]] && REMOTE_HOST="${REMOTE_HOST}:11434"
+  BASE_URL="http://${REMOTE_HOST}/v1"
+  info "Probing $BASE_URL ..."
+  REMOTE_MODELS=$(probe_models "$BASE_URL") \
+    || die "No answer from $BASE_URL — is Ollama running there with OLLAMA_HOST=0.0.0.0?"
+  ok "Endpoint answers. Models available there:"
+  _i=1
+  while IFS= read -r _m; do
+    echo "   $_i) $_m"; _i=$((_i+1))
+  done <<< "$REMOTE_MODELS"
+  # Default: first non-embedding model — an embedder can't chat.
+  DEFAULT_REMOTE=$(printf '%s\n' "$REMOTE_MODELS" | grep -vi embed | head -1)
+  DEFAULT_REMOTE="${DEFAULT_REMOTE:-$(printf '%s\n' "$REMOTE_MODELS" | head -1)}"
+  if $ASSUME_YES; then
+    MODEL_TAG="$DEFAULT_REMOTE"
+  else
+    ask "Model (number or tag, ENTER = $DEFAULT_REMOTE):"
+    read -r _rm || _rm=""
+    if [[ -z "$_rm" ]]; then
+      MODEL_TAG="$DEFAULT_REMOTE"
+    elif [[ "$_rm" =~ ^[0-9]+$ ]]; then
+      MODEL_TAG=$(printf '%s\n' "$REMOTE_MODELS" | sed -n "${_rm}p")
+      [[ -z "$MODEL_TAG" ]] && MODEL_TAG="$DEFAULT_REMOTE"
+    else
+      MODEL_TAG="$_rm"
+    fi
+  fi
+  ok "Primary model (remote Ollama): $MODEL_TAG"
+elif [[ "$MODE" == "local" ]]; then
   # Local path: let the user confirm or override, THEN verify the model exists.
   if ! $ASSUME_YES; then
     ask "Confirm model (ENTER = $MODEL_TAG, or type another Ollama tag):"
     read -r override || override=""
     [[ -n "$override" ]] && MODEL_TAG="$override"
   fi
+  BASE_URL="http://localhost:11434/v1"
   ok "Primary model: $MODEL_TAG"
   ensure_model_present "$MODEL_TAG" || true
 fi
@@ -416,9 +565,36 @@ warn_weak_model "$MODEL_TAG" || true
 
 # Context length: never below Hermes' hard floor; scale up with RAM/model max.
 # (Pattern-hunt fix: write-against-known-limit — clamp to the floor always.)
-CTX=$HERMES_CTX_FLOOR
-[[ "$RAM_INT" -ge 40 ]] 2>/dev/null && CTX=128000
-[[ "$CTX" -lt "$HERMES_CTX_FLOOR" ]] && CTX=$HERMES_CTX_FLOOR
+if [[ "$MODE" == "keep" ]]; then
+  # The kept block's own value — the endpoint already runs with it.
+  CTX="${EXIST_CTX:-$HERMES_CTX_FLOOR}"
+  [[ "$CTX" =~ ^[0-9]+$ ]] || CTX=$HERMES_CTX_FLOOR
+elif [[ "$MODE" == "remote" ]]; then
+  # THIS box's RAM says nothing about the serving machine — ask the model
+  # itself (/api/show → context_length), clamp to [floor, 128K]: §2.10 says
+  # use the model's real capability, but loading a 256K context on the
+  # serving box is an OOM trap, not a gift.
+  CTX=$(curl -s --max-time 6 -X POST "http://${REMOTE_HOST}/api/show" \
+          -H "Content-Type: application/json" \
+          -d "{\"model\": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$MODEL_TAG")}" 2>/dev/null \
+        | python3 -c '
+import sys, json
+try:
+    mi = (json.load(sys.stdin).get("model_info") or {})
+except Exception:
+    sys.exit(1)
+vals = [v for k, v in mi.items() if k.endswith(".context_length") and isinstance(v, int)]
+if not vals:
+    sys.exit(1)
+print(max(vals))') || CTX=""
+  [[ "$CTX" =~ ^[0-9]+$ ]] || CTX=$HERMES_CTX_FLOOR
+  [[ "$CTX" -gt 131072 ]] && CTX=131072
+  [[ "$CTX" -lt "$HERMES_CTX_FLOOR" ]] && CTX=$HERMES_CTX_FLOOR
+else
+  CTX=$HERMES_CTX_FLOOR
+  [[ "$RAM_INT" -ge 40 ]] 2>/dev/null && CTX=128000
+  [[ "$CTX" -lt "$HERMES_CTX_FLOOR" ]] && CTX=$HERMES_CTX_FLOOR
+fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 4/5  HERMES CONFIG + API KEYS (fallback chain)
@@ -430,10 +606,11 @@ if [[ "$MODE" == "cloud" ]]; then
   echo -e "  ${BOLD}Cloud-only setup:${NC} Hermes will use ${GREEN}$MODEL_TAG${NC} via OpenRouter."
   echo -e "  An OpenRouter API key is ${BOLD}required${NC} for this to work."
 else
-  echo -e "  ${BOLD}Fallback chain:${NC}"
-  echo -e "   1. ${GREEN}Local Ollama${NC}   — $MODEL_TAG (free, offline)"
-  echo -e "   2. ${YELLOW}OpenRouter${NC}     — cheap cloud models (optional API key)"
-  echo -e "   3. ${RED}Anthropic${NC}      — Claude (optional API key, most reliable)"
+  echo -e "  ${BOLD}Fallback chain${NC} — with an OpenRouter key it is ${BOLD}written for real${NC}"
+  echo -e "  (hermes fails over automatically on rate-limit/overload/connection errors):"
+  echo -e "   1. ${GREEN}Primary${NC}     — $MODEL_TAG"
+  echo -e "   2. ${YELLOW}OpenRouter${NC}  — cheap cloud (optional API key)"
+  echo -e "  ${DIM}Add more later (e.g. Anthropic): hermes fallback add${NC}"
 fi
 echo ""
 echo -e "  Keys are stored in ${CYAN}$HERMES_ENV${NC} — never in the vault."
@@ -464,26 +641,31 @@ fi
 
 mkdir -p "$HERMES_HOME"
 
-# config.yaml — back up and (re)write the model block for local Ollama
+# config.yaml — back up and (re)write the model block (skipped in keep mode:
+# the whole point of the keep-check is that a WORKING block is left untouched).
+if [[ "$MODE" == "keep" ]]; then
+  ok "config.yaml model block kept as-is ($MODEL_TAG via $BASE_URL)"
+else
 if [[ -f "$HERMES_CONFIG" ]]; then
   cp "$HERMES_CONFIG" "${HERMES_CONFIG}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
   ok "Backed up existing config.yaml"
 fi
-python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" "$MODE" << 'PYCONF'
+python3 - "$HERMES_CONFIG" "$MODEL_TAG" "$CTX" "$MODE" "$BASE_URL" << 'PYCONF'
 import sys, os, json
 from pathlib import Path
-path, model, ctx, mode = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+path, model, ctx, mode, base_url = (sys.argv[1], sys.argv[2], int(sys.argv[3]),
+                                    sys.argv[4], sys.argv[5])
 if mode == "cloud":
-    base_url = "https://openrouter.ai/api/v1"
     comment = "# cloud via OpenRouter (key in ~/.hermes/.env)"
     extra = ""
 else:
-    base_url = "http://localhost:11434/v1"
-    comment = "# local Ollama (OpenAI-compatible)"
-    # §4.35: a local model whose native context is below Hermes' floor must ALSO
-    # be told to LOAD at the floor, or Ollama loads it small and Hermes refuses
+    comment = ("# local Ollama (OpenAI-compatible)" if mode == "local"
+               else "# remote Ollama over LAN (OpenAI-compatible)")
+    # §4.35: a model whose native context is below Hermes' floor must ALSO be
+    # told to LOAD at the floor, or Ollama loads it small and Hermes refuses
     # ("runtime context too small") even though context_length passed its check.
     # context_length = what Hermes believes; ollama_num_ctx = what Ollama loads.
+    # Applies to local AND remote — the remote server loads with num_ctx too.
     extra = f"  ollama_num_ctx: {ctx}            # force Ollama to load >= Hermes' floor\n"
 # QUOTE scalar values so a model tag containing YAML metacharacters (# : { } '
 # quotes, leading digits) can never corrupt the file. json.dumps emits a valid
@@ -530,9 +712,12 @@ print("ok")
 PYCONF
 if [[ "$MODE" == "cloud" ]]; then
   ok "config.yaml → cloud via OpenRouter, model: $MODEL_TAG, ctx: $CTX"
+elif [[ "$MODE" == "remote" ]]; then
+  ok "config.yaml → remote Ollama ($BASE_URL), model: $MODEL_TAG, ctx: $CTX (+ ollama_num_ctx)"
 else
   ok "config.yaml → local Ollama, model: $MODEL_TAG, ctx: $CTX (+ ollama_num_ctx)"
 fi
+fi   # end keep-mode skip
 
 # §4.35: a green run that writes no config is a bad failure (confirmed on WSL:
 # model downloaded, config.yaml never written, Hermes fell back to its default).
@@ -564,25 +749,25 @@ for ln in open(path).read().splitlines():
             blk[k.strip()] = v.strip()
 if "default" not in blk:
     sys.exit("  config.yaml is missing the model default (%s)." % model)
-raw = blk["default"]
+raw = blk["default"].split(" #", 1)[0].strip()
 try:
     val = json.loads(raw)   # our writer emits a json.dumps'd (quoted) scalar
 except Exception:
-    sys.exit("  config.yaml default is not a quoted scalar: %r" % raw)
+    val = raw               # kept/hand-written blocks may use a plain scalar
 if not isinstance(val, str) or val != model:
     sys.exit("  config.yaml default (%r) != intended model (%r)." % (val, model))
 cl = blk.get("context_length", "").split()
-if not cl or not cl[0].isdigit():
+if (not cl or not cl[0].isdigit()) and mode != "keep":
     sys.exit("  config.yaml is missing a numeric context_length.")
-if mode == "local":
+if mode in ("local", "remote"):
     nc = blk.get("ollama_num_ctx", "").split()
     if not nc or not nc[0].isdigit():
-        sys.exit("  config.yaml is missing ollama_num_ctx — a local model needs it to clear Hermes' 64K floor.")
+        sys.exit("  config.yaml is missing ollama_num_ctx — an Ollama-served model needs it to clear Hermes' 64K floor.")
 PYVERIFY
-  if [[ "$MODE" == "local" ]]; then
-    ok "Verified config.yaml on disk (quoted default == $MODEL_TAG, context_length, ollama_num_ctx)"
+  if [[ "$MODE" == "local" || "$MODE" == "remote" ]]; then
+    ok "Verified config.yaml on disk (default == $MODEL_TAG, context_length, ollama_num_ctx)"
   else
-    ok "Verified config.yaml on disk (quoted default == $MODEL_TAG, context_length)"
+    ok "Verified config.yaml on disk (default == $MODEL_TAG, context_length)"
   fi
 }
 verify_config_written
@@ -620,6 +805,57 @@ if [[ -z "$OR_KEY" && -z "$AN_KEY" ]]; then
   else
     info "No API keys — Hermes runs fully local"
   fi
+fi
+
+# ── v5.0: WRITE the fallback chain the banner has always printed ──────────────
+# Hermes reads top-level `fallback_providers` (list of {provider, model,
+# base_url?} dicts, own manager: `hermes fallback`) and fails over on
+# rate-limit/overload/connection errors. Written only when it can actually
+# fire: a non-cloud primary + an OpenRouter key. An existing non-empty chain
+# is the user's own — kept untouched (same preserve principle as the model
+# block).
+if [[ "$MODE" != "cloud" ]] && [[ -n "$OR_KEY" || -n "$EXISTING_OR" ]]; then
+  _fb=$(python3 - "$HERMES_CONFIG" << 'PYFB'
+import sys, os, re
+p = sys.argv[1]
+text = open(p).read() if os.path.exists(p) else ""
+m = re.search(r"(?m)^fallback_providers:[ \t]*(.*)$", text)
+if m:
+    inline = m.group(1).split("#", 1)[0].strip()
+    if inline not in ("", "[]"):
+        print("existing"); sys.exit(0)
+    for ln in text[m.end():].splitlines():
+        if ln.strip() == "":
+            continue
+        if ln[:1] in (" ", "\t"):
+            print("existing"); sys.exit(0)   # indented entries → a real chain
+        break
+block = ("fallback_providers:          "
+         "# auto-failover on rate-limit/overload/connection errors\n"
+         "  - provider: openrouter\n"
+         "    model: \"openai/gpt-4o-mini\"\n")
+if m:
+    # bare/empty key → replace that line with the block
+    end = m.end()
+    if end < len(text) and text[end] == "\n":
+        end += 1
+    text = text[:m.start()] + block + text[end:]
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "\n" + block
+tmp = p + ".tmp"
+with open(tmp, "w") as f:
+    f.write(text)
+os.replace(tmp, p)
+print("written")
+PYFB
+) || _fb=""
+  case "$_fb" in
+    written)  ok "Fallback chain written: $MODEL_TAG → OpenRouter (openai/gpt-4o-mini)" ;;
+    existing) info "fallback_providers already configured — keeping your chain" ;;
+    *)        warn "Could not write fallback_providers — add manually: hermes fallback add" ;;
+  esac
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -755,23 +991,26 @@ PYSOUL
 }
 install_soul_handover
 
-# ai-config.json for resume.sh and other tooling
+# ai-config.json for resume.sh and other tooling — carries the REAL base_url
+# (v5.0 fix: this used to hardcode localhost even for cloud/remote setups, so
+# --ai-titles and resume.sh probed the wrong endpoint).
 mkdir -p "$MCP_DIR"
-python3 - "$CONFIG_FILE" "$MODEL_TAG" "$RAM_GB" "$GPU_TYPE" "$VRAM_GB" << 'PYJSON'
+python3 - "$CONFIG_FILE" "$MODEL_TAG" "$RAM_GB" "$GPU_TYPE" "$VRAM_GB" "$BASE_URL" "$MODE" << 'PYJSON'
 import sys, json, datetime
-path = sys.argv[1]
+path, mode = sys.argv[1], sys.argv[7]
+provider = "openrouter" if mode == "cloud" else "ollama"
 cfg = {
   "configured_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
   "hardware": {"ram_gb": float(sys.argv[3]), "gpu_type": sys.argv[4],
                "vram_gb": float(sys.argv[5])},
-  "primary": {"provider": "ollama", "model": sys.argv[2],
-              "base_url": "http://localhost:11434/v1"},
+  "primary": {"provider": provider, "model": sys.argv[2],
+              "base_url": sys.argv[6]},
   "hermes_config": "~/.hermes/config.yaml",
 }
 with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
 PYJSON
-ok "ai-config.json written"
+ok "ai-config.json written (base_url: $BASE_URL)"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 5/5  VALIDATION
@@ -783,6 +1022,14 @@ if [[ "$MODE" == "cloud" ]]; then
     ok "Cloud-only: OpenRouter key present, model $MODEL_TAG"
   else
     warn "Cloud-only but no OpenRouter key — Hermes can't reach a model yet"
+  fi
+elif [[ "$MODE" == "remote" || "$MODE" == "keep" ]]; then
+  # Validate the ENDPOINT we actually wrote/kept — local ollama CLI says
+  # nothing about a model served on another machine.
+  if probe_models "$BASE_URL" >/dev/null 2>&1; then
+    ok "Model endpoint answering: $BASE_URL"
+  else
+    warn "Model endpoint not answering right now: $BASE_URL"
   fi
 else
   if command -v ollama &>/dev/null && ollama list &>/dev/null 2>&1; then
@@ -814,8 +1061,19 @@ echo -e "  API keys:      ${CYAN}$HERMES_ENV${NC} (chmod 600)"
 echo -e "  Model report:  ${CYAN}$REPORT${NC}"
 echo ""
 echo -e "${BOLD}Start a session:${NC}  ${CYAN}hermes chat${NC}   or   ${CYAN}bash $VAULT/.tools/resume.sh hermes${NC}"
+echo ""
+echo -e "${BOLD}Switch models any time — no restart needed:${NC}"
+echo -e "  ${CYAN}/model${NC} in a chat          — picker; or ${CYAN}/model <tag>${NC} directly"
+echo -e "  ${CYAN}hermes fallback add${NC}       — extend the auto-failover chain"
+echo -e "  ${CYAN}hermes dashboard${NC}          — switch from the web UI"
+echo -e "  ${DIM}Re-run this script to change the primary (a working config is kept unless"
+echo -e "  you say otherwise; --remote-ollama=HOST switches to a LAN model server).${NC}"
 INGEST="$VAULT/.tools/ai-memory-ingest.sh"
-if ! $ASSUME_YES; then
+# The exec-ingest offer requires a REAL interactive terminal: on a closed/piped
+# stdin the old default-yes exec'd ingest (whose own old default then exec'd
+# hermes) — an unattended run must never end in an interactive takeover
+# (same bug class as the ingest v2.15 fix).
+if ! $ASSUME_YES && [[ -t 0 ]]; then
   echo -e "${BOLD}Next step — import your AI conversation history.${NC}"
   echo -e "  ${DIM}If your export ZIP is in Downloads, it will be found automatically.${NC}"
   ask "Import history now? [Y/n]"

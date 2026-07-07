@@ -655,6 +655,119 @@ PYEOF
   fi
 fi
 
+# ── 6g. regression: configure v5.0 — remote ollama, keep-check, fallback ─────
+# Locks in the 2026-07-06 live wound: a WSL machine wired to a LAN ollama ran
+# configure and had its WORKING model block silently rewritten to localhost.
+# Also: the fallback chain is now WRITTEN (was only printed), ai-config.json
+# carries the real base_url, and a non-TTY run must never exec ingest.
+hdr "regression: configure v5.0 (remote/keep/fallback)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-configure.sh ]; then
+  skip "ai-memory-configure.sh absent"
+elif ! command -v curl >/dev/null 2>&1; then
+  skip "curl not installed"
+else
+  cat > "$TMP/stub-ollama.py" <<'PYEOF'
+import http.server, json
+class H(http.server.BaseHTTPRequestHandler):
+    def _send(self, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def do_GET(self):
+        if self.path.endswith("/models"):
+            self._send({"object": "list", "data": [
+                {"id": "nomic-embed-text:latest"}, {"id": "testmodell:7b"}]})
+        else:
+            self.send_response(404); self.end_headers()
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.endswith("/api/show"):
+            self._send({"model_info": {"qwen3.context_length": 40960}})
+        else:
+            self.send_response(404); self.end_headers()
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+PYEOF
+  python3 "$TMP/stub-ollama.py" > "$TMP/stub-ollama.port" 2>/dev/null &
+  STUB_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/stub-ollama.port" ] && break; sleep 0.3; done
+  oport=$(cat "$TMP/stub-ollama.port" 2>/dev/null)
+  if [ -z "$oport" ]; then
+    skip "stub ollama server did not start"
+  else
+    mkdir -p "$TMP/cfgvault/entities" "$TMP/cfgvault/05-AI-Sessions" "$TMP/cfghome"
+    CFGYAML="$TMP/hh1/config.yaml"
+    # t1: --remote-ollama writes the probed endpoint + a non-embedding model
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes --remote-ollama=127.0.0.1:$oport > "$TMP/cfg1.out" 2>&1
+    if grep -qF "base_url: \"http://127.0.0.1:$oport/v1\"" "$CFGYAML" 2>/dev/null \
+       && grep -qF 'default: "testmodell:7b"' "$CFGYAML" \
+       && grep -q "ollama_num_ctx: 64000" "$CFGYAML"; then
+      pass "--remote-ollama: probed endpoint + non-embed model + floor ctx written"
+    else
+      fail "--remote-ollama config wrong" "$(grep -E 'base_url|default|num_ctx' "$CFGYAML" 2>/dev/null | head -4)"
+    fi
+    if grep -qF "\"base_url\": \"http://127.0.0.1:$oport/v1\"" "$TMP/cfgvault/.mcp/ai-config.json" 2>/dev/null; then
+      pass "ai-config.json carries the real base_url"
+    else
+      fail "ai-config.json base_url wrong" "$(cat "$TMP/cfgvault/.mcp/ai-config.json" 2>/dev/null | head -3)"
+    fi
+    # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1
+    if grep -qF 'default: "testmodell:7b"' "$CFGYAML" \
+       && grep -qF "base_url: \"http://127.0.0.1:$oport/v1\"" "$CFGYAML" \
+       && grep -qi "kept as-is" "$TMP/cfg2.out"; then
+      pass "keep-check: a working model block survives a --yes rerun"
+    else
+      fail "working block was clobbered or keep not reported" "$(grep -E 'base_url|default' "$CFGYAML" | head -3)"
+    fi
+    # t3: a DEAD endpoint is not kept — block gets rewritten (with a backup)
+    mkdir -p "$TMP/hh3"
+    printf 'model:\n  default: gammal:7b\n  provider: custom\n  base_url: "http://127.0.0.1:1/v1"\n  context_length: 64000\n' > "$TMP/hh3/config.yaml"
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh3" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg3.out" 2>&1
+    if ! grep -q "127.0.0.1:1/v1" "$TMP/hh3/config.yaml" \
+       && ls "$TMP/hh3/config.yaml.bak."* >/dev/null 2>&1; then
+      pass "dead endpoint is rewritten, original backed up"
+    else
+      fail "dead endpoint survived or no backup" "$(grep base_url "$TMP/hh3/config.yaml")"
+    fi
+    # t4: with an OpenRouter key the fallback chain is WRITTEN — exactly once
+    mkdir -p "$TMP/hh4"
+    printf 'OPENROUTER_API_KEY=dummy-testnyckel\n' > "$TMP/hh4/.env"; chmod 600 "$TMP/hh4/.env"
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh4" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes --remote-ollama=127.0.0.1:$oport > "$TMP/cfg4.out" 2>&1
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh4" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg4b.out" 2>&1
+    fb_count=$(grep -c "^fallback_providers:" "$TMP/hh4/config.yaml" 2>/dev/null)
+    if [ "$fb_count" = 1 ] && grep -q "provider: openrouter" "$TMP/hh4/config.yaml"; then
+      pass "fallback chain written once, idempotent on rerun"
+    else
+      fail "fallback chain missing or duplicated" "count=$fb_count"
+    fi
+    # t5: non-TTY run without --yes must NOT exec ingest
+    mkdir -p "$TMP/cfgvault/.tools" "$TMP/hh5"
+    printf '#!/usr/bin/env bash\necho INGEST-EXECD\n' > "$TMP/cfgvault/.tools/ai-memory-ingest.sh"
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh5" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" < /dev/null > "$TMP/cfg5.out" 2>&1
+    cfg5_rc=$?
+    if [ "$cfg5_rc" = 0 ] && ! grep -q "INGEST-EXECD" "$TMP/cfg5.out"; then
+      pass "non-TTY run never execs ingest (and exits 0)"
+    else
+      fail "non-TTY run exec'd ingest or failed" "rc=$cfg5_rc $(tail -2 "$TMP/cfg5.out")"
+    fi
+  fi
+  kill "$STUB_PID" 2>/dev/null
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then
