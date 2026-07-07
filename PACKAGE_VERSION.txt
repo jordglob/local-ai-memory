@@ -549,3 +549,11 @@ History:
                           loud + fallback). Guidance: point --ai-titles at a
                           small non-reasoning model. Side-finding reported:
                           deepseek-r1:8b parked at 24 GB "Forever" on the mini.
+  v35 CC   2026-07-07  — ingest v2.21: --ai-titles retries once on an empty
+                          reply — the v2.20 live runs showed the real pattern:
+                          ollama 200-OKs a BLANK first completion right after
+                          a model (re)load (gemma4:e4b titled 13 convs then
+                          hit one blank; the next run's FIRST call was blank).
+                          One retry rescues it; still-empty stays loud
+                          (v2.20 promise). New 6f sub-test: blank-then-good
+                          stub → retried, no warn.

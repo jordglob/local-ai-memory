@@ -554,6 +554,45 @@ PYEOF
     fi
   fi
   kill "$STUB_PID" 2>/dev/null
+  # blank-then-good: ollama's blank-first-completion-after-load pattern —
+  # the single retry must rescue the title with no warn
+  cat > "$TMP/stub3.py" <<'PYEOF'
+import http.server, json
+CALLS = {"n": 0}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        CALLS["n"] += 1
+        content = "" if CALLS["n"] == 1 else "Raddad av omforsoket"
+        body = json.dumps({"choices": [{"message": {"content": content}}]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+PYEOF
+  python3 "$TMP/stub3.py" > "$TMP/stub3.port" 2>/dev/null &
+  STUB_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/stub3.port" ] && break; sleep 0.3; done
+  port3=$(cat "$TMP/stub3.port" 2>/dev/null)
+  if [ -z "$port3" ]; then
+    skip "blank-then-good stub did not start"
+  else
+    mkdir -p "$TMP/hvault5/05-AI-Sessions"
+    AI_MEMORY_MODEL_URL="http://127.0.0.1:$port3/v1" AI_MEMORY_MODEL=stub \
+      bash ai-memory-ingest.sh "$TMP/hvault5" --source hermes --path "$TMP/state.db" --ai-titles --yes > "$TMP/h9.out" 2>&1
+    if grep -q "^# Raddad av omforsoket" "$TMP/hvault5/05-AI-Sessions/hermes/"*.md 2>/dev/null \
+       && ! grep -q "empty reply" "$TMP/h9.out"; then
+      pass "single blank reply is retried and rescued (no warn)"
+    else
+      fail "retry did not rescue a single blank reply" "$(tail -3 "$TMP/h9.out")"
+    fi
+  fi
+  kill "$STUB_PID" 2>/dev/null
   # graceful degrade: dead endpoint → warn, fall back, import still succeeds
   mkdir -p "$TMP/hvault3/05-AI-Sessions"
   if AI_MEMORY_MODEL_URL="http://127.0.0.1:1/v1" AI_MEMORY_MODEL=stub \

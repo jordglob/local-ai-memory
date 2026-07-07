@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.20
+#  ai-memory-ingest.sh  v2.21
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.21: --ai-titles retries ONCE on an empty reply — the live pattern
+#         (2026-07-07) is ollama 200-OKing a blank FIRST completion right
+#         after a model (re)load; the second call succeeds. Still-empty
+#         after the retry stays loud (v2.20 promise) + fallback titles.
 #  v2.20: --ai-titles EMPTY-REPLY fix (live run 2026-07-07): ollama's OpenAI
 #         endpoint can 200-OK a BLANK completion for a reasoning model (the
 #         reply is generated but arrives as empty content, zero usage —
@@ -94,7 +98,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.20"
+VERSION = "2.21"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -212,30 +216,33 @@ def _ai_title(msgs):
                          ).encode("utf-8")
     req = urllib.request.Request(f"{_AI['base']}/chat/completions", data=payload,
                                  headers={"Content-Type": "application/json"})
-    try:
-        # Generous timeout: the FIRST call may load a large model from disk.
-        with urllib.request.urlopen(req, timeout=180) as r:
-            data = json.loads(r.read().decode("utf-8", "replace"))
-        text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-    except Exception as e:
-        _AI["dead"] = str(e)
-        warn(f"--ai-titles: call failed ({e}) — fallback titles from here on")
-        return None
-    # Reasoning models may wrap the answer in <think> blocks — strip them.
-    text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S)
-    # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
-    line = next((ln.strip().strip('\'" .')
-                 for ln in text.splitlines() if ln.strip()), "")
-    title = " ".join(line.split())[:80]
-    if not title:
-        # NEVER a silent zero: an empty/eaten reply (all-<think>, truncated,
-        # or a server that 200-OKs a blank completion) must be visible — one
-        # loud warn, then fallback titles for the rest of the run.
-        _AI["dead"] = "model returned an empty reply"
-        warn("--ai-titles: model returned an empty reply — check the model "
-             "with a plain chat first; fallback titles from here on")
-        return None
-    return title
+    # Two attempts: ollama can 200-OK a BLANK first completion right after a
+    # model (re)load (live 2026-07-07 — first call after load, zero usage).
+    for _attempt in (1, 2):
+        try:
+            # Generous timeout: the FIRST call may load a large model from disk.
+            with urllib.request.urlopen(req, timeout=180) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        except Exception as e:
+            _AI["dead"] = str(e)
+            warn(f"--ai-titles: call failed ({e}) — fallback titles from here on")
+            return None
+        # Reasoning models may wrap the answer in <think> blocks — strip them.
+        text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.S)
+        # strip wrapping quotes/periods in any order ("Titel". / 'Titel.' etc.)
+        line = next((ln.strip().strip('\'" .')
+                     for ln in text.splitlines() if ln.strip()), "")
+        title = " ".join(line.split())[:80]
+        if title:
+            return title
+    # NEVER a silent zero: still empty after the retry (all-<think>, truncated,
+    # or a server that keeps 200-OKing blanks) must be visible — one loud warn,
+    # then fallback titles for the rest of the run.
+    _AI["dead"] = "model returned an empty reply"
+    warn("--ai-titles: model returned an empty reply (retried once) — check "
+         "the model with a plain chat first; fallback titles from here on")
+    return None
 
 # ── shared output ─────────────────────────────────────────────────────────────
 def slugify(s, n=55):
