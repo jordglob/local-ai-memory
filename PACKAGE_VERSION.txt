@@ -755,3 +755,21 @@ History:
                           senaste dagarna" asserts the dated list injects).
                           Live-verified on the mini's real vault. Suite: 95
                           passed, 0 failed, 1 skipped (shellcheck not local).
+  v47 CC   2026-07-08  — ingest v2.24: the `hermes` source now SKIPS source='cli'
+                          sessions (`WHERE source != 'cli'` on both the title and
+                          fallback session queries in parse_hermes). This closes
+                          the SELF-INGEST loop (pillar 4 — the agent archives its
+                          OWN conversations to the vault) cleanly: interactive
+                          (tui/dashboard) + gateway sessions are archived, one-shot
+                          `hermes -z` automation/scripting is not — so the vault
+                          fills with real chats, not dev/test residue. Source-
+                          agnostic between direct (tui) and gateway → "no config
+                          difference direct vs gateway". Live-verified on the mini
+                          via an idempotent oneshot (pillar4-oneshot.sh): filter
+                          applied, hermes-ingest wired into the FDA-safe CC-sync
+                          trigger (ssh context has Full Disk Access to ~/Documents;
+                          launchd/cron would hit the TCC wall), 11 historical cli-
+                          leak files scrubbed, doctor 7/8 green. NOTE: the mini's
+                          git clone was BEHIND this repo (older parse_hermes) and
+                          got the equivalent one-query patch locally — reconcile
+                          the clone to origin later.

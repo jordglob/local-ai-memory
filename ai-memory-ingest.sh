@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.23
+#  ai-memory-ingest.sh  v2.24
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.24: `hermes` source SKIPS source='cli' sessions — self-ingest archives
+#         interactive (tui/dashboard) + gateway conversations, not one-shot
+#         `hermes -z` automation/scripting. Closes the self-ingest loop (agent
+#         remembers its own chats) without polluting the vault with dev/test
+#         one-shots. Source-agnostic between direct (tui) and gateway.
 #  v2.23: --ai-titles treats ALL models equally — reasoning models included.
 #         (1) The qwen-specific /no_think prompt hack is gone (no model gets
 #         special prompt text). (2) A blank from the OpenAI endpoint gets a
@@ -112,7 +117,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.23"
+VERSION = "2.24"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -587,7 +592,10 @@ def parse_hermes(db_path, out_root):
     """Hermes keeps its own history in ~/.hermes/state.db (sessions + messages).
     Archiving it closes the loop the stack promises: the agent's short-term
     memory becomes long-term, searchable vault memory. Read-only open — safe
-    to run while the agent is live (WAL readers don't block the writer)."""
+    to run while the agent is live (WAL readers don't block the writer).
+    Skips source='cli' rows (one-shot `hermes -z` automation/scripting) — only
+    interactive (tui) and gateway conversations are archived, so the vault fills
+    with real chats, not dev/test one-shots."""
     st = _stats(); out = out_root / "hermes"
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -598,11 +606,11 @@ def parse_hermes(db_path, out_root):
             # the raw first prompt (ugly-listing live finding, 2026-07-07).
             sessions = cur.execute(
                 "SELECT id, model, started_at, title FROM sessions "
-                "ORDER BY started_at").fetchall()
+                "WHERE source != 'cli' ORDER BY started_at").fetchall()
         except sqlite3.OperationalError:   # older hermes: no title column
             sessions = [(i, m, s, None) for i, m, s in cur.execute(
                 "SELECT id, model, started_at FROM sessions "
-                "ORDER BY started_at").fetchall()]
+                "WHERE source != 'cli' ORDER BY started_at").fetchall()]
         rows = cur.execute(
             "SELECT session_id, role, content FROM messages "
             "WHERE role IN ('user','assistant') ORDER BY timestamp, id").fetchall()
