@@ -600,17 +600,23 @@ def parse_hermes(db_path, out_root):
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         cur = con.cursor()
+        # Skip one-shot `hermes -z` sessions (source='cli') — archive only real
+        # interactive (tui) + gateway conversations. NULL-safe (COALESCE: a NULL
+        # source counts as non-cli) AND column-safe (older/test dbs may have no
+        # source column → PRAGMA check → no filter, ingest all).
+        _cols = [r[1] for r in cur.execute("PRAGMA table_info(sessions)").fetchall()]
+        _srcf = "WHERE COALESCE(source, '') != 'cli' " if "source" in _cols else ""
         try:
             # Hermes titles its own sessions (sessions.title) — use that first;
             # v2.14–v2.18 never read the column and every heading fell back to
             # the raw first prompt (ugly-listing live finding, 2026-07-07).
             sessions = cur.execute(
                 "SELECT id, model, started_at, title FROM sessions "
-                "WHERE source != 'cli' ORDER BY started_at").fetchall()
+                f"{_srcf}ORDER BY started_at").fetchall()
         except sqlite3.OperationalError:   # older hermes: no title column
             sessions = [(i, m, s, None) for i, m, s in cur.execute(
                 "SELECT id, model, started_at FROM sessions "
-                "WHERE source != 'cli' ORDER BY started_at").fetchall()]
+                f"{_srcf}ORDER BY started_at").fetchall()]
         rows = cur.execute(
             "SELECT session_id, role, content FROM messages "
             "WHERE role IN ('user','assistant') ORDER BY timestamp, id").fetchall()
