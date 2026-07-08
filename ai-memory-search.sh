@@ -159,6 +159,15 @@ _META_RE = re.compile(
     r"|vad (har vi|gjorde vi|pratade vi)\b",
     re.I)
 
+# Temporal/meta filler that must NOT count as topic terms — else "forra veckan
+# pratade" spuriously matches any file containing "veckan" and the topic branch
+# wins over the recent-conversations branch (live 2026-07-08).
+_META_WORDS = set("""
+igar igår forrgar förrgår forra förra vecka veckan haromdagen häromdagen
+nyligen sistone senaste yesterday week last recently discuss discussed talk
+talked pratade snackade diskuterade prata snacka diskutera sade
+""".split())
+
 def _meta_window(msg):
     """(label, keep(date_str)->bool | None). None = generic 'recent', no date filter."""
     m = msg.lower()
@@ -244,8 +253,10 @@ def run_hook(vault):
     msg = _hook_user_message(payload)
     if not msg:
         dbg("no user message"); return 0
-    terms = tokenize(msg)
     is_meta = bool(_META_RE.search(msg))
+    terms = tokenize(msg)
+    if is_meta:                                  # drop temporal filler so a vague
+        terms = [t for t in terms if t not in _META_WORDS]   # meta Q isn't a topic
     dbg(f"msg={msg!r} terms={terms} meta={is_meta}")
     if len(terms) < HOOK_MIN_TERMS and not is_meta:
         dbg("too few terms, not meta"); return 0     # too vague (e.g. "hej")
