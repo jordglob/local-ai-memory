@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v1.3
+#  ai-memory-search.sh  v1.4
+#  v1.4: --hook handles TIME/META memory questions ("what did we talk about
+#        yesterday / last week / recently"). These have no strong topic term,
+#        so the model used to fall back to hermes' own session_search (blind to
+#        the vault) and find nothing (live gap 2026-07-08). Now the hook detects
+#        the time/meta phrasing and injects a dated list of RECENT conversations
+#        from the vault INDEX (windowed to yesterday / last week / etc.).
 #  v1.3: --hook also surfaces VALUE/PRICE lines from the top file even when the
 #        query word missed them (asked "dollar", file wrote "USD"). Live proof:
 #        with v1.2 glm4 read the injection and named the product but said the
@@ -51,9 +57,10 @@ command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 _AIMS_PY=$(mktemp 2>/dev/null || echo "/tmp/ai-memory-search.$$.py")
 cat > "$_AIMS_PY" <<'PYMAIN'
 import sys, os, re, json, argparse
+import datetime as _dt
 from pathlib import Path
 
-VERSION = "1.3"
+VERSION = "1.4"
 HOME = Path.home()
 
 # Grammatical/filler words only — NOT domain words. Dropping "unicycle" or
@@ -138,6 +145,64 @@ _VALUE_RE = re.compile(
     r"|\b(?:pris|price|cost|kostar|kostade|kostnad)\b[^\n]*\d",
     re.I)
 
+# Time/meta memory questions ("what did we talk about yesterday / last week")
+# have no strong TOPIC terms, so the term search stays silent and the model
+# falls back to hermes' own session_search (which does not see the vault) — the
+# live gap the user hit 2026-07-08. For these, inject a dated list of RECENT
+# conversations from the vault INDEX instead, so the model can actually answer.
+_META_RE = re.compile(
+    r"\b(ig[åa]r|f[öo]rrg[åa]r|h[äa]romdagen|nyligen|p[åa] sistone|senaste|"
+    r"f[öo]rra veckan|senaste veckan|denna vecka|i veckan|yesterday|last week|"
+    r"recently|the other day|this week)\b"
+    r"|\b(vad|vilka|n[åa]r) .{0,30}(pratade|snackade|diskuterade|sa|gjorde|tog upp) vi\b"
+    r"|what did we (talk|discuss|do|say|cover)\b"
+    r"|vad (har vi|gjorde vi|pratade vi)\b",
+    re.I)
+
+def _meta_window(msg):
+    """(label, keep(date_str)->bool | None). None = generic 'recent', no date filter."""
+    m = msg.lower()
+    today = _dt.date.today()
+    day = lambda n: (today - _dt.timedelta(days=n)).isoformat()
+    if re.search(r"\big[åa]r\b|\byesterday\b", m):
+        d = day(1); return (f"yesterday ({d})", lambda ds: ds == d)
+    if re.search(r"f[öo]rrg[åa]r|day before yesterday", m):
+        d = day(2); return (f"({d})", lambda ds: ds == d)
+    if re.search(r"f[öo]rra veckan|senaste veckan|last week|denna vecka|this week|i veckan", m):
+        lo, hi = day(8), day(0); return ("the last week", lambda ds: lo <= ds <= hi)
+    if re.search(r"h[äa]romdagen|nyligen|p[åa] sistone|recently|the other day|\bsenaste\b", m):
+        lo = day(5); return ("the last few days", lambda ds: ds >= lo)
+    return ("recent", None)
+
+def _recent_conversations_context(vault, msg):
+    idx = vault / "05-AI-Sessions" / "INDEX.md"
+    if not idx.is_file():
+        return ""
+    label, keep = _meta_window(msg)
+    entries, cur_src = [], "?"
+    for ln in idx.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = ln.strip()
+        mh = re.match(r"###\s+(.+)$", s)
+        if mh:
+            cur_src = mh.group(1).strip(); continue
+        me = re.match(r"-\s+`(\d{4}-\d{2}-\d{2})`\s*[—–-]\s*(.+?)\s+·\s+`", s)
+        if me:
+            entries.append((me.group(1), me.group(2).strip(), cur_src))
+    if not entries:
+        return ""
+    entries.sort(reverse=True)                    # newest date first
+    picked = [e for e in entries if keep(e[0])][:12] if keep else entries[:10]
+    note = ""
+    if not picked:                                # window empty → most-recent + note
+        picked = entries[:6]
+        note = f" — nothing filed under {label}; showing the most recent instead"
+    lines = [f"[Recent conversations in the user's own memory ({label}){note}. Use these "
+             "to answer what you talked about / did; each is `date — title (source)`:]"]
+    for date, title, src in picked:
+        t = title if len(title) <= 90 else title[:90] + "…"
+        lines.append(f"- {date} — {t} ({src})")
+    return "\n".join(lines)[:HOOK_MAX_CHARS]
+
 def _hook_user_message(payload):
     """Pull the latest user text out of a pre_llm_call payload (defensive:
     hermes nests it under `extra`, older/other shapes vary)."""
@@ -180,13 +245,21 @@ def run_hook(vault):
     if not msg:
         dbg("no user message"); return 0
     terms = tokenize(msg)
-    dbg(f"msg={msg!r} terms={terms}")
-    if len(terms) < HOOK_MIN_TERMS:
-        dbg("too few terms"); return 0           # too vague (e.g. "hej")
-    results = run_search(sess, terms)
-    dbg(f"results={len(results)} best={results[0][1] if results else 0}")
-    if not results or results[0][1] < HOOK_MIN_TERMS:
-        dbg("no strong hit"); return 0           # stay silent
+    is_meta = bool(_META_RE.search(msg))
+    dbg(f"msg={msg!r} terms={terms} meta={is_meta}")
+    if len(terms) < HOOK_MIN_TERMS and not is_meta:
+        dbg("too few terms, not meta"); return 0     # too vague (e.g. "hej")
+    results = run_search(sess, terms) if terms else []
+    best = results[0][1] if results else 0
+    dbg(f"results={len(results)} best={best}")
+    # A strong TOPIC hit wins; else a time/meta question gets recent conversations.
+    if best < HOOK_MIN_TERMS:
+        if is_meta:
+            ctx = _recent_conversations_context(vault, msg)
+            if ctx:
+                dbg("meta → recent conversations injected")
+                print(json.dumps({"context": ctx})); return 0
+        dbg("no strong hit"); return 0               # stay silent
     rel = lambda p: str(p.relative_to(vault))
     lines = ["[Relevant memory from the user's own vault — they may be asking "
              "about this. Answer from it if it fits; ignore if not:]"]

@@ -910,6 +910,19 @@ else
   else
     fail "empty payload broke the hook (non-zero exit)"
   fi
+  # v1.4: TIME/META questions ("what did we talk about recently") inject a dated
+  # recent-conversations list from INDEX.md instead of a topic search.
+  {
+    printf '# Memory Index\n### claude-code\n'
+    printf -- '- `2099-01-02` — Built the auto-inject hook  ·  `05-AI-Sessions/claude-code/a.md`\n'
+    printf -- '- `2099-01-01` — Fixed the dashboard  ·  `05-AI-Sessions/claude-code/b.md`\n'
+  } > "$TMP/hookvault/05-AI-Sessions/INDEX.md"
+  meta=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"vad pratade vi om senaste dagarna"}}' | bash ai-memory-search.sh --hook "$TMP/hookvault" 2>/dev/null)
+  if printf '%s' "$meta" | grep -q '"context"' && printf '%s' "$meta" | grep -q "Built the auto-inject hook"; then
+    pass "time/meta question injects recent conversations from INDEX (the vague-recall gap)"
+  else
+    fail "meta question did not inject recent conversations" "$meta"
+  fi
 fi
 
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
