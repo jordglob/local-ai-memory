@@ -646,6 +646,20 @@ History:
                           6g assertion: SOUL.md carries the recipe. Floor with
                           recipe: ~5 GB (context KV-cache, not weights, is the
                           real limiter on 48 GB).
+  v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
+                          v5.2 recipe's live proof FAILED — small models, given
+                          hermes' native memory tools, called session_search /
+                          the memory tool (which read the agent's OWN session
+                          db, not the vault markdown) and returned empty. SOUL
+                          now says explicitly: the vault is markdown FILES —
+                          use grep/ls/cat, NOT session_search or the memory
+                          tool, for vault questions; if you catch yourself
+                          calling them, STOP and grep the vault path. New 6g
+                          assertion. (Also learned + recorded: hermes -z -m
+                          MODEL PERSISTS the model to config.yaml — it silently
+                          overwrote the user's moa block during the probes;
+                          restored from backup. Never -m against a real config;
+                          plain -z is read-only.)
   v42 CC   2026-07-07  — NEW ai-memory-search.sh v1.0 + configure v5.4. The
                           verified finding drove this: single small models
                           fail vault recall 9/9 even with tools + the strategy
@@ -722,17 +736,22 @@ History:
                           reboot-restart warning; and hermes v0.18's login page
                           500s on `/` so it points users to /login directly.
                           hdr steps renumbered 1/6→1/7. Suite: 94 passed.
-  v41 CC   2026-07-07  — configure v5.3: SOUL steers to FILESYSTEM tools. The
-                          v5.2 recipe's live proof FAILED — small models, given
-                          hermes' native memory tools, called session_search /
-                          the memory tool (which read the agent's OWN session
-                          db, not the vault markdown) and returned empty. SOUL
-                          now says explicitly: the vault is markdown FILES —
-                          use grep/ls/cat, NOT session_search or the memory
-                          tool, for vault questions; if you catch yourself
-                          calling them, STOP and grep the vault path. New 6g
-                          assertion. (Also learned + recorded: hermes -z -m
-                          MODEL PERSISTS the model to config.yaml — it silently
-                          overwrote the user's moa block during the probes;
-                          restored from backup. Never -m against a real config;
-                          plain -z is read-only.)
+  v46 CC   2026-07-08  — ai-memory-search v1.4: the --hook now answers TIME/META
+                          memory questions ("what did we talk about yesterday /
+                          last week / what did we do"). These carry no vault
+                          keyword, so the term search finds nothing and the hook
+                          used to stay silent — the exact gap the user hit in
+                          their own hermes chat. v1.4 detects a meta/temporal
+                          query (Sv+En: igår/förra veckan/vad pratade vi om,
+                          yesterday/last week/...), derives a date window from
+                          it, and injects a dated list of recent conversations
+                          from 05-AI-Sessions/INDEX.md (newest-first, window-
+                          filtered). Same-day fix: a vague meta question
+                          spuriously matched a file containing "veckan" →
+                          temporal filler words are now stripped from the topic
+                          terms when the query is meta, so the recent-
+                          conversations branch wins over a wrong topic hit. New
+                          6i meta regression (INDEX fixture + "vad pratade vi om
+                          senaste dagarna" asserts the dated list injects).
+                          Live-verified on the mini's real vault. Suite: 95
+                          passed, 0 failed, 1 skipped (shellcheck not local).
