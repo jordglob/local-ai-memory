@@ -781,6 +781,14 @@ PYEOF
     else
       fail "configure did not install the memory-search tool"
     fi
+    # v5.9: configure must also install ai-memory-ingest.sh into .tools/ — the
+    # self-ingest hook runs that copy (a stale one without --local exits 2 live).
+    if [ -x "$TMP/cfgvault/.tools/ai-memory-ingest.sh" ] \
+       && grep -q -- "--local" "$TMP/cfgvault/.tools/ai-memory-ingest.sh" 2>/dev/null; then
+      pass "configure installed ai-memory-ingest.sh (with --local) into .tools/"
+    else
+      fail "configure did not install a --local-capable ingest tool into .tools/"
+    fi
     # v5.5: configure registers the pre_llm_call hook + flips hooks_auto_accept
     if grep -q "pre_llm_call:" "$TMP/hh1/config.yaml" 2>/dev/null \
        && grep -q "ai-memory-search.sh --hook" "$TMP/hh1/config.yaml" 2>/dev/null \

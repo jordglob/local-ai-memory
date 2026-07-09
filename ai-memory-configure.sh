@@ -1100,6 +1100,28 @@ install_search_tool() {
 }
 install_search_tool
 
+# v5.9: the self-ingest hook runs $VAULT/.tools/ai-memory-ingest.sh — configure must
+# install/REFRESH it there too, else the hook fires a stale copy (live 2026-07-10: an
+# old .tools ingest without --local made `hooks test` exit 2). Same shape as the
+# search tool: prefer the sibling shipped next to configure; keep an existing copy.
+install_ingest_tool() {
+  local here src dst
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  src="$here/ai-memory-ingest.sh"
+  dst="$VAULT/.tools/ai-memory-ingest.sh"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$VAULT/.tools"
+    cp "$src" "$dst" && chmod +x "$dst" 2>/dev/null
+    ok "Ingest tool installed → ${dst/#$HOME/~} (self-ingest hook runs this copy)"
+  elif [[ -f "$dst" ]]; then
+    ok "Ingest tool already present in .tools/"
+  else
+    warn "ai-memory-ingest.sh not found next to configure — the self-ingest hook"
+    warn "will fail until it is placed in $VAULT/.tools/ (re-run setup or bundle install)"
+  fi
+}
+install_ingest_tool
+
 # ── v5.5: register the memory-search HOOK so recall is model-agnostic ─────────
 # Live tests proved small models won't CALL the search tool from SOUL (0/9). A
 # hermes `pre_llm_call` shell hook runs the search automatically and injects the
