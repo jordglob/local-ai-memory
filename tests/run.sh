@@ -757,6 +757,13 @@ PYEOF
     else
       fail "configure did not register the memory hook" "$(grep -nE 'hooks|auto_accept' "$TMP/hh1/config.yaml" 2>/dev/null | head -4)"
     fi
+    # v5.6: configure also registers the self-ingest hook (on_session_end → ingest)
+    if grep -q "on_session_end:" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "ai-memory-ingest.sh .* --source hermes" "$TMP/hh1/config.yaml" 2>/dev/null; then
+      pass "configure registers the self-ingest hook (on_session_end → ingest --source hermes)"
+    else
+      fail "configure did not register the self-ingest hook" "$(grep -nE 'hooks|on_session|ingest' "$TMP/hh1/config.yaml" 2>/dev/null | head -6)"
+    fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1

@@ -773,3 +773,23 @@ History:
                           git clone was BEHIND this repo (older parse_hermes) and
                           got the equivalent one-query patch locally — reconcile
                           the clone to origin later.
+  v48 CC   2026-07-09  — configure v5.6: the self-ingest loop (pillar 4) is now
+                          WIRED BY THE INSTALLER, OS-generally. New install_self_ingest
+                          registers a hermes `on_session_end` hook → `ingest --source
+                          hermes` under config.yaml's `hooks:` (+ hooks_auto_accept),
+                          mirroring the v5.5 pre_llm_call search-hook. Replaces the
+                          per-OS launchd/cron/Task-Scheduler approach: the hook fires
+                          in Hermes' OWN process (which has macOS Full Disk Access, so
+                          it clears the TCC wall that blocks launchd from ~/Documents).
+                          CRASH-RESILIENT by design: the ingest re-scans the WHOLE
+                          state.db idempotently every fire, so a session that dies
+                          before its own end-hook (crash/kill/power-loss) is archived
+                          at the NEXT clean session-end — on_session_end alone suffices,
+                          no on_session_start startup-latency tax. Proven end-to-end in
+                          an isolated HERMES_HOME sandbox: (1) on_session_end fires on a
+                          real session, (2) writes a non-cli session as markdown into a
+                          ~/Documents test-vault, (3) second fire does not duplicate.
+                          Splice verified against the mini's REAL config (keeps the
+                          existing pre_llm_call, valid YAML, idempotent). New v5.6
+                          configure test asserts the hook registers. Suite: 96 passed,
+                          0 failed, 1 skipped.
