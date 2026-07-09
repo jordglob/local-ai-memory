@@ -809,6 +809,32 @@ PYEOF
     else
       fail "working block was clobbered or keep not reported" "$(grep -E 'base_url|default' "$CFGYAML" | head -3)"
     fi
+    # v5.9: hook registration is idempotent — a --yes rerun must not DUPLICATE a
+    # hook key. Regression for the 2026-07-10 live bug: Hermes re-dumps config.yaml
+    # with the long pre_llm_call command FOLDED across two lines, so the old
+    # `cmd in text` check missed it and re-added a second pre_llm_call.
+    npre=$(grep -c "pre_llm_call:" "$CFGYAML" 2>/dev/null)
+    nend=$(grep -c "on_session_end:" "$CFGYAML" 2>/dev/null)
+    if [ "$npre" = 1 ] && [ "$nend" = 1 ]; then
+      pass "hook re-registration is idempotent (no duplicate keys on rerun)"
+    else
+      fail "rerun duplicated a hook key" "pre_llm_call=$npre on_session_end=$nend"
+    fi
+    # fold the search command across two lines (as Hermes' YAML dumper does), then
+    # rerun configure — the fold-normalized check must still see it as present.
+    python3 - "$CFGYAML" << 'PYFOLD'
+import sys, re
+p = sys.argv[1]; t = open(p).read()
+t = re.sub(r"(- command: bash \S+ai-memory-search\.sh) (--hook)", r"\1 \n        \2", t)
+open(p, "w").write(t)
+PYFOLD
+    HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
+      bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2b.out" 2>&1
+    if [ "$(grep -c 'pre_llm_call:' "$CFGYAML" 2>/dev/null)" = 1 ]; then
+      pass "folded pre_llm_call command is recognized as present (no duplicate)"
+    else
+      fail "folded command duplicated the pre_llm_call key" "$(grep -c 'pre_llm_call:' "$CFGYAML")"
+    fi
     # t3: --yes NEVER replaces an existing block — even with a DEAD endpoint
     # (v5.1: the v5.0 probe rule clobbered a live moa block on the central)
     mkdir -p "$TMP/hh3"

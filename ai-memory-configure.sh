@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.8
+#  ai-memory-configure.sh  v5.9
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,11 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.9:  hook-registration idempotency is whitespace-normalized — a re-run no
+#         longer DUPLICATES pre_llm_call when Hermes has re-dumped config.yaml with
+#         the long command line-FOLDED (live bug 2026-07-10, surfaced by re-running
+#         configure to bake in ad-hoc edits). self-ingest already keys on the event
+#         name so it was unaffected; the fix hardens the search-hook check.
 #  v5.8:  self-ingest hook fires `ingest --local` (not just --source hermes) — the
 #         Hermes session hook is now the OS-general trigger that sweeps EVERY local
 #         agent store (claude-code, codex, gemini-cli, …) into the vault, so synced
@@ -87,7 +92,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.8"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.9"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -115,7 +120,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.8 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.9 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1118,8 +1123,11 @@ elif re.search(r"(?m)^hooks_auto_accept:", text):
     text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text); changed = True
 else:
     text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"; changed = True
-# 2) hooks: pre_llm_call — inject our command if not already present
-if cmd in text:
+# 2) hooks: pre_llm_call — inject our command if not already present.
+# Whitespace-normalized so a YAML-re-dumped (line-FOLDED) copy of the same command
+# still counts as present — else a re-run duplicates the pre_llm_call key (live bug,
+# 2026-07-10: Hermes folds the long command across two lines, `cmd in text` missed it).
+if re.sub(r"\s+", " ", cmd) in re.sub(r"\s+", " ", text):
     pass
 else:
     block = ("hooks:\n"
