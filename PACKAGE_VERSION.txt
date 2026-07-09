@@ -793,3 +793,27 @@ History:
                           existing pre_llm_call, valid YAML, idempotent). New v5.6
                           configure test asserts the hook registers. Suite: 96 passed,
                           0 failed, 1 skipped.
+  v49 CC   2026-07-10  — self-ingest generalized + hardened (configure v5.7→v5.9,
+                          ingest v2.25, spec v1.42). (1) v5.7: the hook also fires
+                          on_session_start (belt-and-suspenders for a crash never
+                          followed by another session); end-hook stays primary; both
+                          idempotent per-event. (2) ingest v2.25 `--local` sweeps EVERY
+                          directory/db agent store (hermes, claude-code, codex,
+                          gemini-cli, cursor, aider, lmstudio, open-webui, openclaw) and
+                          skips the zip/Downloads exporters; configure v5.8 points the
+                          self-ingest hook at `ingest --local`, so CC + any other local
+                          agent's sessions synced onto the vault box get archived by the
+                          next Hermes session — OS-general, not CC-specific, retiring the
+                          bespoke per-OS cc-session-ingest script. (3) v5.9 two live
+                          fixes surfaced baking the config in via configure: hook-
+                          registration idempotency is now whitespace-normalized (Hermes
+                          re-dumps config.yaml with the long pre_llm_call command FOLDED
+                          across two lines → the old `cmd in text` check missed it and
+                          duplicated the key); and configure now installs/refreshes
+                          ai-memory-ingest.sh into .tools/ (the hook runs that copy — a
+                          stale one without --local made `hooks test` exit 2). Proven on
+                          the mini: clone reconciled via git bundle (no GitHub push),
+                          configure kept the gemma4:12b + MoA block, hooks idempotent
+                          (pre_llm_call/on_session_end/on_session_start = 1/1/1), and the
+                          --local hook fired live (exit 0, INDEX rewritten, ~1.5s).
+                          Suite: 101 passed, 0 failed, 1 skipped.
