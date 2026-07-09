@@ -177,6 +177,38 @@ else
   fi
 fi
 
+# ── 6a2. regression: `--local` sweeps local agent stores, skips zip sources (v2.25) ──
+# The self-ingest hook fires `ingest --local`: it must discover directory/db-based
+# agent stores via their DEFAULT HOME paths (no --source/--path) and must NOT run
+# the zip/Downloads exporters. Fake a Claude Code store under an isolated HOME and
+# assert --local finds it and writes no zip-source folder.
+hdr "regression: ingest --local (OS-general local sweep)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  lh="$TMP/localhome"
+  mkdir -p "$lh/.claude/projects/proj" "$TMP/localvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"local sweep hej"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"noterat"}]}}' \
+    > "$lh/.claude/projects/proj/22222222-2222-2222-2222-222222222222.jsonl"
+  HOME="$lh" bash ai-memory-ingest.sh "$TMP/localvault" --local --yes > "$TMP/local.out" 2>&1
+  if ls "$TMP/localvault/05-AI-Sessions/claude-code/"*.md >/dev/null 2>&1; then
+    pass "--local discovered the Claude Code store via its default HOME path"
+  else
+    fail "--local did not ingest the local claude-code store" "$(tail -3 "$TMP/local.out")"
+  fi
+  # zip exporters (claude-web/chatgpt) must not be run by --local
+  if [ ! -d "$TMP/localvault/05-AI-Sessions/claude-web" ] \
+     && grep -qi "LOCAL agent sources" "$TMP/local.out" 2>/dev/null; then
+    pass "--local skipped the zip/Downloads exporters"
+  else
+    fail "--local touched a zip source or missed the local header" "$(grep -iE 'discover|claude-web' "$TMP/local.out" | head -3)"
+  fi
+fi
+
 # ── 6b. regression: gemini-takeout parses a localized export (v2.15) ─────────
 # Locks in the 2026-07-05 live findings: a Swedish "Min aktivitet" register must
 # import (structure-keyed, not the English verb), Gemini's response must be
@@ -761,9 +793,9 @@ PYEOF
     # on_session_start → ingest), and both must survive alongside pre_llm_call.
     if grep -q "on_session_end:" "$TMP/hh1/config.yaml" 2>/dev/null \
        && grep -q "on_session_start:" "$TMP/hh1/config.yaml" 2>/dev/null \
-       && grep -q "ai-memory-ingest.sh .* --source hermes" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "ai-memory-ingest.sh .* --local" "$TMP/hh1/config.yaml" 2>/dev/null \
        && grep -q "pre_llm_call:" "$TMP/hh1/config.yaml" 2>/dev/null; then
-      pass "configure registers the self-ingest hooks (on_session_end + on_session_start), pre_llm_call intact"
+      pass "configure registers the self-ingest hooks (on_session_end + on_session_start → ingest --local), pre_llm_call intact"
     else
       fail "configure did not register both self-ingest hooks" "$(grep -nE 'hooks|on_session|ingest|pre_llm' "$TMP/hh1/config.yaml" 2>/dev/null | head -8)"
     fi

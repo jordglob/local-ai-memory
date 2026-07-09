@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.7
+#  ai-memory-configure.sh  v5.8
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,10 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.8:  self-ingest hook fires `ingest --local` (not just --source hermes) — the
+#         Hermes session hook is now the OS-general trigger that sweeps EVERY local
+#         agent store (claude-code, codex, gemini-cli, …) into the vault, so synced
+#         CC sessions get archived without a bespoke per-OS script. Not CC-specific.
 #  v5.7:  self-ingest also registers on_session_start (belt-and-suspenders) so a
 #         crash you never follow with another session still gets swept at the next
 #         start; end-hook stays primary. Idempotent per-event (existing keys kept).
@@ -83,7 +87,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.7"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.8"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -111,7 +115,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.7 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.8 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1150,11 +1154,17 @@ if [[ -f "$HERMES_CONFIG" ]]; then
   esac
 fi
 
-# ── v5.6/v5.7: register the self-ingest HOOKS so Hermes archives its OWN sessions ─
+# ── v5.6/v5.7/v5.8: register the self-ingest HOOKS — Hermes' session hooks are the
+#    OS-general, FDA-safe trigger that sweeps ALL local agents into the vault ──────
 # Closes the loop OS-generally (no per-OS launchd/cron/Task Scheduler): hermes
-# `on_session_end` + `on_session_start` hooks run `ingest --source hermes`, which
-# reads ~/.hermes/state.db and writes each non-cli session into the vault. Because
-# that ingest is fully idempotent and re-scans the WHOLE db every fire (measured
+# `on_session_end` + `on_session_start` hooks run `ingest --local` (v5.8), which
+# sweeps every directory/db-based agent store — hermes, claude-code, codex,
+# gemini-cli, cursor, aider, lmstudio, open-webui, openclaw — skipping the
+# zip/Downloads exporters. So the CC (and any other) sessions synced onto this box
+# get archived by the next Hermes session, not by a bespoke per-OS script — general,
+# not CC-specific. (Pillar 4's hermes self-ingest is a subset: its state.db is one
+# of the swept sources, still cli-skipped so -z automation stays out.) Because that
+# ingest is fully idempotent and re-scans everything every fire (measured
 # ~0.2s), it is CRASH-RESILIENT two ways:
 #   • on_session_end (primary) archives the session that just ended cleanly; and
 #     since each fire re-scans everything, it also sweeps up any PRIOR session that
@@ -1166,7 +1176,7 @@ fi
 # ~/Documents vault works where launchd would be blocked by TCC.) Targeted edit only;
 # model/moa block untouched. Idempotent: an event key already present is left as-is.
 install_self_ingest() {
-  local cmd="bash $VAULT/.tools/ai-memory-ingest.sh $VAULT --source hermes --yes"
+  local cmd="bash $VAULT/.tools/ai-memory-ingest.sh $VAULT --local --yes"
   python3 - "$HERMES_CONFIG" "$cmd" << 'PYSELF'
 import sys, os, re
 path, cmd = sys.argv[1], sys.argv[2]
@@ -1207,7 +1217,7 @@ PYSELF
 }
 if [[ -f "$HERMES_CONFIG" ]]; then
   case "$(install_self_ingest)" in
-    written) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --source hermes); Hermes archives its own sessions, crash-safe" ;;
+    written) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --local); Hermes' session sweeps ALL local agents into the vault, crash-safe" ;;
     present) ok "Self-ingest hooks already registered in config.yaml" ;;
     *)       warn "Could not register the self-ingest hooks — add them under hooks: on_session_end/on_session_start in ~/.hermes/config.yaml" ;;
   esac

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.24
+#  ai-memory-ingest.sh  v2.25
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.25: `--local` sweeps every directory/db-based agent store (hermes,
+#         claude-code, codex, gemini-cli, cursor, aider, lmstudio, open-webui,
+#         openclaw) and SKIPS the zip/Downloads exporters. This is the OS-general,
+#         not-CC-specific ingest the configure self-ingest hook fires — one
+#         FDA-safe session hook archives ALL local agents, no per-OS scheduler.
 #  v2.24: `hermes` source SKIPS source='cli' sessions — self-ingest archives
 #         interactive (tui/dashboard) + gateway conversations, not one-shot
 #         `hermes -z` automation/scripting. Closes the self-ingest loop (agent
@@ -117,7 +122,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.24"
+VERSION = "2.25"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -1403,6 +1408,7 @@ def main():
     ap.add_argument("positional", nargs="*")
     ap.add_argument("--source"); ap.add_argument("--path")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--local", action="store_true")
     ap.add_argument("--list-sources", action="store_true")
     ap.add_argument("--scan", action="append", default=[])
     ap.add_argument("--deep-scan", action="store_true")
@@ -1422,9 +1428,12 @@ def main():
         print(f"ai-memory-ingest.sh v{VERSION}"); return 0
     if a.help:
         print("Usage: ai-memory-ingest.sh [vault] [export.zip] "
-              "[--source NAME] [--path P] [--scan DIR] [--deep-scan] "
+              "[--source NAME] [--path P] [--local] [--scan DIR] [--deep-scan] "
               "[--scan-report] [--reindex] [--with-cron] [--ai-titles] "
               "[--list-sources] [--yes]\n"
+              "--local: sweep every LOCAL agent store (hermes, claude-code, codex, "
+              "gemini-cli, …) — skips the zip/Downloads exporters. Used by the "
+              "configure self-ingest hook (one OS-general, FDA-safe trigger).\n"
               "--with-cron: also vault openclaw cron/scheduler sessions "
               "(into openclaw-cron/; skipped by default).\n"
               "--scan-report: map exports/unknowns to <vault>/ai-scan-report.md, "
@@ -1532,6 +1541,16 @@ def main():
             warn_path_source_mismatch(a.source, a.path)
         results[a.source] = run_source(a.source, out_root,
                                        explicit_path=a.path, scan_roots=scan_roots)
+    elif a.local:                                  # OS-general local sweep: every
+        # directory/db-based agent store (hermes, claude-code, codex, gemini-cli,
+        # …), skipping the zip/Downloads exporters. This is what the configure
+        # self-ingest hook fires on session-start/end: one FDA-safe, no-scheduler
+        # trigger that archives ALL local agents on this box, not just Hermes.
+        hdr("Discovering LOCAL agent sources")
+        for name, spec in SOURCES.items():
+            if spec.get("kind") == "zip":
+                continue
+            results[name] = run_source(name, out_root, scan_roots=scan_roots)
     else:                                          # default = discover all
         hdr("Discovering sources")
         for name in SOURCES:

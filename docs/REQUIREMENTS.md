@@ -1,4 +1,4 @@
-# AI Memory Stack — Requirements Specification v1.41
+# AI Memory Stack — Requirements Specification v1.42
 
 <!-- Doc hygiene (2026-07-01): scrubbed leaked personal infrastructure from the prose
      (private IPs, usernames, host paths, a Mac pid, and a live `ssh …@…` line replaced
@@ -491,11 +491,20 @@ BE stdin, so a stdin-reading mode gets nothing — feed the source on fd 3
 
 ### 2.3.2 Self-ingest hook — Hermes archives its OWN sessions (BUILT, configure v5.6/v5.7)
 
-Pillar 4 of the loop: the agent's own conversations flow back into the vault
-with **no per-OS scheduler**. `configure`'s `install_self_ingest` registers
+Pillar 4 of the loop, generalized: local agent conversations flow back into the
+vault with **no per-OS scheduler**. `configure`'s `install_self_ingest` registers
 hermes `on_session_end` **and** `on_session_start` hooks that run
-`ai-memory-ingest.sh <vault> --source hermes --yes` (mirrors the v5.5
-pre_llm_call search-hook: same `hooks:` block, same `hooks_auto_accept: true`).
+`ai-memory-ingest.sh <vault> --local --yes` (mirrors the v5.5 pre_llm_call
+search-hook: same `hooks:` block, same `hooks_auto_accept: true`).
+
+- **`--local` (ingest v2.25) = OS-general, not CC-specific.** It sweeps every
+  directory/db-based agent store — hermes, claude-code, codex, gemini-cli,
+  cursor, aider, lmstudio, open-webui, openclaw — and skips the zip/Downloads
+  exporters. So the Hermes session hook is a single FDA-safe trigger that
+  archives *all* local agents on the box: CC transcripts synced onto this
+  machine get ingested by the next Hermes session, retiring the old bespoke
+  per-OS cc-session-ingest script. (Hermes' own `state.db` is just one swept
+  source, still `source='cli'`-skipped so `-z` automation stays out.)
 
 - **Why a hook, not launchd/cron/Task Scheduler.** OS-general (one mechanism
   everywhere) and — decisively on macOS — the hook runs **in Hermes' own
