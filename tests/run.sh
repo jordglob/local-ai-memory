@@ -757,12 +757,15 @@ PYEOF
     else
       fail "configure did not register the memory hook" "$(grep -nE 'hooks|auto_accept' "$TMP/hh1/config.yaml" 2>/dev/null | head -4)"
     fi
-    # v5.6: configure also registers the self-ingest hook (on_session_end → ingest)
+    # v5.6/v5.7: configure registers the self-ingest hooks (on_session_end +
+    # on_session_start → ingest), and both must survive alongside pre_llm_call.
     if grep -q "on_session_end:" "$TMP/hh1/config.yaml" 2>/dev/null \
-       && grep -q "ai-memory-ingest.sh .* --source hermes" "$TMP/hh1/config.yaml" 2>/dev/null; then
-      pass "configure registers the self-ingest hook (on_session_end → ingest --source hermes)"
+       && grep -q "on_session_start:" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "ai-memory-ingest.sh .* --source hermes" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "pre_llm_call:" "$TMP/hh1/config.yaml" 2>/dev/null; then
+      pass "configure registers the self-ingest hooks (on_session_end + on_session_start), pre_llm_call intact"
     else
-      fail "configure did not register the self-ingest hook" "$(grep -nE 'hooks|on_session|ingest' "$TMP/hh1/config.yaml" 2>/dev/null | head -6)"
+      fail "configure did not register both self-ingest hooks" "$(grep -nE 'hooks|on_session|ingest|pre_llm' "$TMP/hh1/config.yaml" 2>/dev/null | head -8)"
     fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \

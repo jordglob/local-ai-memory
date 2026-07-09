@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.6
+#  ai-memory-configure.sh  v5.7
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,9 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.7:  self-ingest also registers on_session_start (belt-and-suspenders) so a
+#         crash you never follow with another session still gets swept at the next
+#         start; end-hook stays primary. Idempotent per-event (existing keys kept).
 #  v5.6:  registers the self-ingest HOOK (hermes on_session_end → ingest --source
 #         hermes) so Hermes archives its OWN sessions into the vault — OS-generally,
 #         no per-OS launchd/cron/Task Scheduler. Idempotent full re-scan every fire
@@ -80,7 +83,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.6"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.7"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -108,7 +111,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.6 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.7 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1147,16 +1150,21 @@ if [[ -f "$HERMES_CONFIG" ]]; then
   esac
 fi
 
-# ── v5.6: register the self-ingest HOOK so Hermes archives its OWN sessions ────
-# Closes the loop OS-generally (no per-OS launchd/cron/Task Scheduler): a hermes
-# `on_session_end` hook runs `ingest --source hermes`, which reads ~/.hermes/state.db
-# and writes each non-cli session into the vault. Because that ingest is fully
-# idempotent and re-scans the WHOLE db every fire, it is CRASH-RESILIENT: a session
-# that dies before its own on_session_end (crash/kill/power-loss) is still in
-# state.db and gets archived by the NEXT clean session-end. So on_session_end alone
-# suffices — no on_session_start startup-latency tax. (Runs in Hermes' own process,
-# which has macOS Full Disk Access, so writing the ~/Documents vault works where
-# launchd would be blocked by TCC.) Targeted edit only; model/moa block untouched.
+# ── v5.6/v5.7: register the self-ingest HOOKS so Hermes archives its OWN sessions ─
+# Closes the loop OS-generally (no per-OS launchd/cron/Task Scheduler): hermes
+# `on_session_end` + `on_session_start` hooks run `ingest --source hermes`, which
+# reads ~/.hermes/state.db and writes each non-cli session into the vault. Because
+# that ingest is fully idempotent and re-scans the WHOLE db every fire (measured
+# ~0.2s), it is CRASH-RESILIENT two ways:
+#   • on_session_end (primary) archives the session that just ended cleanly; and
+#     since each fire re-scans everything, it also sweeps up any PRIOR session that
+#     died before its own end-hook (crash/kill/power-loss) — it's still in state.db.
+#   • on_session_start (v5.7 belt-and-suspenders) covers the one residual edge the
+#     end-hook can't: a crash after which you NEVER start another session — the next
+#     start you do run archives the orphan. Cost is ~0.2s at startup, negligible.
+# (Both run in Hermes' own process, which has macOS Full Disk Access, so writing the
+# ~/Documents vault works where launchd would be blocked by TCC.) Targeted edit only;
+# model/moa block untouched. Idempotent: an event key already present is left as-is.
 install_self_ingest() {
   local cmd="bash $VAULT/.tools/ai-memory-ingest.sh $VAULT --source hermes --yes"
   python3 - "$HERMES_CONFIG" "$cmd" << 'PYSELF'
@@ -1166,32 +1174,29 @@ if not os.path.exists(path):
     print("nocfg"); sys.exit(0)
 text = open(path).read()
 changed = False
-# 1) hooks_auto_accept: true  (needed for non-TTY runs to fire the hook)
+# 1) hooks_auto_accept: true  (needed for non-TTY runs to fire the hooks)
 if re.search(r"(?m)^hooks_auto_accept:\s*true\b", text):
     pass
 elif re.search(r"(?m)^hooks_auto_accept:", text):
     text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text); changed = True
 else:
     text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"; changed = True
-# 2) hooks: on_session_end — inject our command if not already present
-if cmd in text:
-    pass
-else:
-    block = ("hooks:\n"
-             "  on_session_end:\n"
-             "    - command: " + cmd + "\n"
-             "      timeout: 180\n")
-    ins = ("  on_session_end:\n"
+# 2) ensure a `hooks:` block exists (convert `hooks: {}` / append if absent)
+if not re.search(r"(?m)^hooks:\s*$", text):
+    m0 = re.search(r"(?m)^hooks:\s*\{\}\s*$", text)
+    if m0:
+        text = text[:m0.start()] + "hooks:" + text[m0.end():]; changed = True
+    else:
+        text = text.rstrip("\n") + "\nhooks:\n"; changed = True
+# 3) inject each event under `hooks:` unless that event key is already present
+for ev in ("on_session_end", "on_session_start"):
+    if re.search(r"(?m)^  " + re.escape(ev) + r":", text):
+        continue  # already configured (ours or the user's) — don't clobber
+    ins = ("  " + ev + ":\n"
            "    - command: " + cmd + "\n"
            "      timeout: 180\n")
-    m = re.search(r"(?m)^hooks:\s*(\{\}\s*)?$", text)
-    if m and (m.group(1) or "").strip() == "{}":
-        text = text[:m.start()] + block + text[m.end():]; changed = True
-    elif m:
-        # `hooks:` with existing children — splice on_session_end under it
-        text = text[:m.end()] + "\n" + ins + text[m.end():]; changed = True
-    else:
-        text = text.rstrip("\n") + "\n" + block; changed = True
+    m = re.search(r"(?m)^hooks:\s*$", text)
+    text = text[:m.end()] + "\n" + ins + text[m.end():]; changed = True
 if changed:
     tmp = path + ".tmp"
     open(tmp, "w").write(text); os.replace(tmp, path)
@@ -1202,9 +1207,9 @@ PYSELF
 }
 if [[ -f "$HERMES_CONFIG" ]]; then
   case "$(install_self_ingest)" in
-    written) ok "Self-ingest hook registered (on_session_end → ingest --source hermes); Hermes archives its own sessions, crash-safe" ;;
-    present) ok "Self-ingest hook already registered in config.yaml" ;;
-    *)       warn "Could not register the self-ingest hook — add it under hooks: on_session_end in ~/.hermes/config.yaml" ;;
+    written) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --source hermes); Hermes archives its own sessions, crash-safe" ;;
+    present) ok "Self-ingest hooks already registered in config.yaml" ;;
+    *)       warn "Could not register the self-ingest hooks — add them under hooks: on_session_end/on_session_start in ~/.hermes/config.yaml" ;;
   esac
 fi
 

@@ -1,4 +1,4 @@
-# AI Memory Stack — Requirements Specification v1.40
+# AI Memory Stack — Requirements Specification v1.41
 
 <!-- Doc hygiene (2026-07-01): scrubbed leaked personal infrastructure from the prose
      (private IPs, usernames, host paths, a Mac pid, and a live `ssh …@…` line replaced
@@ -488,6 +488,34 @@ without a TTY consent prompt. Architecture note (bit us live): a bash→python
 wrapper that feeds the source on **stdin** (`python3 - <<EOF`) makes the heredoc
 BE stdin, so a stdin-reading mode gets nothing — feed the source on fd 3
 (`python3 /dev/fd/3 3<<EOF`) and leave stdin for the payload.
+
+### 2.3.2 Self-ingest hook — Hermes archives its OWN sessions (BUILT, configure v5.6/v5.7)
+
+Pillar 4 of the loop: the agent's own conversations flow back into the vault
+with **no per-OS scheduler**. `configure`'s `install_self_ingest` registers
+hermes `on_session_end` **and** `on_session_start` hooks that run
+`ai-memory-ingest.sh <vault> --source hermes --yes` (mirrors the v5.5
+pre_llm_call search-hook: same `hooks:` block, same `hooks_auto_accept: true`).
+
+- **Why a hook, not launchd/cron/Task Scheduler.** OS-general (one mechanism
+  everywhere) and — decisively on macOS — the hook runs **in Hermes' own
+  process, which has Full Disk Access**, so it can write the TCC-protected
+  `~/Documents` vault. launchd/cron jobs lack FDA and are blocked there.
+- **Crash-resilient by design.** `--source hermes` re-scans the WHOLE `state.db`
+  every fire and the ingest is idempotent, so: (a) `on_session_end` archives the
+  clean session AND sweeps up any prior session that died before its own
+  end-hook; (b) `on_session_start` (v5.7) covers the one residual edge — a crash
+  you never follow with another session — at the next start you run. Fire cost
+  measured ~0.2s, so the start-hook adds no meaningful latency.
+- **No dev/test residue.** `parse_hermes` skips `source='cli'` (ingest v2.24), so
+  one-shot `hermes -z` automation never lands in the vault; only real
+  tui/dashboard/gateway chats do — "no config difference direct vs gateway".
+- **Proven** end-to-end in an isolated `HERMES_HOME` sandbox (hook fires on a
+  real session, writes a non-cli session into a `~/Documents` test-vault, second
+  fire does not duplicate) and live on the mini (`hooks test on_session_end`
+  rewrote the real vault INDEX; a timeout-killed session correctly did NOT fire,
+  confirming the crash path). Replaces the earlier bespoke ad-hoc wiring that
+  piggy-backed hermes-ingest on the cross-machine CC-sync trigger.
 
 ### 2.4 Update Advisor (AGENTS.md section / scheduled Hermes task)
 
