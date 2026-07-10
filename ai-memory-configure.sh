@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.9
+#  ai-memory-configure.sh  v5.10
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,11 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.10: ships two validated MoA presets for /moa — `balanced` (cheap, family-
+#         diverse cloud references + a cheap-but-strong glm-5.2 aggregator; the
+#         2026-07-10 testing showed MoA's recall lift comes from the references,
+#         not the aggregator, so opus-as-aggregator is wasted spend) and `lokal`
+#         (qwen3.6 + gemma4, $0 offline fallback). Idempotent, non-clobbering.
 #  v5.9:  hook-registration idempotency is whitespace-normalized — a re-run no
 #         longer DUPLICATES pre_llm_call when Hermes has re-dumped config.yaml with
 #         the long command line-FOLDED (live bug 2026-07-10, surfaced by re-running
@@ -92,7 +97,7 @@ lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.9"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.10"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -120,7 +125,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.9 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.10 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1250,6 +1255,59 @@ if [[ -f "$HERMES_CONFIG" ]]; then
     written) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --local); Hermes' session sweeps ALL local agents into the vault, crash-safe" ;;
     present) ok "Self-ingest hooks already registered in config.yaml" ;;
     *)       warn "Could not register the self-ingest hooks — add them under hooks: on_session_end/on_session_start in ~/.hermes/config.yaml" ;;
+  esac
+fi
+
+# ── v5.10: ship the validated MoA presets (Mixture of Agents for /moa) ─────────
+# Two presets, derived from real autonomy+cost testing (2026-07-10):
+#   • balanced — 3 cheap, family-DIVERSE cloud references (nex-n2-mini, glm-4.7-flash,
+#     claude-haiku-4.5) + a strong-but-cheap aggregator (glm-5.2). The key finding
+#     was that MoA's correctness lift comes from the REFERENCES, not the aggregator,
+#     so an expensive aggregator (opus) is wasted spend — glm-5.2 gets ~the same
+#     recall for ~1/5 the cost.
+#   • lokal — qwen3.6:35b + gemma4:12b refs, qwen3.6 aggregator: an offline, $0
+#     fallback (slower, lower recall, but private/sovereign).
+# Idempotent + non-clobbering: adds a preset only if its NAME is absent, sets
+# default_preset only if unset. The user's own presets/choice are never overwritten.
+install_moa_presets() {
+  python3 - "$HERMES_CONFIG" << 'PYMOA'
+import sys, os, re
+path = sys.argv[1]
+if not os.path.exists(path): print("nocfg"); sys.exit(0)
+text = open(path).read(); changed = False
+balanced = ("    balanced:\n"
+            "      reference_models:\n"
+            "        - provider: openrouter\n          model: nex-agi/nex-n2-mini\n"
+            "        - provider: openrouter\n          model: z-ai/glm-4.7-flash\n"
+            "        - provider: openrouter\n          model: anthropic/claude-haiku-4.5\n"
+            "      aggregator:\n        provider: openrouter\n        model: z-ai/glm-5.2\n")
+lokal    = ("    lokal:\n"
+            "      reference_models:\n"
+            "        - provider: ollama-launch\n          model: qwen3.6:35b\n"
+            "        - provider: ollama-launch\n          model: gemma4:12b\n"
+            "      aggregator:\n        provider: ollama-launch\n        model: qwen3.6:35b\n")
+if not re.search(r"(?m)^moa:\s*$", text):
+    text = text.rstrip("\n") + "\nmoa:\n  default_preset: balanced\n  presets:\n" + balanced + lokal
+    changed = True
+else:
+    if not re.search(r"(?m)^  presets:\s*$", text):
+        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  presets:\n", text, count=1); changed = True
+    for name, block in (("balanced", balanced), ("lokal", lokal)):
+        if not re.search(r"(?m)^    " + re.escape(name) + r":\s*$", text):
+            text = re.sub(r"(?m)^(  presets:[ \t]*\n)", r"\1" + block, text, count=1); changed = True
+    if not re.search(r"(?m)^  default_preset:", text):
+        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  default_preset: balanced\n", text, count=1); changed = True
+if changed:
+    open(path + ".tmp", "w").write(text); os.replace(path + ".tmp", path); print("written")
+else:
+    print("present")
+PYMOA
+}
+if [[ -f "$HERMES_CONFIG" ]]; then
+  case "$(install_moa_presets)" in
+    written) ok "MoA presets installed (balanced = cheap diverse cloud panel; lokal = $0 offline) — invoke with /moa" ;;
+    present) ok "MoA presets already present in config.yaml" ;;
+    *)       warn "Could not install MoA presets — add them under moa: presets: in ~/.hermes/config.yaml" ;;
   esac
 fi
 

@@ -817,3 +817,19 @@ History:
                           (pre_llm_call/on_session_end/on_session_start = 1/1/1), and the
                           --local hook fired live (exit 0, INDEX rewritten, ~1.5s).
                           Suite: 101 passed, 0 failed, 1 skipped.
+  v50 CC   2026-07-10  — configure v5.10 ships two validated MoA presets for /moa,
+                          from a cost-vs-correctness study (9 cloud + 3 local models,
+                          6 vault-graded questions x 3 runs each). Key finding: MoA's
+                          recall lift comes from the family-DIVERSE references, not the
+                          aggregator, so an expensive opus aggregator is wasted spend.
+                          Presets: `balanced` (refs nex-n2-mini + glm-4.7-flash +
+                          claude-haiku-4.5, aggregator glm-5.2 — ~77% recall ceiling at
+                          ~1/5 the opus cost) and `lokal` (qwen3.6 + gemma4, qwen3.6
+                          aggregator — $0 offline fallback, ~65%, slower). new
+                          install_moa_presets is idempotent + non-clobbering (adds a
+                          preset only if its name is absent, sets default_preset only if
+                          unset). NB the study also found real MoA can't be measured
+                          headless — references only run in an interactive TTY/gateway,
+                          not `hermes -z` (5 probes) — so MoA correctness there is an
+                          analytical union ceiling from measured single-model data; cost
+                          is exact. Suite: 102 passed, 0 failed, 1 skipped.

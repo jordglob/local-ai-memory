@@ -807,6 +807,15 @@ PYEOF
     else
       fail "configure did not register both self-ingest hooks" "$(grep -nE 'hooks|on_session|ingest|pre_llm' "$TMP/hh1/config.yaml" 2>/dev/null | head -8)"
     fi
+    # v5.10: configure ships the MoA presets (balanced + lokal) for /moa
+    if grep -q "balanced:" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "lokal:" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "nex-agi/nex-n2-mini" "$TMP/hh1/config.yaml" 2>/dev/null \
+       && grep -q "default_preset: balanced" "$TMP/hh1/config.yaml" 2>/dev/null; then
+      pass "configure ships the MoA presets (balanced + lokal, default_preset=balanced)"
+    else
+      fail "configure did not install the MoA presets" "$(grep -nE 'moa:|preset|balanced|lokal' "$TMP/hh1/config.yaml" 2>/dev/null | head -8)"
+    fi
     # t2: rerun WITHOUT the flag — the working (stub-answering) block is KEPT
     HOME="$TMP/cfghome" HERMES_HOME="$TMP/hh1" \
       bash ai-memory-configure.sh "$TMP/cfgvault" --yes > "$TMP/cfg2.out" 2>&1
