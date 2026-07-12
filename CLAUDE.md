@@ -42,13 +42,14 @@ conventions before adding to any of them; match the surrounding code.
   code for style.
 
 ## Shipping conventions (match what's there; don't reinvent)
-- **Versioning:** bump the changed script's version (header + `--version` +
-  banner) *and* `PACKAGE_VERSION.txt`. Package zips are
-  `local-ai-memory-repo_v<N>_<WEB|CC>_<date>_<main-build-event>.zip` (from v12 on,
-  the kebab-case `<main-build-event>` suffix names the headline change so the
-  filename alone says what shipped). When you (Claude Code) ship a bundle, you are
-  **CC**. Bundle = `zip -r` the clean working tree (no `.git`) from the parent dir,
-  then set the archive comment to the HEAD commit hash (`zip -z`).
+- **Versioning:** bump the changed script's `VERSION` constant (the one near
+  the top of the `.sh`, or in the `lib/` engine for ingest/search — `--version`
+  and the banner derive from it, and the header comment must state the same
+  number) and add one line to its header changelog. When tagging a release,
+  add a `CHANGELOG.md` entry.
+- **Releases:** an annotated git tag (`v<N>`) on a green main, matching the
+  newest `CHANGELOG.md` entry. The zip-bundle/WEB-CC scheme is retired — that
+  era (v1–v50) is frozen in `docs/history/PACKAGE_VERSION.txt`.
 - **Keep shipped scripts + README generic** — no machine names, personal paths,
   or one-box specifics. `docs/history/` keeps live-run lessons as history;
   `TESTING.md` records what was actually proven, where.

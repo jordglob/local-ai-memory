@@ -1,3 +1,7 @@
+FROZEN 2026-07-12 — release history now lives in CHANGELOG.md + git tags; per-
+script versions live in each script's header. This file is the v1–v50 zip-
+bundle era, kept unedited below this line.
+
 Package release versioning
 ==========================
 The zip filename carries a package-level release number + author + date so the

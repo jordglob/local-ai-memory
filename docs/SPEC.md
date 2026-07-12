@@ -60,7 +60,10 @@ and its export archive safe to move over USB / scp / cloud / email.
 
 ## 3. The script family
 
-Eight self-contained bash scripts, run in this order (the last two optional):
+Eight bash entrypoints, run in this order (the last two optional). Six are
+self-contained; ingest and search are thin launchers whose python engines live
+in `lib/` (`aimem_common.py` / `aimem_ingest.py` / `aimem_search.py`),
+installed alongside the tools:
 
 | Script | Role |
 |---|---|
@@ -100,9 +103,11 @@ conventions:
   it, not `[[ -r/-w ]]`), bash 3.2 compatible, secrets never logged.
 - Chain: every script ends by pointing at the literal next command
   (a `▶ NEXT` footer as the last thing on screen).
-- Versioning: a script's version lives in its header, `--version` output, and
-  banner, plus a line in `PACKAGE_VERSION.txt`; the test harness fails on
-  drift between them.
+- Versioning: one `VERSION` constant per script (in the `.sh`, or in the
+  `lib/` engine for the thin launchers); `--version` and the banner derive
+  from it, the header comment states it, and the test harness fails on drift.
+  Releases are annotated git tags with a `CHANGELOG.md` entry (the zip-bundle
+  ledger is frozen at `docs/history/PACKAGE_VERSION.txt`).
 - A future `ai-memory.sh` menu/dispatcher is allowed but not required.
 
 ## 4. The dividing line — deterministic work is a script, messy reality is an agent

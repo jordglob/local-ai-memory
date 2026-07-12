@@ -33,9 +33,12 @@ is the floor; a real live run on the affected OS is the bar (see below).
 
 ## Versioning (when a script changes)
 
-Bump the changed script's version in **all three** in-script places — the header
-comment, the `--version` output, and the banner — **and** add a line to
-`PACKAGE_VERSION.txt`. `tests/run.sh` fails on drift between them. (Pure,
+Bump the script's single `VERSION` constant — near the top of the `.sh`, or in
+the `lib/` engine for the ingest/search thin launchers — and add a line to its
+header changelog. `--version` and the banner derive from the constant, and
+`tests/run.sh` fails if the header comment drifts from it. Releases are
+annotated git tags (`v<N>`) with a matching `CHANGELOG.md` entry; the retired
+zip-bundle ledger is frozen at `docs/history/PACKAGE_VERSION.txt`. (Pure,
 behavior-neutral cleanups that don't change what a script does may stay
 unversioned — say so in the commit.)
 

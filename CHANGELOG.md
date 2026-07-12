@@ -1,0 +1,53 @@
+# Changelog
+
+One entry per tagged release; per-script versions move independently and live
+in each script's header. History before v50 is in
+`docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
+
+## v51 — 2026-07-12
+
+- **Fleet split.** The remote + netboot layer moved to the companion repo
+  `local-ai-memory-fleet` — nothing left in this repo can lock you out of a
+  machine.
+- **mux returns as the standard interface** (mux v1.3): a side-by-side tmux
+  cockpit (agent pane + vault pane), wired into the setup → configure → ingest
+  chain (setup v8.20, configure v5.12, ingest v2.29 point at it).
+- **Python engines extracted to `lib/`** (`aimem_common` / `aimem_ingest` /
+  `aimem_search`): ingest v3.0 and search v2.0 are now thin launchers — same
+  names, same flags — and the parsers are unit-testable, with the
+  secret-pattern set in one shared module. setup v8.21 / configure v5.13
+  install `lib/` into `<vault>/.tools/lib` alongside the tools.
+- **User manual added:** `docs/MANUAL.md`, written from the user's side of the
+  screen — passwords vs API keys vs SSH, what leaves your machine, how recall
+  works and its honest limits.
+- **Versioning collapsed to git tags + this file.** The zip-bundle ledger is
+  frozen at `docs/history/PACKAGE_VERSION.txt`; each script keeps exactly one
+  `VERSION` constant that `--version` and the banner derive from (uninstall
+  v1.5 fixes the last stragglers, including an export manifest that had
+  drifted to a stale number).
+
+## v50 — 2026-07-12
+
+Hardening round from a four-angle external review (onboarding, data path,
+dangerous surface, docs/process):
+
+- **Ingest identity + atomicity** (ingest v2.27, sync v1.1): conversation ids
+  are never truncated (kills a same-day-collision overwrite class), exact
+  embedded-id binding with legacy adoption, atomic writes, user-edited vault
+  files detected and never clobbered, titles/filenames secret-scrubbed, exit 1
+  on failures; sync's outgoing secret gate rebuilt to match ingest's full
+  pattern set (parity locked by a test).
+- **Remote lockout-proofing** (remote v2.10, uninstall v1.3): `--yes` can
+  never disable password auth, root-owned revert sentinel (no /tmp forgery),
+  sshd_config backup + auto-restore, working macOS revert fallback; uninstall
+  exports Hermes' own state.db before removal.
+- **Onboarding decision-load cut** (setup v8.18, configure v5.11, bootstrap):
+  exec handoffs stop orphaning the sudo keepalive / leaking tmpdirs, live log
+  path for the whole run, Anthropic prompt cut, autostart default with a
+  stated opt-out, one atomic config.yaml editor replaces three regex editors.
+- **Docs truth-sync + SPEC extraction:** README proven/unproven matches
+  TESTING.md, `docs/SPEC.md` extracted as the normative spec, the design
+  journals frozen under `docs/history/`.
+- Also in this release span: validated MoA presets for `/moa` (configure
+  v5.10) and a fine-grained GitHub PAT pattern in the secret scrub (ingest
+  v2.26).

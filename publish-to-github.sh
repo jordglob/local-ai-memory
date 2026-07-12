@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One-command publish: requires GitHub CLI (gh) logged in once: gh auth login
 # Publishes UNSUPPORTED, with Issues OFF (see the README "Status" banner).
-# Usage: bash publish-to-github.sh [vX.Y.Z]
-#   Pass a tag to tag this publish; with no argument NO tag is created —
-#   tagging is a deliberate act, not a side effect of publishing.
+# Usage: bash publish-to-github.sh [v<N>]
+#   With no argument the tag comes from CHANGELOG.md's newest "## v<N>" entry
+#   (created as an annotated tag if it doesn't exist yet, then pushed).
 set -euo pipefail
 cd "$(dirname "$0")"
 command -v gh >/dev/null || { echo "Install GitHub CLI first: https://cli.github.com (brew install gh)"; exit 1; }
@@ -19,13 +19,14 @@ gh repo edit "$LOGIN/local-ai-memory" \
   --enable-issues=false --enable-projects=false --enable-wiki=false 2>/dev/null \
   || echo "Note: could not toggle features automatically — turn Issues OFF in repo Settings → Features."
 
-TAG="${1:-}"
+# Tag: argument wins; otherwise the newest release recorded in CHANGELOG.md.
+TAG="${1:-$(sed -n 's/^## \(v[0-9][0-9]*\).*/\1/p' CHANGELOG.md | head -1)}"
 if [[ -n "$TAG" ]]; then
-  git tag "$TAG"
+  git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag -a "$TAG" -m "$TAG"
   git push origin "$TAG"
   echo "Tagged $TAG."
 else
-  echo "No tag created (to tag a release: bash publish-to-github.sh v1.2.0)."
+  echo "No tag created (no argument and no '## v<N>' entry in CHANGELOG.md)."
 fi
 echo ""
 echo "✓ Published (Issues OFF, unsupported): https://github.com/$LOGIN/local-ai-memory"
