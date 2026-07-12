@@ -845,3 +845,47 @@ History:
                           sanitizes files written by older versions. Regression test
                           extended to assert both an api-key and a fine-grained PAT are
                           redacted end-to-end. Suite: 102 passed, 0 failed, 1 skipped.
+  v50 CC   2026-07-12  — hardening round from a four-angle external review
+                          (onboarding, data path, dangerous surface, docs/process).
+                          (1) ingest v2.27: conversation identity is never truncated
+                          (the [:12] class collided same-day codex sessions and could
+                          silently overwrite distinct conversations); exact embedded-id
+                          binding replaces the suffix glob, with in-place adoption of
+                          legacy truncated-id files; atomic writes everywhere; user-
+                          edited vault files are detected (hash mismatch) and skipped,
+                          never clobbered; titles/filenames secret-scrubbed; exit 1
+                          when any source failed; no-TTY ask_yn now defaults NO.
+                          (2) sync v1.1: secret gate rebuilt to match ingest's full
+                          pattern set (parity locked by a test); scrape errors no
+                          longer swallowed; checksum dry-run surfaces locally-rescrubbed
+                          files the add-only push would never propagate.
+                          (3) remote v2.10: step-7 `ask` crash fixed; --yes can NEVER
+                          disable password auth (interactive /dev/tty confirm only);
+                          auto-revert self-cancel removed, sentinel+revert script now
+                          root-owned (not forgeable /tmp), REVERT_MIN 5→15; macOS `at`
+                          no-op branch replaced with a working detached fallback;
+                          sshd_config backed up before edits and auto-restored on
+                          sshd -t failure; WireGuard block guarded (no mid-run set -e
+                          death after the one-time key was shown); --yes now honors
+                          each question's stated default instead of yes-to-everything.
+                          (4) uninstall v1.3: hermes state.db rides in the export
+                          archive (verified before ~/.hermes is removed); MCP-entry
+                          removal reports what it actually did.
+                          (5) setup v8.18 + configure v5.11 + bootstrap: exec handoffs
+                          no longer orphan the sudo keepalive / leak tempdirs; the
+                          advertised log path stays live for the whole run (symlink,
+                          not a dead copy); eval-based checkpoints removed; verification
+                          degrades to warn on network flake; session-skill keep-don't-
+                          clobber; restore hint instead of surprise prompt; autostart
+                          installs by default with a stated --no-autostart opt-out;
+                          model pulls show size + free-disk check first; weak-model
+                          warning no longer fires on configure's own recommendation
+                          (calibrated ceiling note instead); Anthropic key prompt cut
+                          from the default flow; one consolidated atomic config.yaml
+                          editor replaces the three regex editors (v5.1/v5.9 bug class).
+                          (6) docs: README proven/unproven truth-synced against
+                          TESTING.md (the real-Mac run was recorded but README still
+                          claimed macOS never ran); docs/SPEC.md extracted as the
+                          normative spec; REQUIREMENTS/REVIEW/ONBOARDING-NOTES/checklist
+                          frozen under docs/history/ with status banners; script count
+                          consistent (nine) across all docs. Tests: 101 → 109 green.
