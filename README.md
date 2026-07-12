@@ -9,6 +9,8 @@ Plain markdown on your own disk.
 > 🌱 **New to the terminal?** Start with **[GET-STARTED.md](GET-STARTED.md)** — a
 > beginner walkthrough, one copy-paste block at a time (it handles the classic
 > *"git: command not found"* wall that trips people on a fresh machine).
+> Want the whole picture in one document? **[docs/MANUAL.md](docs/MANUAL.md)** is
+> the user manual — what you do, what happens, what is guaranteed.
 
 > ## Status — read this first
 >
