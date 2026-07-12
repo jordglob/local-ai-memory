@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.10
+#  ai-memory-configure.sh  v5.11
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,16 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.11: prompts read /dev/tty when stdin is a terminal OR a pipe (the
+#         bootstrap curl|bash chain) — redirected-stdin runs (tests, cron) stay
+#         non-interactive exactly as before; the three config.yaml editors are
+#         ONE pass (hooks_auto_accept flipped + announced once); a model pull
+#         states its approx download size and checks free disk first; the
+#         weak-model warning is a calibrated note when the model IS configure's
+#         own recommendation; the Anthropic key prompt is gone from the default
+#         flow (nothing in the default config used it); pasted keys are
+#         sanity-checked (whitespace/prefix), never stored silently mangled;
+#         the ingest handoff is a plain call (exec killed the trap class).
 #  v5.10: ships two validated MoA presets for /moa — `balanced` (cheap, family-
 #         diverse cloud references + a cheap-but-strong glm-5.2 aggregator; the
 #         2026-07-10 testing showed MoA's recall lift comes from the references,
@@ -94,10 +104,26 @@ hdr()  { echo -e "\n${BOLD}── $* ──${NC}"; }
 ask()  { echo -e "${CYAN}?${NC}  $*"; }
 lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+# ── Prompt source (v5.11) ─────────────────────────────────────────────────────
+# setup reads its prompts from /dev/tty; configure must too, because the guided
+# chain can arrive through a PIPE (bootstrap curl|bash → setup → configure), where
+# stdin is the exhausted pipe rather than the keyboard. BUT a redirected non-pipe
+# stdin (tests/cron run `configure < /dev/null`) must stay non-interactive exactly
+# as before — so /dev/tty is used only when stdin is a terminal or a pipe, and
+# every read otherwise falls back to plain stdin (EOF-safe, defaults apply).
+# Probe by OPENING /dev/tty: the node can exist without a controlling terminal.
+CAN_PROMPT=false
+if { : >/dev/tty; } 2>/dev/null && { [[ -t 0 ]] || [[ -p /dev/fd/0 ]]; }; then
+  CAN_PROMPT=true
+fi
+prompt_read() {  # prompt_read [read-flags] VAR — read a reply from the right source
+  if $CAN_PROMPT; then read "$@" < /dev/tty; else read "$@"; fi
+}
+
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.10"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.11"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -125,7 +151,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.10 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.11 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -362,6 +388,10 @@ PYSEL
 )
 sget() { echo "$SELECTED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"; }
 MODEL_TAG=$(sget model); DESC=$(sget desc); REASON=$(sget reason)
+# v5.11: remember what WE recommended for this hardware, so the capability
+# advice further down can tell "our own recommendation" from "user's override".
+SUGGESTED_TAG="$MODEL_TAG"
+CLOUD_DEFAULT_MODEL="openai/gpt-4o-mini"
 
 # Hermes Agent refuses any model below this context floor.
 HERMES_CTX_FLOOR=64000
@@ -473,11 +503,11 @@ if [[ -z "$REMOTE_OLLAMA" ]]; then
       fi
     elif $_answers; then
       ask "Keep this model config? [Y/n]"
-      read -r _keep || _keep=""
+      prompt_read -r _keep || _keep=""
       [[ "$(lc "${_keep:-y}")" != "n" ]] && MODE="keep"
     else
       ask "Replace it? (endpoint did not answer — it may be off right now) [y/N]"
-      read -r _repl || _repl=""
+      prompt_read -r _repl || _repl=""
       [[ "$(lc "${_repl:-n}")" == "y" ]] || MODE="keep"
     fi
   fi
@@ -503,7 +533,7 @@ else
     echo -e "   2) Ollama on another machine (LAN) — e.g. a Mac mini serving models"
     echo -e "   3) Cloud via OpenRouter${_rec3}"
     ask "Choice [1/2/3] (ENTER = $_def):"
-    read -r _modechoice || _modechoice=""
+    prompt_read -r _modechoice || _modechoice=""
     case "${_modechoice:-$_def}" in
       2) MODE="remote" ;;
       3) MODE="cloud" ;;
@@ -521,9 +551,27 @@ if [[ "$MODE" == "local" ]]; then
 fi
 echo ""
 
+# Approximate download size (GB) for the tags configure itself recommends
+# (the CAND table above) — keep the two lists in sync. Anything else gets the
+# honest fallback "several GB" rather than a made-up number.
+model_download_gb() {  # model_download_gb <tag> → GB or "" (unknown)
+  case "$1" in
+    llama3.3:70b)                       echo 40 ;;
+    qwen3:35b)                          echo 22 ;;
+    qwen2.5-coder:32b|deepseek-r1:32b)  echo 20 ;;
+    qwen3:14b)                          echo 9  ;;
+    qwen3:7b)                           echo 5  ;;
+    llama3.2:3b)                        echo 2  ;;
+    *)                                  echo "" ;;
+  esac
+}
+
 # Helper: ensure a local Ollama model is actually present; offer to pull if not.
 # (Pattern-hunt fix: verify-before-act — never write a model name without
 #  confirming it exists, whether suggested OR user-chosen.)
+# v5.11: state the approximate download size and check free disk BEFORE offering
+# the pull (same df -Pk read as setup's check) — and when disk is tight, warn
+# and do NOT default to yes.
 ensure_model_present() {  # ensure_model_present <tag>
   local tag="$1"
   # Exact full name:tag match against ollama's first column — a bare-name prefix
@@ -531,14 +579,26 @@ ensure_model_present() {  # ensure_model_present <tag>
   if ollama list 2>/dev/null | awk '{print $1}' | grep -qxF "$tag"; then
     return 0   # already there
   fi
+  local gb size_label free_gb
+  gb="$(model_download_gb "$tag")"
+  size_label="${gb:+~${gb} GB}"; size_label="${size_label:-several GB}"
+  # POSIX df, like setup's check_disk_space: column 4 of df -Pk = available KB.
+  free_gb=$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1024/1024)}')
   warn "Model '$tag' is not downloaded yet."
+  echo -e "  ${DIM}Download size: ${size_label} · free disk: ${free_gb:-unknown} GB${NC}"
   if $ASSUME_YES; then
     warn "Non-interactive — leaving it unpulled; run later: ollama pull $tag"
     return 1
   fi
-  ask "Download it now with 'ollama pull $tag'? (Y/n)"
-  local dl; read -r dl || dl=""   # EOF-safe: don't let set -e abort on closed stdin
-  if [[ "$(lc "${dl:-y}")" != "n" ]]; then
+  local _def=y _hint="(Y/n)"
+  if [[ -n "$gb" && -n "$free_gb" ]] && [[ "$free_gb" -lt $(( gb + 5 )) ]]; then
+    warn "Free disk (${free_gb} GB) is tight for a ${size_label} download (+ headroom)."
+    warn "Free up space first, or choose a smaller model."
+    _def=n; _hint="(y/N)"
+  fi
+  ask "Download it now with 'ollama pull $tag'? $_hint"
+  local dl; prompt_read -r dl || dl=""   # EOF-safe: don't let set -e abort on closed stdin
+  if [[ "$(lc "${dl:-$_def}")" != "n" ]]; then
     if ollama pull "$tag"; then ok "Model downloaded: $tag"; return 0
     else warn "Download failed — run later: ollama pull $tag"; return 1; fi
   fi
@@ -549,9 +609,8 @@ ensure_model_present() {  # ensure_model_present <tag>
 # §4.2 model-capability floor: a model can be cheap enough to chat yet too weak
 # to DRIVE the agent's search tools — it guesses filenames instead of running
 # grep/search, so imported memory looks "missing" though everything is wired.
-# Warn (don't block) when a small/cheap model is chosen. Heuristic by tag —
-# honest "may be", not a hard rule.
-warn_weak_model() {  # warn_weak_model <model_tag>
+# Heuristic by tag — honest "may be", not a hard rule.
+is_weak_model_tag() {  # is_weak_model_tag <model_tag> → 0 when likely too weak
   # §4.2 floor — fire for: cheap CLOUD tiers (gpt-4o-mini GUESSED filenames, X230
   # live) + tiny local + MID-SIZE LOCAL. The mid-size case is the hard-won one:
   # a 14B local model (qwen3.5) FAKED the search on a real Mac (2026-06-18) — 0
@@ -563,28 +622,53 @@ warn_weak_model() {  # warn_weak_model <model_tag>
     *mini*|*gpt-3.5*|*haiku-3*|*tinyllama*|*phi-2*|*gemma:2b*|\
     *:0.5b*|*:1b*|*:1.5b*|*:2b*|*:3b*|*-1b*|*-3b*|\
     *qwen3.5*|*gemma4*|*:7b*|*:8b*|*:9b*|*:13b*|*:14b*|*-7b*|*-8b*|*-13b*|*-14b*)
-      echo ""
-      warn "'$1' may be too weak to reliably USE your memory."
-      echo -e "  ${DIM}Weak models don't just answer worse — they FAKE the search: they say"
-      echo -e "  \"I couldn't find anything\" WITHOUT ever running grep, so your imported"
-      echo -e "  history looks missing even though it is all there."
-      echo -e "  Live-tested here: a 14B local model (qwen3.5) did exactly this — 0 real"
-      echo -e "  tool calls; a current-generation CLOUD model searched and cited the files."
-      echo -e "  For reliable memory recall, prefer a capable cloud model (set an API key in"
-      echo -e "  ~/.hermes/.env). Large local models (32B+) may work but aren't proven here.${NC}"
       return 0 ;;
   esac
   return 1
 }
 
+# The STRONG warning — for a weak model the user chose AGAINST the recommendation.
+warn_weak_model() {  # warn_weak_model <model_tag>
+  echo ""
+  warn "'$1' may be too weak to reliably USE your memory."
+  echo -e "  ${DIM}Weak models don't just answer worse — they FAKE the search: they say"
+  echo -e "  \"I couldn't find anything\" WITHOUT ever running grep, so your imported"
+  echo -e "  history looks missing even though it is all there."
+  echo -e "  Live-tested here: a 14B local model (qwen3.5) did exactly this — 0 real"
+  echo -e "  tool calls; a current-generation CLOUD model searched and cited the files."
+  echo -e "  For reliable memory recall, prefer a capable cloud model (set an API key in"
+  echo -e "  ~/.hermes/.env). Large local models (32B+) may work but aren't proven here.${NC}"
+}
+
+# The CALIBRATED note — same capability facts, but for a model configure ITSELF
+# just recommended for this hardware (v5.11: telling a beginner that our own
+# 16 GB recommendation "FAKES the search" contradicted the advice one screen up).
+note_recommended_ceiling() {  # note_recommended_ceiling <model_tag>
+  echo ""
+  if [[ "$MODE" == "cloud" ]]; then
+    info "Capability note: '$1' is this setup's cloud default — cheap and fine for chat."
+    echo -e "  ${DIM}The automatic search hook injects vault hits into every turn, so memory"
+    echo -e "  recall works even here — but for heavier digging (multi-step follow-up"
+    echo -e "  searches) a stronger cloud model is more reliable. Switch any time with"
+    echo -e "  /model in a chat — no reconfigure needed.${NC}"
+  else
+    info "Capability note: on this hardware, '$1' is the honest ceiling for a local model."
+    echo -e "  ${DIM}Memory recall works — the automatic search hook runs the vault search and"
+    echo -e "  injects the hits into every turn, so even this model reads your memory —"
+    echo -e "  but it is less reliable at follow-up digging than a 32B+/cloud model."
+    echo -e "  Add an OpenRouter key (in ~/.hermes/.env) any time to raise the ceiling"
+    echo -e "  without reconfiguring.${NC}"
+  fi
+}
+
 if [[ "$MODE" == "cloud" ]]; then
   # Cloud-only: pick a sensible default cloud model, no local download.
   if $ASSUME_YES; then
-    MODEL_TAG="openai/gpt-4o-mini"
+    MODEL_TAG="$CLOUD_DEFAULT_MODEL"
   else
-    ask "Cloud model tag (ENTER = openai/gpt-4o-mini):"
-    read -r _cloudmodel || _cloudmodel=""
-    MODEL_TAG="${_cloudmodel:-openai/gpt-4o-mini}"
+    ask "Cloud model tag (ENTER = $CLOUD_DEFAULT_MODEL):"
+    prompt_read -r _cloudmodel || _cloudmodel=""
+    MODEL_TAG="${_cloudmodel:-$CLOUD_DEFAULT_MODEL}"
   fi
   BASE_URL="https://openrouter.ai/api/v1"
   ok "Primary model (cloud): $MODEL_TAG"
@@ -595,7 +679,7 @@ elif [[ "$MODE" == "remote" ]]; then
     REMOTE_HOST="$REMOTE_OLLAMA"
   else
     ask "Host/IP of the machine running Ollama (host or host:port):"
-    read -r REMOTE_HOST || REMOTE_HOST=""
+    prompt_read -r REMOTE_HOST || REMOTE_HOST=""
   fi
   [[ -z "$REMOTE_HOST" ]] && die "Remote Ollama chosen but no host given."
   [[ "$REMOTE_HOST" != *:* ]] && REMOTE_HOST="${REMOTE_HOST}:11434"
@@ -615,7 +699,7 @@ elif [[ "$MODE" == "remote" ]]; then
     MODEL_TAG="$DEFAULT_REMOTE"
   else
     ask "Model (number or tag, ENTER = $DEFAULT_REMOTE):"
-    read -r _rm || _rm=""
+    prompt_read -r _rm || _rm=""
     if [[ -z "$_rm" ]]; then
       MODEL_TAG="$DEFAULT_REMOTE"
     elif [[ "$_rm" =~ ^[0-9]+$ ]]; then
@@ -630,7 +714,7 @@ elif [[ "$MODE" == "local" ]]; then
   # Local path: let the user confirm or override, THEN verify the model exists.
   if ! $ASSUME_YES; then
     ask "Confirm model (ENTER = $MODEL_TAG, or type another Ollama tag):"
-    read -r override || override=""
+    prompt_read -r override || override=""
     [[ -n "$override" ]] && MODEL_TAG="$override"
   fi
   BASE_URL="http://localhost:11434/v1"
@@ -638,8 +722,21 @@ elif [[ "$MODE" == "local" ]]; then
   ensure_model_present "$MODEL_TAG" || true
 fi
 
-# §4.2 — warn if the chosen model is likely too weak to drive memory/search tools.
-warn_weak_model "$MODEL_TAG" || true
+# §4.2 — capability advice for the chosen model. Coherent with our own advice
+# (v5.11): when the weak-ish tag IS configure's own recommendation for the
+# detected hardware (local suggestion kept, or the cloud default), print the
+# calibrated note; the scary warning fires only for a model the user chose
+# against the recommendation (or a kept/hand-written config we didn't pick).
+if is_weak_model_tag "$MODEL_TAG"; then
+  _own_rec=false
+  [[ "$MODE" == "local" && "$MODEL_TAG" == "$SUGGESTED_TAG" ]] && _own_rec=true
+  [[ "$MODE" == "cloud" && "$MODEL_TAG" == "$CLOUD_DEFAULT_MODEL" ]] && _own_rec=true
+  if $_own_rec; then
+    note_recommended_ceiling "$MODEL_TAG"
+  else
+    warn_weak_model "$MODEL_TAG"
+  fi
+fi
 
 # Context length: never below Hermes' hard floor; scale up with RAM/model max.
 # (Pattern-hunt fix: write-against-known-limit — clamp to the floor always.)
@@ -701,15 +798,29 @@ fi
 echo -e "  Press ENTER to skip (or keep existing)."
 echo ""
 
-if $ASSUME_YES; then OR_KEY=""; AN_KEY=""; else
+# v5.11: only the OpenRouter key is asked for — nothing in the default config
+# uses an Anthropic key (the fallback chain is OpenRouter-only). Add other
+# providers later with `hermes fallback add` + a key in ~/.hermes/.env.
+if $ASSUME_YES; then OR_KEY=""; else
   ask "OpenRouter API key (paste = set, ENTER = keep/skip; input hidden):"
-  read -r -s OR_KEY || OR_KEY=""; echo ""   # EOF-safe: closed stdin must not abort
-  ask "Anthropic API key (paste = set, ENTER = keep/skip; input hidden):"
-  read -r -s AN_KEY || AN_KEY=""; echo ""   # EOF-safe: closed stdin must not abort
+  prompt_read -r -s OR_KEY || OR_KEY=""; echo ""   # EOF-safe: closed stdin must not abort
+fi
+# v5.11 paste sanity: trim surrounding whitespace (terminal pastes often add a
+# trailing newline/space); refuse a key with INNER whitespace — that is a
+# mangled multi-line paste and must never be stored silently broken.
+if [[ -n "$OR_KEY" ]]; then
+  OR_KEY="${OR_KEY#"${OR_KEY%%[![:space:]]*}"}"   # ltrim
+  OR_KEY="${OR_KEY%"${OR_KEY##*[![:space:]]}"}"   # rtrim
+  if [[ "$OR_KEY" == *[[:space:]]* ]]; then
+    warn "That key contains whitespace mid-string — looks like a mangled paste; NOT saved."
+    warn "Re-run configure and paste it as one line (OpenRouter keys look like sk-or-…)."
+    OR_KEY=""
+  elif [[ "$OR_KEY" != sk-or-* ]]; then
+    warn "OpenRouter keys normally start with 'sk-or-' — saving what you pasted, but double-check it."
+  fi
 fi
 # Confirm a paste landed without echoing the secret.
 [[ -n "$OR_KEY" ]] && ok "OpenRouter key received (${#OR_KEY} chars) — looks set."
-[[ -n "$AN_KEY" ]] && ok "Anthropic key received (${#AN_KEY} chars) — looks set."
 # In cloud mode, a usable key (new or existing) is required — fail clearly if none.
 if [[ "$MODE" == "cloud" && -z "$OR_KEY" && -z "$EXISTING_OR" ]]; then
   warn "Cloud-only mode needs an OpenRouter key, but none was given or found."
@@ -874,10 +985,9 @@ PYENV
              # a bare `set_env …` call trips set -e on every RE-RUN (idempotency bug)
 }
 [[ -n "$OR_KEY" ]] && { set_env OPENROUTER_API_KEY "$OR_KEY"; ok "OpenRouter key saved"; }
-[[ -n "$AN_KEY" ]] && { set_env ANTHROPIC_API_KEY "$AN_KEY"; ok "Anthropic key saved"; }
 # Status line must reflect the ACTUAL config — never claim "fully local" in cloud
 # mode, and credit an existing key we kept rather than reporting "no keys".
-if [[ -z "$OR_KEY" && -z "$AN_KEY" ]]; then
+if [[ -z "$OR_KEY" ]]; then
   if [[ "$MODE" == "cloud" ]]; then
     [[ -n "$EXISTING_OR" ]] && info "Keeping existing OpenRouter key — cloud via OpenRouter"
   else
@@ -1127,154 +1237,90 @@ install_ingest_tool() {
 }
 install_ingest_tool
 
-# ── v5.5: register the memory-search HOOK so recall is model-agnostic ─────────
-# Live tests proved small models won't CALL the search tool from SOUL (0/9). A
-# hermes `pre_llm_call` shell hook runs the search automatically and injects the
-# hits into the user's message, so ANY model — however small — just reads them.
-# We add the hook to config.yaml's top-level `hooks:` and flip `hooks_auto_accept`
-# to true so a non-interactive/auto-started agent runs it without a TTY consent
-# prompt. Targeted edits only — the model/moa block is never touched.
-install_search_hook() {
-  local cmd="bash $VAULT/.tools/ai-memory-search.sh --hook $VAULT"
-  python3 - "$HERMES_CONFIG" "$cmd" << 'PYHOOK'
+# ── v5.11: ALL managed config.yaml edits in ONE pass ──────────────────────────
+# The three separate regex editors (search hook v5.5, self-ingest hooks
+# v5.6-v5.8, MoA presets v5.10) were this project's most recurrent live-bug
+# class (the v5.1 and v5.9 incidents in the header) — three programs each
+# re-reading and re-writing the same file with their own idempotency rules and
+# their own silent hooks_auto_accept flip. They are now ONE embedded program
+# that reads config.yaml once, applies every managed edit, and writes once
+# (atomically). Deliberately still LINE-STRUCTURED edits, not a YAML re-dump: a
+# parser round-trip would need PyYAML (not guaranteed on a fresh box) and would
+# drop the user's comments and ordering. What it manages:
+#   • hooks_auto_accept: true — flipped in ONE place and ANNOUNCED once (needed
+#     so a non-TTY/auto-started agent runs hooks without a TTY consent prompt;
+#     previously flipped silently in two editors).
+#   • pre_llm_call → ai-memory-search.sh --hook (v5.5): model-agnostic recall —
+#     small models won't CALL the search tool from SOUL (0/9 live), so the hook
+#     runs it and injects hits into the user message. Presence check is
+#     whitespace-NORMALIZED (v5.9: Hermes re-dumps config.yaml with the long
+#     command line-FOLDED; an exact-substring check missed it → duplicate key).
+#   • on_session_end + on_session_start → ingest --local (v5.6/v5.7/v5.8): the
+#     OS-general, FDA-safe sweep of ALL local agent stores into the vault,
+#     crash-resilient (each fire re-scans everything, ~0.2s). Keyed on the
+#     EVENT NAME (fold-proof); an event the user configured is never touched.
+#   • MoA presets balanced + lokal (v5.10) — a preset is added only when its
+#     NAME is absent, default_preset only when unset; user presets are kept.
+# The model / fallback_providers blocks written earlier in this run are never
+# touched here.
+apply_hermes_config_edits() {
+  local search_cmd="bash $VAULT/.tools/ai-memory-search.sh --hook $VAULT"
+  local ingest_cmd="bash $VAULT/.tools/ai-memory-ingest.sh $VAULT --local --yes"
+  python3 - "$HERMES_CONFIG" "$search_cmd" "$ingest_cmd" << 'PYEDITS'
 import sys, os, re
-path, cmd = sys.argv[1], sys.argv[2]
+path, search_cmd, ingest_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
 if not os.path.exists(path):
     print("nocfg"); sys.exit(0)
-text = open(path).read()
-changed = False
-# 1) hooks_auto_accept: true  (needed for non-TTY runs to fire the hook)
-if re.search(r"(?m)^hooks_auto_accept:\s*true\b", text):
-    pass
-elif re.search(r"(?m)^hooks_auto_accept:", text):
-    text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text); changed = True
-else:
-    text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"; changed = True
-# 2) hooks: pre_llm_call — inject our command if not already present.
-# Whitespace-normalized so a YAML-re-dumped (line-FOLDED) copy of the same command
-# still counts as present — else a re-run duplicates the pre_llm_call key (live bug,
-# 2026-07-10: Hermes folds the long command across two lines, `cmd in text` missed it).
-if re.sub(r"\s+", " ", cmd) in re.sub(r"\s+", " ", text):
-    pass
-else:
-    block = ("hooks:\n"
-             "  pre_llm_call:\n"
-             "    - command: " + cmd + "\n"
-             "      timeout: 20\n")
-    m = re.search(r"(?m)^hooks:\s*(\{\}\s*)?$", text)
-    if m and (m.group(1) or "").strip() == "{}":
-        # `hooks: {}` → replace that one line with the real block
-        text = text[:m.start()] + block + text[m.end():]; changed = True
-    elif m:
-        # `hooks:` with existing children — splice our pre_llm_call under it
-        ins = ("  pre_llm_call:\n"
-               "    - command: " + cmd + "\n"
-               "      timeout: 20\n")
-        text = text[:m.end()] + "\n" + ins + text[m.end():]; changed = True
-    else:
-        text = text.rstrip("\n") + "\n" + block; changed = True
-if changed:
-    tmp = path + ".tmp"
-    open(tmp, "w").write(text); os.replace(tmp, path)
-    print("written")
-else:
-    print("present")
-PYHOOK
-}
-if [[ -f "$HERMES_CONFIG" ]]; then
-  case "$(install_search_hook)" in
-    written) ok "Memory hook registered (pre_llm_call → ai-memory-search.sh --hook); auto-recall for ANY model" ;;
-    present) ok "Memory hook already registered in config.yaml" ;;
-    *)       warn "Could not register the memory hook — add it under hooks: pre_llm_call in ~/.hermes/config.yaml" ;;
-  esac
-fi
+orig = open(path).read()
+text = orig
+out = []
 
-# ── v5.6/v5.7/v5.8: register the self-ingest HOOKS — Hermes' session hooks are the
-#    OS-general, FDA-safe trigger that sweeps ALL local agents into the vault ──────
-# Closes the loop OS-generally (no per-OS launchd/cron/Task Scheduler): hermes
-# `on_session_end` + `on_session_start` hooks run `ingest --local` (v5.8), which
-# sweeps every directory/db-based agent store — hermes, claude-code, codex,
-# gemini-cli, cursor, aider, lmstudio, open-webui, openclaw — skipping the
-# zip/Downloads exporters. So the CC (and any other) sessions synced onto this box
-# get archived by the next Hermes session, not by a bespoke per-OS script — general,
-# not CC-specific. (Pillar 4's hermes self-ingest is a subset: its state.db is one
-# of the swept sources, still cli-skipped so -z automation stays out.) Because that
-# ingest is fully idempotent and re-scans everything every fire (measured
-# ~0.2s), it is CRASH-RESILIENT two ways:
-#   • on_session_end (primary) archives the session that just ended cleanly; and
-#     since each fire re-scans everything, it also sweeps up any PRIOR session that
-#     died before its own end-hook (crash/kill/power-loss) — it's still in state.db.
-#   • on_session_start (v5.7 belt-and-suspenders) covers the one residual edge the
-#     end-hook can't: a crash after which you NEVER start another session — the next
-#     start you do run archives the orphan. Cost is ~0.2s at startup, negligible.
-# (Both run in Hermes' own process, which has macOS Full Disk Access, so writing the
-# ~/Documents vault works where launchd would be blocked by TCC.) Targeted edit only;
-# model/moa block untouched. Idempotent: an event key already present is left as-is.
-install_self_ingest() {
-  local cmd="bash $VAULT/.tools/ai-memory-ingest.sh $VAULT --local --yes"
-  python3 - "$HERMES_CONFIG" "$cmd" << 'PYSELF'
-import sys, os, re
-path, cmd = sys.argv[1], sys.argv[2]
-if not os.path.exists(path):
-    print("nocfg"); sys.exit(0)
-text = open(path).read()
-changed = False
-# 1) hooks_auto_accept: true  (needed for non-TTY runs to fire the hooks)
+# 1) hooks_auto_accept: true — the ONE place this is flipped.
 if re.search(r"(?m)^hooks_auto_accept:\s*true\b", text):
-    pass
+    out.append("autoaccept=present")
 elif re.search(r"(?m)^hooks_auto_accept:", text):
-    text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text); changed = True
+    text = re.sub(r"(?m)^hooks_auto_accept:.*$", "hooks_auto_accept: true", text)
+    out.append("autoaccept=flipped")
 else:
-    text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"; changed = True
-# 2) ensure a `hooks:` block exists (convert `hooks: {}` / append if absent)
+    text = text.rstrip("\n") + "\nhooks_auto_accept: true\n"
+    out.append("autoaccept=flipped")
+
+# 2) ensure a top-level `hooks:` block exists (convert `hooks: {}`; append if absent)
 if not re.search(r"(?m)^hooks:\s*$", text):
     m0 = re.search(r"(?m)^hooks:\s*\{\}\s*$", text)
     if m0:
-        text = text[:m0.start()] + "hooks:" + text[m0.end():]; changed = True
+        text = text[:m0.start()] + "hooks:" + text[m0.end():]
     else:
-        text = text.rstrip("\n") + "\nhooks:\n"; changed = True
-# 3) inject each event under `hooks:` unless that event key is already present
+        text = text.rstrip("\n") + "\nhooks:\n"
+
+def splice_under_hooks(text, ins):
+    m = re.search(r"(?m)^hooks:\s*$", text)
+    return text[:m.end()] + "\n" + ins + text[m.end():]
+
+# 3) memory-search hook — whitespace-normalized presence check (v5.9) so a
+#    line-folded copy of the same command still counts as present.
+if re.sub(r"\s+", " ", search_cmd) in re.sub(r"\s+", " ", text):
+    out.append("search=present")
+else:
+    text = splice_under_hooks(text,
+        "  pre_llm_call:\n"
+        "    - command: " + search_cmd + "\n"
+        "      timeout: 20\n")
+    out.append("search=written")
+
+# 4) self-ingest hooks — keyed on the event name (ours or the user's = present)
+ingest_state = "present"
 for ev in ("on_session_end", "on_session_start"):
     if re.search(r"(?m)^  " + re.escape(ev) + r":", text):
-        continue  # already configured (ours or the user's) — don't clobber
-    ins = ("  " + ev + ":\n"
-           "    - command: " + cmd + "\n"
-           "      timeout: 180\n")
-    m = re.search(r"(?m)^hooks:\s*$", text)
-    text = text[:m.end()] + "\n" + ins + text[m.end():]; changed = True
-if changed:
-    tmp = path + ".tmp"
-    open(tmp, "w").write(text); os.replace(tmp, path)
-    print("written")
-else:
-    print("present")
-PYSELF
-}
-if [[ -f "$HERMES_CONFIG" ]]; then
-  case "$(install_self_ingest)" in
-    written) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --local); Hermes' session sweeps ALL local agents into the vault, crash-safe" ;;
-    present) ok "Self-ingest hooks already registered in config.yaml" ;;
-    *)       warn "Could not register the self-ingest hooks — add them under hooks: on_session_end/on_session_start in ~/.hermes/config.yaml" ;;
-  esac
-fi
+        continue
+    text = splice_under_hooks(text,
+        "  " + ev + ":\n"
+        "    - command: " + ingest_cmd + "\n"
+        "      timeout: 180\n")
+    ingest_state = "written"
+out.append("ingest=" + ingest_state)
 
-# ── v5.10: ship the validated MoA presets (Mixture of Agents for /moa) ─────────
-# Two presets, derived from real autonomy+cost testing (2026-07-10):
-#   • balanced — 3 cheap, family-DIVERSE cloud references (nex-n2-mini, glm-4.7-flash,
-#     claude-haiku-4.5) + a strong-but-cheap aggregator (glm-5.2). The key finding
-#     was that MoA's correctness lift comes from the REFERENCES, not the aggregator,
-#     so an expensive aggregator (opus) is wasted spend — glm-5.2 gets ~the same
-#     recall for ~1/5 the cost.
-#   • lokal — qwen3.6:35b + gemma4:12b refs, qwen3.6 aggregator: an offline, $0
-#     fallback (slower, lower recall, but private/sovereign).
-# Idempotent + non-clobbering: adds a preset only if its NAME is absent, sets
-# default_preset only if unset. The user's own presets/choice are never overwritten.
-install_moa_presets() {
-  python3 - "$HERMES_CONFIG" << 'PYMOA'
-import sys, os, re
-path = sys.argv[1]
-if not os.path.exists(path): print("nocfg"); sys.exit(0)
-text = open(path).read(); changed = False
+# 5) MoA presets — add only what is absent, never touch the user's own
 balanced = ("    balanced:\n"
             "      reference_models:\n"
             "        - provider: openrouter\n          model: nex-agi/nex-n2-mini\n"
@@ -1286,29 +1332,49 @@ lokal    = ("    lokal:\n"
             "        - provider: ollama-launch\n          model: qwen3.6:35b\n"
             "        - provider: ollama-launch\n          model: gemma4:12b\n"
             "      aggregator:\n        provider: ollama-launch\n        model: qwen3.6:35b\n")
+moa_state = "present"
 if not re.search(r"(?m)^moa:\s*$", text):
     text = text.rstrip("\n") + "\nmoa:\n  default_preset: balanced\n  presets:\n" + balanced + lokal
-    changed = True
+    moa_state = "written"
 else:
     if not re.search(r"(?m)^  presets:\s*$", text):
-        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  presets:\n", text, count=1); changed = True
+        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  presets:\n", text, count=1); moa_state = "written"
     for name, block in (("balanced", balanced), ("lokal", lokal)):
         if not re.search(r"(?m)^    " + re.escape(name) + r":\s*$", text):
-            text = re.sub(r"(?m)^(  presets:[ \t]*\n)", r"\1" + block, text, count=1); changed = True
+            text = re.sub(r"(?m)^(  presets:[ \t]*\n)", r"\1" + block, text, count=1); moa_state = "written"
     if not re.search(r"(?m)^  default_preset:", text):
-        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  default_preset: balanced\n", text, count=1); changed = True
-if changed:
-    open(path + ".tmp", "w").write(text); os.replace(path + ".tmp", path); print("written")
-else:
-    print("present")
-PYMOA
+        text = re.sub(r"(?m)^(moa:[ \t]*\n)", r"\1  default_preset: balanced\n", text, count=1); moa_state = "written"
+out.append("moa=" + moa_state)
+
+if text != orig:
+    tmp = path + ".tmp"
+    open(tmp, "w").write(text); os.replace(tmp, path)   # atomic, like the model block
+print(" ".join(out))
+PYEDITS
 }
 if [[ -f "$HERMES_CONFIG" ]]; then
-  case "$(install_moa_presets)" in
-    written) ok "MoA presets installed (balanced = cheap diverse cloud panel; lokal = $0 offline) — invoke with /moa" ;;
-    present) ok "MoA presets already present in config.yaml" ;;
-    *)       warn "Could not install MoA presets — add them under moa: presets: in ~/.hermes/config.yaml" ;;
-  esac
+  _edits="$(apply_hermes_config_edits)" || _edits=""
+  if [[ "$_edits" != *"="* ]]; then
+    warn "Could not apply the managed config.yaml edits — add them manually in ~/.hermes/config.yaml"
+    warn "  (hooks: pre_llm_call / on_session_end / on_session_start, moa: presets)"
+  else
+    case "$_edits" in
+      *autoaccept=flipped*)
+        info "hooks_auto_accept → true in config.yaml (hooks run without a per-call consent prompt — required for non-TTY / auto-started sessions)" ;;
+    esac
+    case "$_edits" in
+      *search=written*) ok "Memory hook registered (pre_llm_call → ai-memory-search.sh --hook); auto-recall for ANY model" ;;
+      *search=present*) ok "Memory hook already registered in config.yaml" ;;
+    esac
+    case "$_edits" in
+      *ingest=written*) ok "Self-ingest hooks registered (on_session_end + on_session_start → ingest --local); Hermes' session hooks sweep ALL local agents into the vault, crash-safe" ;;
+      *ingest=present*) ok "Self-ingest hooks already registered in config.yaml" ;;
+    esac
+    case "$_edits" in
+      *moa=written*) ok "MoA presets installed (balanced = cheap diverse cloud panel; lokal = \$0 offline) — invoke with /moa" ;;
+      *moa=present*) ok "MoA presets already present in config.yaml" ;;
+    esac
+  fi
 fi
 
 # ai-config.json for resume.sh and other tooling — carries the REAL base_url
@@ -1391,18 +1457,23 @@ echo -e "  ${CYAN}hermes dashboard${NC}          — switch from the web UI"
 echo -e "  ${DIM}Re-run this script to change the primary (a working config is kept unless"
 echo -e "  you say otherwise; --remote-ollama=HOST switches to a LAN model server).${NC}"
 INGEST="$VAULT/.tools/ai-memory-ingest.sh"
-# The exec-ingest offer requires a REAL interactive terminal: on a closed/piped
+# The ingest offer requires a promptable session ($CAN_PROMPT: a real terminal,
+# or the bootstrap pipe with /dev/tty available — v5.11): on a closed/redirected
 # stdin the old default-yes exec'd ingest (whose own old default then exec'd
 # hermes) — an unattended run must never end in an interactive takeover
 # (same bug class as the ingest v2.15 fix).
-if ! $ASSUME_YES && [[ -t 0 ]]; then
+if ! $ASSUME_YES && $CAN_PROMPT; then
   echo -e "${BOLD}Next step — import your AI conversation history.${NC}"
   echo -e "  ${DIM}If your export ZIP is in Downloads, it will be found automatically.${NC}"
   ask "Import history now? [Y/n]"
-  read -r _go || _go=""   # EOF-safe: don't let set -e abort on closed stdin
+  prompt_read -r _go || _go=""   # EOF-safe: don't let set -e abort on closed stdin
   if [[ "$(lc "${_go:-y}")" != "n" ]] && [[ -f "$INGEST" ]]; then
     echo -e "${CYAN}→ Launching ingest...${NC}"
-    exec bash "$INGEST" "$VAULT"
+    # Plain call, NOT `exec` (v5.11): exec skips any EXIT trap in the caller
+    # chain and detaches ingest from this script's exit status for no gain —
+    # the whole exec class was retired across the family this round.
+    _rc=0; bash "$INGEST" "$VAULT" || _rc=$?
+    exit "$_rc"
   fi
 fi
 # ── §B4: the LAST thing on screen is the literal next command ────────────────

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.17
+#  ai-memory-setup.sh  v8.18
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -44,6 +44,16 @@ IFS=$'\n\t'
 
 # Single source of truth for the version — the --version flag and the banner
 # both read $VERSION, so they can never drift from each other again.
+# v8.18: handoff to configure no longer orphans the sudo keepalive (killed
+#        before the exec — the EXIT trap never fires past an exec, so the sudo
+#        timestamp stayed warm indefinitely); the vault log is a SYMLINK to the
+#        one live /tmp log so the advertised `tail -f` path keeps updating past
+#        step 1 and re-runs never duplicate; checkpoint/verify run their checks
+#        as argv (eval removed — quote-safe vault paths); the mcpvault npx check
+#        degrades to a warn+hint offline instead of a red exit 1; the session
+#        skill is keep-don't-clobber; a stray Downloads export only prints a
+#        --restore hint (never a surprise question); Ollama autostart installs
+#        by default with a stated --no-autostart opt-out; summary genericized.
 # v8.17: resume.sh is now SELF-LOCATING (vault derived from its own path, not
 #        baked in at generation) — a copy that travels with the vault to
 #        another machine keeps working; a baked /home/<user> path broke on the
@@ -51,7 +61,7 @@ IFS=$'\n\t'
 # v8.16: safe download-then-run for piped installers, python3-free disk check,
 #        JSON built via python3 (not string interpolation), sudo-keepalive
 #        killed on exit, surfaced apt errors, persisted npm-global PATH.
-VERSION="8.17"
+VERSION="8.18"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -65,7 +75,7 @@ Usage:
 Flags:
   --no-hermes      skip the Hermes Agent install (vault+ingest still work)
   --hermes         install Hermes without asking
-  --autostart      start Ollama at login without asking
+  --autostart      start Ollama at login (the default; kept for compatibility)
   --no-autostart   never install Ollama as a login service
   --restore[=PATH] restore your vault from an ai-memory export archive
                    (auto-detects the newest ai-memory-export-*.tar.gz in
@@ -218,7 +228,7 @@ ERRORS=0
 err() { echo -e "${RED}✗${NC}  $*" >&2; ERRORS=$(( ERRORS + 1 )); }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LOGGING — writes to /tmp first, switches to vault once vault exists
+# LOGGING — one canonical /tmp file for the WHOLE run; symlinked into the vault
 # ─────────────────────────────────────────────────────────────────────────────
 start_logging() {
   # Spinner writes to /dev/tty directly, bypassing tee — so spinner is clean.
@@ -231,11 +241,19 @@ start_logging() {
 }
 
 relocate_log() {
-  # Called after vault directory is confirmed to exist
+  # Called after the vault directory is confirmed to exist. The tee attached in
+  # start_logging keeps writing to the SAME /tmp file for the whole run — it is
+  # never re-pointed (v8.18: the old copy-and-repoint left the advertised vault
+  # log frozen after step 1, and every re-run duplicated old content into it).
+  # Instead the vault path becomes a SYMLINK to the live file, so `tail -f` on
+  # the path we print sees every subsequent line and re-runs never duplicate.
   local vault_log="$VAULT/.tools/setup.log"
-  if [[ "$LOG_FILE" != "$vault_log" ]]; then
-    cat "$LOG_FILE" >> "$vault_log" 2>/dev/null || true
-    LOG_FILE="$vault_log"
+  [[ "$LOG_FILE" == "$vault_log" || "$LOG_FILE" == "/dev/null" ]] && return 0
+  if [[ -f "$vault_log" && ! -L "$vault_log" ]]; then
+    mv "$vault_log" "${vault_log}.old" 2>/dev/null || true   # pre-v8.18 copied log
+  fi
+  if ln -sfn "$LOG_FILE" "$vault_log" 2>/dev/null; then
+    LOG_FILE="$vault_log"     # advertise the vault path; it follows the live file
   fi
 }
 
@@ -341,7 +359,10 @@ step_end() {
 # HUMAN-IN-THE-LOOP CHECKPOINT
 # ─────────────────────────────────────────────────────────────────────────────
 checkpoint() {
-  local id="$1" title="$2" instructions="$3" verify_cmd="$4"
+  # checkpoint <id> <title> <instructions> <verify-cmd...> — the verify command
+  # is passed as argv and run DIRECTLY (v8.18: no eval — a vault path containing
+  # a quote must never be shell-parsed a second time).
+  local id="$1" title="$2" instructions="$3"; shift 3
 
   local ck_file_vault="$CHECKPOINT_DIR/checkpoint-$id.ok"
   local ck_file_tmp="$PRE_CHECKPOINT_DIR/checkpoint-$id.ok"
@@ -357,7 +378,7 @@ checkpoint() {
     return 0
   fi
 
-  if eval "$verify_cmd" &>/dev/null 2>&1; then
+  if "$@" &>/dev/null; then
     touch "$ck_file_tmp"
     skip "Checkpoint: $title"
     return 0
@@ -381,7 +402,7 @@ checkpoint() {
       return 0
     }
 
-    if eval "$verify_cmd" &>/dev/null 2>&1; then
+    if "$@" &>/dev/null; then
       touch "$ck_file_tmp"
       ok "Confirmed: $title"
       return 0
@@ -655,7 +676,7 @@ if [[ "$OS" == "macos" ]]; then
     checkpoint "tcc-folder" \
       "Allow Terminal to access the vault folder" \
       "  macOS showed (or blocked) a folder-access prompt.\n  Fix:\n    ${BOLD}System Settings → Privacy & Security → Files and Folders →\n    Terminal → enable Documents Folder${NC}\n  (If you clicked 'Don't Allow' earlier, this is where to undo it.)" \
-      "mkdir -p '$VAULT'"
+      mkdir -p "$VAULT"
   fi
 fi
 
@@ -729,7 +750,7 @@ if [[ "$OS" == "macos" ]]; then
     checkpoint "homebrew" \
       "Homebrew installation" \
       "  Homebrew should have just installed above.\n\n  If you saw a password prompt and it completed — you're done.\n  If it failed, run this in a new terminal:\n\n    ${CYAN}/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}\n\n  Then come back and press ENTER." \
-      "command -v brew"
+      command -v brew
 
     command -v brew &>/dev/null \
       || die "Homebrew not found after installation.\nOpen a new terminal and re-run this script."
@@ -768,7 +789,7 @@ if [[ "$OS" == "macos" ]] && ! xcode-select -p &>/dev/null 2>&1; then
   checkpoint "xcode-cli" \
     "Install Xcode Command Line Tools" \
     "  macOS has opened (or will open) a dialog:\n\n    ${BOLD}'Install the Xcode Command Line Tools?'${NC}\n\n  Click ${BOLD}Install${NC} and wait for it to complete.\n  This takes ${BOLD}5–8 minutes${NC} — the progress bar in the dialog shows status.\n\n  When the dialog says 'Software installed' — press ENTER here." \
-    "xcode-select -p"
+    xcode-select -p
 elif [[ "$OS" == "macos" ]]; then
   skip "Xcode Command Line Tools"
 fi
@@ -951,7 +972,7 @@ if ! command -v ollama &>/dev/null; then
       checkpoint "ollama-gatekeeper" \
         "Allow Ollama in macOS Security" \
         "  macOS may show:\n  ${BOLD}'ollama cannot be opened because the developer cannot be verified'${NC}\n\n  Fix:\n    1. Open ${BOLD}System Settings → Privacy & Security${NC}\n    2. Scroll down — find ${BOLD}'ollama was blocked'${NC}\n    3. Click ${BOLD}'Allow Anyway'${NC}\n    4. Run in another terminal: ${CYAN}ollama --version${NC}\n    5. Click ${BOLD}Open${NC} in the next dialog\n\n  If no dialog appeared, Ollama is already allowed — just press ENTER." \
-        "ollama --version"
+        ollama --version
       ;;
     linux)
       # Save-then-run (never pipe curl straight to a shell): a truncated download
@@ -1006,7 +1027,7 @@ PLIST
       checkpoint "ollama-firewall" \
         "Allow Ollama network access" \
         "  macOS may show:\n  ${BOLD}'Do you want ollama to accept incoming network connections?'${NC}\n\n  Click ${BOLD}Allow${NC}.\n  If no dialog appeared — it's already allowed. Press ENTER." \
-        "ollama list"
+        ollama list
     else
       skip "Ollama launchd agent"
       launchctl load "$plist" 2>/dev/null || true
@@ -1058,21 +1079,15 @@ SYSTEMD
 }
 if command -v ollama &>/dev/null; then
   mkdir -p "$HOME/.ollama"
-  DO_AUTO="$AUTOSTART"
-  if [[ "$DO_AUTO" == "ask" ]]; then
-    if $ASSUME_YES || ! $CAN_PROMPT; then
-      DO_AUTO="yes"
-    else
-      echo -e "${BOLD}Start Ollama automatically at login? [Y/n]${NC}"
-      echo -e "  ${DIM}(background service; uses no RAM until a model is loaded)${NC}"
-      read -r _a < /dev/tty || _a=""
-      [[ "$(lc "${_a:-y}")" == "n" ]] && DO_AUTO="no" || DO_AUTO="yes"
-    fi
-  fi
-  if [[ "$DO_AUTO" == "yes" ]]; then
+  # v8.18: no interactive question — the login service is the stated default
+  # (one printed line with the opt-out beats a mid-install quiz). --no-autostart
+  # still skips it entirely; --autostart is now simply the default, kept as a flag
+  # for compatibility.
+  if [[ "$AUTOSTART" != "no" ]]; then
     setup_ollama_daemon
+    info "Ollama starts at login (default) — disable with --no-autostart, or remove it later with ai-memory-uninstall.sh"
   else
-    info "Autostart skipped — starting Ollama for this session only"
+    info "Autostart skipped (--no-autostart) — starting Ollama for this session only"
     if ! ollama list &>/dev/null 2>&1; then
       nohup ollama serve >> "$HOME/.ollama/serve.log" 2>&1 &
       sleep 3
@@ -1104,8 +1119,9 @@ ok "All system requirements satisfied"
 # vault tree + a secret-free manifest at the archive root; we MERGE that vault into
 # $VAULT, and configure re-derives config.yaml + the SOUL.md handover afterward (the
 # manifest omits config/keys by design). Self-guarding: acts only on an explicit
-# --restore, or when it auto-detects an archive AND $VAULT is empty AND we can
-# prompt — never surprise-restores on a routine re-run.
+# --restore — a plain run never asks a restore question (v8.18: a stray export
+# in ~/Downloads turned a first install into a confusing prompt; now it only
+# prints a hint and continues).
 RESTORE_MANIFEST="ai-memory-export-manifest.json"
 find_export_archive() {
   ls -1t "$HOME"/Downloads/ai-memory-export-*.tar.gz "$HOME"/ai-memory-export-*.tar.gz 2>/dev/null | head -1
@@ -1113,22 +1129,18 @@ find_export_archive() {
 maybe_restore_vault() {
   local archive=""
   case "$RESTORE" in
-    "")   $CAN_PROMPT || return 0
+    "")   # No --restore flag: hint if an export lies around, then continue.
           [[ -n "$(ls -A "$VAULT" 2>/dev/null)" ]] && return 0
-          archive="$(find_export_archive)"; [[ -n "$archive" ]] || return 0 ;;
+          archive="$(find_export_archive)"; [[ -n "$archive" ]] || return 0
+          info "Found an AI-memory export: $(basename "$archive")"
+          info "  To import it as your vault, re-run with:  bash $SCRIPT_PATH --restore"
+          return 0 ;;
     auto) archive="$(find_export_archive)"
           [[ -n "$archive" ]] || { warn "No ai-memory-export-*.tar.gz found in ~/Downloads or ~"; return 0; } ;;
     *)    archive="$RESTORE"; [[ -f "$archive" ]] || die "Restore archive not found: $archive" ;;
   esac
   tar -tzf "$archive" 2>/dev/null | grep -q "$RESTORE_MANIFEST" \
     || { warn "$(basename "$archive") has no migration manifest — not an ai-memory export; skipping restore."; return 0; }
-  local sz; sz="$(du -h "$archive" 2>/dev/null | awk '{print $1}')"
-  if [[ "$RESTORE" == "" ]]; then
-    echo -e "${BOLD}Found an AI-memory export: $(basename "$archive") (${sz}).${NC}"
-    echo -e "${BOLD}Restore it as your vault at $VAULT? [Y/n]${NC}"
-    read -r _r < /dev/tty || _r=""
-    [[ "$(lc "${_r:-y}")" == n* ]] && { info "Skipping restore — starting a fresh vault."; return 0; }
-  fi
   if [[ -n "$(ls -A "$VAULT" 2>/dev/null)" ]]; then
     warn "Vault $VAULT already has content — restore MERGES (same-named files overwritten)."
     if $CAN_PROMPT && ! $ASSUME_YES; then
@@ -1471,9 +1483,13 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 # One source of truth for the skill body (was two byte-identical heredocs, one
 # per branch — a drift risk). $VAULT is expanded at write time.
+# v8.18 keep-don't-clobber (family discipline): a user-edited skill file is
+# never overwritten — we create it when absent (a byte-identical rewrite is a
+# no-op) and otherwise keep theirs. Delete the file to regenerate the template.
 write_session_skill() {
-  mkdir -p "$SKILL_DIR"
-  cat > "$SKILL_DIR/session-continuity.md" << SKILLMD
+  local skill_file="$SKILL_DIR/session-continuity.md" tmpf
+  tmpf="$(mktemp "$TMP_DIR/ai-memory-skill.XXXXXX")" || return 0
+  cat > "$tmpf" << SKILLMD
 # Session Continuity
 
 ## At session start
@@ -1489,19 +1505,30 @@ write_session_skill() {
 1. Write final CURRENT_SESSION.md
 2. Confirm: "Session saved. Will resume automatically next time."
 SKILLMD
+  if [[ -f "$skill_file" ]]; then
+    if cmp -s "$tmpf" "$skill_file"; then
+      skip "session-continuity.md (up to date)"
+    else
+      skip "session-continuity.md — your existing file kept (delete it to regenerate)"
+    fi
+    rm -f "$tmpf"
+    return 0
+  fi
+  mkdir -p "$SKILL_DIR"
+  mv "$tmpf" "$skill_file" && chmod 644 "$skill_file" 2>/dev/null
+  ok "Skill installed: $skill_file"
 }
 
 if step_done "5"; then
-  # Always re-write skill — may have improved in newer versions of setup.sh
-  # But only if the step was previously completed (not a fresh run reaching here)
+  # Re-check on every run (creates the skill if it went missing) — but never
+  # clobber a user-customized file (v8.18).
+  skip "Step 5/7 — Session Continuity skill"
   write_session_skill
-  skip "Step 5/7 — Session Continuity skill (refreshed)"
 else
   hdr "Step 5/7  Session Continuity skill"
   step_start "5"
 
   write_session_skill
-  ok "Skill installed: $SKILL_DIR/session-continuity.md"
 
   step_end "5"
   step_complete "5"
@@ -1593,24 +1620,44 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 hdr "Step 7/7  Verification"
 
+# verify <label> <cmd...> — the check runs as argv, never through eval (v8.18:
+# a vault path containing a quote must not be shell-parsed a second time).
 verify() {
-  local label="$1" check="$2"
-  eval "$check" &>/dev/null 2>&1 && ok "$label" || err "$label"
+  local label="$1"; shift
+  "$@" &>/dev/null && ok "$label" || err "$label"
 }
+# Compound checks live in named helpers so verify stays eval-free.
+verify_node_ge_18() {
+  local v; v=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
+  [[ "${v:-0}" -ge 18 ]]
+}
+verify_vault_dirs() { [[ -d "$VAULT/entities" && -d "$VAULT/00-Inbox" ]]; }
+verify_hermes()     { command -v hermes &>/dev/null || [[ -d "$HOME/.hermes" ]]; }
 
-verify "git"               "git --version"
-verify "Node.js 18+"       "[[ \$(node --version | sed 's/v//' | cut -d. -f1) -ge 18 ]]"
-verify "npm"               "npm --version"
-verify "python3"           "python3 --version"
-verify "Ollama installed"  "command -v ollama"
-verify "Vault structure"   "[[ -d '$VAULT/entities' && -d '$VAULT/00-Inbox' ]]"
-verify "mcpvault (npx)"    "npx --yes @bitbonsai/mcpvault@latest --help"
-if [[ "$HERMES_SKIPPED" != "true" ]]; then
-  verify "Hermes present"    "command -v hermes || [[ -d \$HOME/.hermes ]]"
+verify "git"               git --version
+verify "Node.js 18+"       verify_node_ge_18
+verify "npm"               npm --version
+verify "python3"           python3 --version
+verify "Ollama installed"  command -v ollama
+verify "Vault structure"   verify_vault_dirs
+# mcpvault: a global install is checked OFFLINE; the npx fallback needs the
+# network, so a failed fetch degrades to a warn + hint (v8.18) — a flaky
+# connection must not turn a completed install into a red exit 1.
+if npm list -g @bitbonsai/mcpvault &>/dev/null; then
+  ok "mcpvault (npm global)"
+elif npx --yes @bitbonsai/mcpvault@latest --help &>/dev/null; then
+  ok "mcpvault (npx)"
+else
+  warn "mcpvault could not be verified right now (the npx check needs the network)."
+  warn "  It is fetched on demand when Claude starts — check later with:"
+  warn "  npx --yes @bitbonsai/mcpvault@latest --help"
 fi
-verify "MCP .mcp.json"     "[[ -f '$VAULT/.mcp.json' ]]"
-verify "Session skill"     "[[ -f '$SKILL_DIR/session-continuity.md' ]]"
-verify "resume.sh"         "[[ -f '$TOOLS/resume.sh' ]]"
+if [[ "$HERMES_SKIPPED" != "true" ]]; then
+  verify "Hermes present"    verify_hermes
+fi
+verify "MCP .mcp.json"     test -f "$VAULT/.mcp.json"
+verify "Session skill"     test -f "$SKILL_DIR/session-continuity.md"
+verify "resume.sh"         test -f "$TOOLS/resume.sh"
 
 # ── Result ────────────────────────────────────────────────────────────────────
 blank
@@ -1664,12 +1711,26 @@ if [[ $ERRORS -eq 0 ]]; then
       [[ -f /usr/local/bin/brew   ]] && eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
       if [[ -f "$CONFIGURE" ]]; then
         echo -e "${CYAN}→ Launching configure...${NC}"
+        # v8.18: an exec skips the EXIT trap, so tear down our background jobs
+        # HERE — above all the sudo keepalive, which would otherwise keep the
+        # sudo timestamp warm for as long as the configure→ingest→chat chain
+        # runs (breaking the "asked once, for this install only" promise).
+        # (caffeinate watches this PID with -w and exec keeps the PID, so the
+        # stay-awake guard survives the handoff and still dies at real exit.)
+        if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then
+          kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+          SUDO_KEEPALIVE_PID=""
+        fi
+        for pid in ${CLEANUP_PIDS[@]+"${CLEANUP_PIDS[@]}"}; do
+          kill "$pid" 2>/dev/null || true
+        done
         exec bash "$CONFIGURE" "$VAULT"
       fi
     fi
   fi
   blank
-  # Identity block — copy onto the checklist
+  # Machine identity — generic facts only (v8.18: no personal-workflow
+  # references; useful later for ai-memory-remote.sh or any SSH access).
   IDENT_HOST="$(hostname 2>/dev/null || echo '?')"
   if [[ "$OS" == "macos" ]]; then
     IDENT_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '?')"
@@ -1678,15 +1739,12 @@ if [[ $ERRORS -eq 0 ]]; then
     IDENT_IP="${IDENT_IP:-?}"
   fi
   IDENT_USER="${USER:-$(id -un 2>/dev/null || echo user)}"
-  echo -e "${BOLD}Identity block — copy onto your checklist:${NC}"
+  echo -e "${BOLD}This machine (worth noting if you plan remote access later):${NC}"
   echo -e "    Hostname:  $IDENT_HOST"
   echo -e "    Local IP:  $IDENT_IP"
   echo -e "    SSH line:  ssh $IDENT_USER@$IDENT_IP"
   command -v tailscale &>/dev/null && \
   echo -e "    Tailscale: $(tailscale ip -4 2>/dev/null | head -1 || echo 'not connected')"
-  blank
-  echo -e "  ${DIM}Tip: once everything works — see the Tips & Tricks page in the"
-  echo -e "  checklist: cmux for agent workflows (macOS), Syncthing for vault sync.${NC}"
   blank
   # ── §B4: the LAST thing on screen is the literal next command ──────────────
   echo -e "${GREEN}${BOLD}▶ NEXT — open a NEW terminal and run:${NC}"

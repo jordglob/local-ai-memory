@@ -10,8 +10,9 @@
 #
 #  Cautious? Read this file first (it's short), then run it. It downloads the
 #  project's own tarball over HTTPS, unpacks it into your home folder, and runs
-#  ai-memory-setup.sh — which itself asks before anything opinionated and uses
-#  `sudo` only where it must. This script never calls sudo itself.
+#  ai-memory-setup.sh — which explains each step, states its defaults up front
+#  (each with a printed opt-out flag), and uses `sudo` only where it must.
+#  This script never calls sudo itself.
 # =============================================================================
 set -euo pipefail
 
@@ -47,4 +48,7 @@ say "Starting the installer. It will explain each step and ask when it needs you
 say "(Nothing shows on screen while you type a password — that's normal.)"
 # setup.sh reads its prompts from /dev/tty, so interactive questions still work
 # even though this bootstrap arrived through a pipe.
-exec bash ai-memory-setup.sh
+# Plain call, NOT `exec`: exec would skip this script's EXIT trap and leave the
+# downloaded tarball's tempdir behind forever. This way the trap still fires
+# (and the installer's exit code passes through as ours).
+bash ai-memory-setup.sh
