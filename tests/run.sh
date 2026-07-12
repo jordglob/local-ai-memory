@@ -1012,6 +1012,174 @@ else
   fi
 fi
 
+# ── 6j. regression: ingest data-safety round (v2.27) ─────────────────────────
+# Locks in the v2.27 fixes: (a) two same-day codex sessions no longer collide
+# on a truncated 12-char id, and a ≤v2.26 legacy file (truncated id) is ADOPTED
+# in place, never duplicated; (b) a vault file the USER edited by hand is
+# warned about and skipped, never overwritten; (c) a secret pasted into a
+# conversation TITLE never reaches the heading or the FILENAME; (d) a failed
+# source makes ingest exit nonzero (a hook/cron caller only sees the code).
+hdr "regression: ingest data-safety (v2.27)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  # (a) two same-day codex sessions → two distinct vault files
+  mkdir -p "$TMP/cxfake" "$TMP/cxvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"payload":{"role":"user","content":"morning session unique-alpha"}}' \
+    '{"payload":{"role":"assistant","content":"alpha noted"}}' \
+    > "$TMP/cxfake/rollout-2026-07-12T09-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"
+  printf '%s\n' \
+    '{"payload":{"role":"user","content":"afternoon session unique-beta"}}' \
+    '{"payload":{"role":"assistant","content":"beta noted"}}' \
+    > "$TMP/cxfake/rollout-2026-07-12T15-00-00-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl"
+  bash ai-memory-ingest.sh "$TMP/cxvault" --source codex --path "$TMP/cxfake" --yes >/dev/null 2>&1
+  cxn=$(ls "$TMP/cxvault/05-AI-Sessions/codex/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$cxn" = 2 ] \
+     && grep -rq "unique-alpha" "$TMP/cxvault/05-AI-Sessions/codex/" \
+     && grep -rq "unique-beta" "$TMP/cxvault/05-AI-Sessions/codex/"; then
+    pass "two same-day codex sessions → two distinct files (no id collision)"
+  else
+    fail "same-day codex sessions collided" "count=$cxn"
+  fi
+  bash ai-memory-ingest.sh "$TMP/cxvault" --source codex --path "$TMP/cxfake" --yes >/dev/null 2>&1
+  cxn2=$(ls "$TMP/cxvault/05-AI-Sessions/codex/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$cxn2" = 2 ]; then
+    pass "re-run idempotent under full ids (still 2 files)"
+  else
+    fail "full-id re-run changed file count: $cxn2"
+  fi
+  # a ≤v2.26 legacy file (12-char truncated id, self-consistent hash) must be
+  # ADOPTED in place — id line upgraded, same filename, no duplicate file
+  python3 - "$TMP/cxvault/05-AI-Sessions/codex" <<'PYFIX'
+import hashlib, os, sys
+role, text = "user", "gammalt innehall fran v2.26"
+h = hashlib.sha256(); h.update((role + "\x00" + text + "\x00").encode("utf-8"))
+L = ["# Codex — legacy", "",
+     "- source: codex-cli", "- created: 2026-08-01T10:30:45",
+     "- id: 2026-08-01T1", "- hash: " + h.hexdigest()[:16],
+     "", "---", "", "**You:**", "", text, ""]
+open(os.path.join(sys.argv[1], "2026-08-01-codex-legacy-2026-08-01T1.md"),
+     "w", encoding="utf-8").write("\n".join(L))
+PYFIX
+  printf '%s\n' \
+    '{"payload":{"role":"user","content":"nytt innehall efter uppgradering"}}' \
+    > "$TMP/cxfake/rollout-2026-08-01T10-30-45-cccccccc-cccc-cccc-cccc-cccccccccccc.jsonl"
+  bash ai-memory-ingest.sh "$TMP/cxvault" --source codex --path "$TMP/cxfake" --yes > "$TMP/cx.out" 2>&1
+  cxn3=$(ls "$TMP/cxvault/05-AI-Sessions/codex/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  legacyf="$TMP/cxvault/05-AI-Sessions/codex/2026-08-01-codex-legacy-2026-08-01T1.md"
+  if [ "$cxn3" = 3 ] \
+     && grep -q "id: 2026-08-01T10-30-45-cccccccc" "$legacyf" 2>/dev/null \
+     && grep -q "nytt innehall efter uppgradering" "$legacyf" 2>/dev/null; then
+    pass "legacy truncated-id file adopted in place (id upgraded, no duplicate)"
+  else
+    fail "legacy file was duplicated or not migrated" "count=$cxn3 $(grep '^- id:' "$legacyf" 2>/dev/null)"
+  fi
+
+  # (b) a user-edited vault file survives a re-ingest of a GROWN conversation
+  mkdir -p "$TMP/edfake/proj" "$TMP/edvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"type":"ai-title","aiTitle":"Edit survival"}' \
+    '{"type":"user","timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":"original question marker-one"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"original answer"}]}}' \
+    > "$TMP/edfake/proj/55555555-5555-5555-5555-555555555555.jsonl"
+  bash ai-memory-ingest.sh "$TMP/edvault" --source claude-code --path "$TMP/edfake" --yes >/dev/null 2>&1
+  edfile=$(ls "$TMP/edvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | head -1)
+  # the user annotates the vault file by hand …
+  python3 - "$edfile" <<'PYFIX'
+import sys
+p = sys.argv[1]; t = open(p, encoding="utf-8").read()
+open(p, "w", encoding="utf-8").write(t.replace(
+    "original answer", "original answer\n\nMIN EGEN ANTECKNING: viktigt!"))
+PYFIX
+  # … then the SOURCE grows, so the incoming hash differs from the stored one
+  printf '%s\n' \
+    '{"type":"user","message":{"role":"user","content":"follow-up question"}}' \
+    >> "$TMP/edfake/proj/55555555-5555-5555-5555-555555555555.jsonl"
+  bash ai-memory-ingest.sh "$TMP/edvault" --source claude-code --path "$TMP/edfake" --yes > "$TMP/ed.out" 2>&1
+  if grep -q "MIN EGEN ANTECKNING" "$edfile" 2>/dev/null \
+     && ! grep -q "follow-up question" "$edfile" 2>/dev/null; then
+    pass "user-edited vault file survived re-ingest (never clobbered)"
+  else
+    fail "user edit was clobbered by re-ingest" "$edfile"
+  fi
+  if grep -qi "edited by hand" "$TMP/ed.out"; then
+    pass "edited-file skip is loud (warn + summary column)"
+  else
+    fail "edited-file skip was silent" "$(tail -5 "$TMP/ed.out")"
+  fi
+
+  # (c) a secret in the TITLE must never reach the heading or the filename
+  mkdir -p "$TMP/ttfake/proj" "$TMP/ttvault/05-AI-Sessions"
+  printf '%s\n' \
+    '{"type":"ai-title","aiTitle":"Rotate github_pat_11ABCDE0000aaaaBBBBcc_ZZ9zz9zz9zz9zz9zz9zz9 now"}' \
+    '{"type":"user","timestamp":"2026-03-01T00:00:00Z","message":{"role":"user","content":"help me rotate my token"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"sure"}]}}' \
+    > "$TMP/ttfake/proj/66666666-6666-6666-6666-666666666666.jsonl"
+  bash ai-memory-ingest.sh "$TMP/ttvault" --source claude-code --path "$TMP/ttfake" --yes >/dev/null 2>&1
+  ttfile=$(ls "$TMP/ttvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | head -1)
+  leakname=$(find "$TMP/ttvault/05-AI-Sessions" -iname "*11abcde0000aaaabbbbcc*" 2>/dev/null)
+  if [ -n "$ttfile" ] && [ -z "$leakname" ] \
+     && ! grep -qi "11ABCDE0000aaaaBBBBcc" "$ttfile" \
+     && grep -q "REDACTED:github-token" "$ttfile"; then
+    pass "secret in TITLE scrubbed from heading and filename"
+  else
+    fail "title secret leaked into heading or filename" "$(head -1 "${ttfile:-/dev/null}" 2>/dev/null) ${leakname:-}"
+  fi
+
+  # (d) a failed source must be reflected in the exit code (honest exit)
+  printf 'not a sqlite database\n' > "$TMP/broken-state.db"
+  mkdir -p "$TMP/exvault/05-AI-Sessions"
+  bash ai-memory-ingest.sh "$TMP/exvault" --source hermes --path "$TMP/broken-state.db" --yes > "$TMP/ex.out" 2>&1
+  ex_rc=$?
+  if [ "$ex_rc" != 0 ]; then
+    pass "a failed source makes ingest exit nonzero (rc=$ex_rc)"
+  else
+    fail "ingest exited 0 despite a failed source" "$(tail -3 "$TMP/ex.out")"
+  fi
+fi
+
+# ── 6k. regression: sync/ingest secret-gate parity (sync v1.1) ────────────────
+# sync's outgoing gate greps for the same token shapes ingest scrubs on import.
+# The two lists live in different languages (python re / grep ERE) and drifted
+# once (github_pat_/AIza/whsec_/JWT missing from sync). This check extracts
+# BOTH sets and fails the suite when they drift — the durable fix.
+hdr "regression: sync/ingest secret-gate parity"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-sync.sh ] || [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-sync.sh or ai-memory-ingest.sh absent"
+else
+  if parity=$(python3 - ai-memory-ingest.sh ai-memory-sync.sh <<'PYFIX'
+import re, sys
+ing = open(sys.argv[1], encoding="utf-8").read()
+syn = open(sys.argv[2], encoding="utf-8").read()
+blk = re.search(r"_SECRET_PATTERNS = \((.*?)\n\)\n", ing, re.S)
+pats = re.findall(r're\.compile\(r"([^"]+)"', blk.group(1)) if blk else []
+m = re.search(r"\nSECRET_ERE='([^']+)'", syn)
+frags = m.group(1).split("|") if m else []
+strip = lambda s: s.replace("\\b", "")
+# grep is line-based: ingest's multi-line private-key pattern can only be
+# matched by its BEGIN marker, so compare everything up to the first `.*?`.
+want = set(strip(p).split(".*?")[0] for p in pats)
+have = set(strip(f) for f in frags)
+missing = sorted(want - have); extra = sorted(have - want)
+if not pats or not frags or missing or extra:
+    print("ingest patterns: %d, sync fragments: %d" % (len(pats), len(frags)))
+    for p in missing: print("missing in sync: %s" % p)
+    for p in extra:   print("extra in sync:   %s" % p)
+    sys.exit(1)
+print("%d secret patterns in lockstep" % len(pats))
+PYFIX
+  ); then
+    pass "sync gate matches ingest's scrub set ($parity)"
+  else
+    fail "sync/ingest secret patterns drifted" "$parity"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then

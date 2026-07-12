@@ -1,7 +1,26 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.26
+#  ai-memory-ingest.sh  v2.27
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.27: DATA-SAFETY round. (1) Conversation ids are never truncated — a
+#         12-char cut collided every same-day codex session (stems start with
+#         the timestamp) and trimmed gemini-cli/openclaw/cursor/lmstudio/
+#         open-webui ids too; over-long ids now get a sha1-suffixed filename
+#         instead of a lossy cut. (2) A prior import is found by the EXACT
+#         `- id:` line embedded in the file — the old `*-{id}.md` suffix-glob
+#         could bind to a DIFFERENT conversation whose id merely ended the
+#         same way and then overwrite it. MIGRATION: a file written by ≤v2.26
+#         under a truncated id is ADOPTED in place on the next run (its id
+#         line is upgraded to the full id; the filename never changes), not
+#         duplicated. (3) A vault file the USER edited by hand (its content no
+#         longer matches its own stored hash) is WARNED about and SKIPPED,
+#         never overwritten — new `edited` column in the summary. (4) All
+#         vault writes are atomic (tempfile + os.replace): no half-written
+#         conversation/INDEX on a crash. (5) Titles are secret-scrubbed before
+#         they reach the heading, the slug or the FILENAME (bodies already
+#         were). (6) Honest exit code: any failed conversation → exit 1.
+#         (7) Non-interactive (no TTY) prompts now default to NO unless --yes
+#         — a cron/hook run must not import Downloads zips without consent.
 #  v2.26: secret-scrub adds `github_pat_*` (fine-grained PATs) — the `gh[pousr]_`
 #         pattern only caught classic/OAuth tokens; modern fine-grained PATs
 #         (github_pat_…) slipped through. Closes the exact leak vector where a
@@ -124,9 +143,10 @@ command -v python3 >/dev/null 2>&1 || { echo "python3 required" >&2; exit 1; }
 exec python3 - "$@" << 'PYMAIN'
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
+import itertools, tempfile
 from pathlib import Path
 
-VERSION = "2.26"
+VERSION = "2.27"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -141,7 +161,8 @@ def hdr(s):  print("\n" + c("1", f"── {s} ──"))
 
 ASSUME_YES = False
 def ask_yn(question, default=True):
-    """Prompt via /dev/tty (stdin is our heredoc). Non-interactive → default."""
+    """Prompt via /dev/tty (stdin is our heredoc). Non-interactive → NO
+    unless --yes was passed (v2.27 — a hook/cron run must not consent)."""
     if ASSUME_YES:
         return True
     suffix = "[Y/n]" if default else "[y/N]"
@@ -154,8 +175,11 @@ def ask_yn(question, default=True):
             return default
         return ans in ("y", "yes", "j", "ja")
     except OSError:
-        warn(f"Non-interactive — assuming {'yes' if default else 'no'}: {question}")
-        return default
+        # No TTY (cron / session hook): the safe answer is NO — a
+        # non-interactive run must never e.g. import a Downloads zip without
+        # consent. --yes is the explicit opt-in (handled above).  (v2.27)
+        warn(f"Non-interactive (no TTY) — assuming no: {question}")
+        return False
 
 # ── secret-scrub ──────────────────────────────────────────────────────────────
 # The vault is the artifact that gets synced, exported and backed up — the
@@ -318,23 +342,128 @@ def slugify(s, n=55):
 
 def _safe_id(s, n=40):
     """Whitelist an id to filename-safe chars — a hostile/corrupt export must not
-    smuggle path separators (`../`) into the conversation id (path-traversal fix)."""
-    s = re.sub(r"[^A-Za-z0-9._-]", "", str(s or "")).strip("._-")
-    return s[:n] or "noid"
+    smuggle path separators (`../`) into the conversation id (path-traversal fix).
+    NEVER lossy (v2.27): an over-long id keeps a readable head plus a sha1 of the
+    FULL id — the old plain cut made distinct long ids share one filename."""
+    raw = str(s or "")
+    s = re.sub(r"[^A-Za-z0-9._-]", "", raw).strip("._-")
+    if not s:
+        return "noid"
+    if len(s) <= n:
+        return s
+    return (s[:n - 17].rstrip("._-") + "-"
+            + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16])
 
 def _safe_date(s):
     """Accept only a leading YYYY-MM-DD; anything else (incl. `../..`) → 'undated'."""
     m = re.match(r"(\d{4}-\d{2}-\d{2})", str(s or ""))
     return m.group(1) if m else "undated"
 
+def _atomic_write(path: Path, text: str):
+    """EVERY vault write goes through here (v2.27): tempfile in the SAME dir +
+    os.replace, so a crash / full disk / parallel run never leaves a
+    half-written conversation, INDEX or report behind."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent),
+                               prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+# Sources whose ids v≤2.26 truncated to 12 chars — the only dirs where a legacy
+# (truncated-id) file may exist for the v2.27 adopt-in-place migration. aider is
+# deliberately NOT here: its short positional ids were never truncated, and a
+# prefix rule would let `proj-100` claim `proj-1000`'s file.
+_LEGACY_TRUNCATED = {"codex-cli", "gemini-cli", "openclaw",
+                     "cursor", "lm-studio", "open-webui"}
+
+_ID_CACHE = {}   # str(out_dir) -> {embedded raw id: Path} — built once per run
+
+def _embedded_id(path):
+    """The raw `- id:` line from a vault file's HEADER (never message text)."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return None
+    head = head.split("\n---\n", 1)[0]
+    m = re.search(r"(?m)^- id: (.+)$", head)
+    return m.group(1).strip() if m else None
+
+def _dir_ids(out_dir: Path):
+    """Map every conversation file in out_dir by its embedded id (exact binding,
+    v2.27 — the old suffix-glob `*-{cid}.md` matched OTHER ids that merely ended
+    the same way, e.g. aider's `proj-001` bound to `other-proj-001`.)"""
+    key = str(out_dir)
+    cache = _ID_CACHE.get(key)
+    if cache is None:
+        cache = {}
+        if out_dir.is_dir():
+            for p in sorted(out_dir.glob("*.md")):
+                if p.name == "INDEX.md":
+                    continue
+                eid = _embedded_id(p)
+                if eid and eid != "?":
+                    cache.setdefault(eid, p)
+        _ID_CACHE[key] = cache
+    return cache
+
+# Role labels write_conv emits are many-to-one ("user" and "human" both render
+# as **You:**) — when hashing a file BACK, try every original-role combination.
+_LABEL_ROLES = {"You": ("user", "human"),
+                "Assistant": ("assistant", "model", "ai"),
+                "System": ("system",)}
+
+def _disk_hash_ok(prior, stored):
+    """True iff the on-disk file still hashes to its OWN stored hash — i.e. it
+    is exactly what some ingest run wrote. False means the USER edited it by
+    hand (or the format is foreign), and it must never be overwritten (v2.27)."""
+    parts = prior.split("\n---\n", 1)
+    if len(parts) != 2:
+        return False
+    blocks, cur = [], None
+    for line in parts[1].splitlines():
+        m = re.match(r"^\*\*(.+):\*\*$", line)
+        if m:
+            cur = [m.group(1), []]
+            blocks.append(cur)
+        elif cur is not None:
+            cur[1].append(line)
+    if not blocks:
+        return False
+    parsed = [(lab, "\n".join(ls).strip()) for lab, ls in blocks]
+    labels = []
+    for lab, _t in parsed:
+        if lab not in labels:
+            labels.append(lab)
+    for combo in itertools.product(*[_LABEL_ROLES.get(l, (l,)) for l in labels]):
+        role_of = dict(zip(labels, combo))
+        h = hashlib.sha256()
+        for lab, t in parsed:
+            h.update((str(role_of[lab]) + "\x00" + t + "\x00").encode("utf-8"))
+        if h.hexdigest()[:16] == stored:
+            return True
+    return False
+
 def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     """conv: {id, title, created, messages:[(role,text)], note?}
 
     Idempotent by STABLE conversation id (never by the mtime-derived date): the
-    prior import for this id is found regardless of its date/slug prefix, its
-    stored content hash is compared, and the file is SKIPPED if identical or
-    OVERWRITTEN in place if the conversation grew/changed — no duplicates."""
-    cid = _safe_id(conv.get("id"))
+    prior import for this id is found by the EXACT `- id:` line embedded in the
+    file (v2.27), its stored content hash is compared, and the file is SKIPPED
+    if identical or REWRITTEN in place if the conversation grew/changed — no
+    duplicates. A file the USER edited by hand (content no longer matching its
+    own stored hash) is warned about and left untouched. Files written by
+    ≤v2.26 under a truncated id are adopted in place (id upgraded, filename
+    kept) rather than duplicated."""
+    raw_id = " ".join(str(conv.get("id") or "").split())
+    cid = _safe_id(raw_id)
     date = _safe_date(conv.get("created"))
     # Clean every message (strip renderer-placeholder noise, tidy blank lines)
     # BEFORE the empty check, so a message that was *only* noise is dropped and
@@ -354,22 +483,33 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         h.update((str(r) + "\x00" + ct + "\x00").encode("utf-8"))
     content_hash = h.hexdigest()[:16]
     # Locate a prior import of THIS id (stable), ignoring its date/slug prefix.
-    existing = None
-    if cid != "noid" and out_dir.is_dir():
-        existing = next(iter(sorted(out_dir.glob(f"*-{cid}.md"))), None)
-    prior = prior_title = None
+    # Exact embedded-id binding (v2.27); adopt a ≤v2.26 legacy file whose
+    # embedded id is the OLD 12-char truncation of this conversation's id.
+    existing, adopted = None, False
+    if cid != "noid":
+        ids = _dir_ids(out_dir)
+        existing = ids.get(raw_id)
+        if existing is None and source in _LEGACY_TRUNCATED and len(raw_id) > 12:
+            existing = ids.get(raw_id[:12])
+            adopted = existing is not None
+    prior = prior_title = stored_hash = None
     if existing is not None and existing.exists():
         prior = existing.read_text(encoding="utf-8", errors="replace")
         first = prior.split("\n", 1)[0]
         prior_title = first[2:].strip() if first.startswith("# ") else None
+        m = re.search(r"(?m)^- hash: (\S+)$", prior.split("\n---\n", 1)[0])
+        stored_hash = m.group(1) if m else None
     # Resolve the heading. A parser marks `untitled` when its title is only a
     # raw-prompt fallback; a heading a prior run already upgraded (the source
     # titled the chat later, or an --ai-titles run) is never downgraded back.
-    title = (conv.get("title") or "Untitled").strip() or "Untitled"
+    # Titles are secret-scrubbed BEFORE heading/slug/filename use (v2.27) —
+    # a key pasted into a chat title used to ride into the FILENAME.
+    title = scrub_secrets((conv.get("title") or "Untitled")).strip() or "Untitled"
     if conv.get("untitled") and prior_title and prior_title != title:
         title = prior_title
     elif conv.get("untitled") and AI_TITLES:
         title = _ai_title(msgs) or title
+        title = scrub_secrets(title).strip() or "Untitled"
     path = existing if existing is not None else (out_dir / f"{date}-{slugify(title)}-{cid}.md")
     # Belt-and-suspenders: the resolved target must stay inside the vault, even
     # though id/date are now sanitized above.
@@ -380,25 +520,38 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         stats["failed"] += 1
         return
     if prior is not None:
-        m = re.search(r"(?m)^- hash: (\S+)$", prior)
-        if m and m.group(1) == content_hash:
-            if prior_title == title:
-                stats["skipped"] += 1      # byte-for-byte the same conversation
-                return
+        same = stored_hash == content_hash
+        if same and prior_title == title and not adopted:
+            stats["skipped"] += 1          # byte-for-byte the same conversation
+            return
+        # About to rewrite this file — but NEVER over a human's edits (v2.27):
+        # if the file no longer hashes to its own stored hash, the user changed
+        # it by hand; warn and keep their version. (Legacy files without a hash
+        # line can't be verified — rewritten as before, that's how pre-v2.14
+        # files got sanitized.)
+        if stored_hash and not _disk_hash_ok(prior, stored_hash):
+            warn(f"{source}: {existing.name} was edited by hand — SKIPPED, "
+                 "never overwritten (delete the file to re-import it)")
+            stats["edited"] += 1
+            return
+        if same and prior_title != title:
             # Same content, better title → RETITLE IN PLACE. The filename never
             # changes after first import: the add-only sync (--ignore-existing)
             # would turn a rename into a duplicate on the central vault.
             info(f"retitle: {path.name} → {title}")
-        updated = True                     # grown/edited/retitled (or legacy w/o hash)
+        if adopted:
+            info(f"migrate: {path.name} — legacy truncated id "
+                 f"'{raw_id[:12]}' upgraded to full id (same file)")
+        updated = True                     # grown/retitled/adopted (or legacy w/o hash)
     else:
         updated = False
     L = [f"# {title}", "",
          f"- source: {source}",
          f"- created: {conv.get('created') or '?'}",
-         f"- id: {conv.get('id') or '?'}",
+         f"- id: {raw_id or '?'}",
          f"- hash: {content_hash}"]
     if conv.get("note"):
-        L += [f"- note: {conv['note']}"]
+        L += [f"- note: {scrub_secrets(str(conv['note']))}"]
     L += ["", "---", ""]
     label = {"user": "**You:**", "human": "**You:**",
              "assistant": "**Assistant:**", "model": "**Assistant:**", "ai": "**Assistant:**",
@@ -406,7 +559,12 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     for role, text in msgs:
         L += [label.get(str(role).lower(), f"**{role}:**"), "", text.strip(), ""]
     out_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(L), encoding="utf-8")
+    _atomic_write(path, "\n".join(L))
+    if cid != "noid":
+        cache = _dir_ids(out_dir)
+        if adopted:
+            cache.pop(raw_id[:12], None)
+        cache[raw_id] = path
     stats["updated" if updated else "new"] += 1
 
 # Renderer placeholders some exporters embed in their pre-rendered "text" field
@@ -454,7 +612,8 @@ def text_from_blocks(content):
     return ""
 
 # ── parsers (each: parse(path, out_root) -> stats dict) ──────────────────────
-def _stats(): return {"new": 0, "updated": 0, "skipped": 0, "empty": 0, "failed": 0}
+def _stats(): return {"new": 0, "updated": 0, "skipped": 0, "edited": 0,
+                      "empty": 0, "failed": 0}
 
 # Cap on a single decompressed zip member. A malicious/decompression-bomb export
 # can be a few KB on disk yet expand to many GB — reading it whole would OOM the
@@ -672,7 +831,7 @@ def parse_codex(root, out_root):
                         if t.strip(): msgs.append((cand["role"], t))
                         break
             write_conv(out, "codex-cli",
-                       {"id": jl.stem.replace("rollout-", "")[:12] or jl.stem,
+                       {"id": jl.stem.replace("rollout-", "") or jl.stem,
                         "title": f"Codex — {jl.stem}",
                         "created": datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat(),
                         "messages": msgs}, st)
@@ -690,7 +849,7 @@ def parse_gemini_cli(root, out_root):
             msgs = [(m.get("role", "?"), text_from_blocks(m.get("parts") or m.get("content")))
                     for m in items if isinstance(m, dict)]
             write_conv(out, "gemini-cli",
-                       {"id": f.stem[:12], "title": f"Gemini CLI — {f.stem}",
+                       {"id": f.stem, "title": f"Gemini CLI — {f.stem}",
                         "created": datetime.datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
@@ -702,7 +861,7 @@ def parse_gemini_cli(root, out_root):
             msgs = [("user", e.get("message", "")) for e in data
                     if isinstance(e, dict) and e.get("type") == "user"]
             write_conv(out, "gemini-cli",
-                       {"id": f.parent.name[:12], "title": f"Gemini CLI prompts — {f.parent.name}",
+                       {"id": f.parent.name, "title": f"Gemini CLI prompts — {f.parent.name}",
                         "created": datetime.datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
                         "messages": msgs, "note": "prompts only (logs.json has no responses)"}, st)
         except Exception: st["failed"] += 1
@@ -731,12 +890,12 @@ def parse_openclaw(root, out_root):
                 if not WITH_CRON:
                     continue
                 write_conv(cron_out, "openclaw",
-                           {"id": jl.stem[:12], "title": f"OpenClaw cron — {jl.stem}",
+                           {"id": jl.stem, "title": f"OpenClaw cron — {jl.stem}",
                             "created": datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat(),
                             "messages": msgs}, st)
                 continue
             write_conv(out, "openclaw",
-                       {"id": jl.stem[:12], "title": f"OpenClaw — {jl.stem}",
+                       {"id": jl.stem, "title": f"OpenClaw — {jl.stem}",
                         "created": datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat(),
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
@@ -774,7 +933,7 @@ def parse_cursor(db_path, out_root):
                         for b in tab.get("bubbles", []) if isinstance(b, dict)]
                 convs.append((tab.get("tabId") or key, tab.get("chatTitle") or "Cursor chat", msgs))
             for cid, title, msgs in convs:
-                write_conv(out, "cursor", {"id": str(cid)[:12], "title": title,
+                write_conv(out, "cursor", {"id": str(cid), "title": title,
                            "created": None, "messages": msgs}, st)
         except Exception: st["failed"] += 1
     return st
@@ -828,7 +987,7 @@ def parse_lmstudio(root, out_root):
                 if t.strip(): msgs.append((role, t))
             if not msgs: continue
             write_conv(out, "lm-studio",
-                       {"id": f.stem[:12], "title": data.get("name") or f.stem,
+                       {"id": f.stem, "title": data.get("name") or f.stem,
                         "created": datetime.datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
@@ -849,7 +1008,7 @@ def parse_openwebui(db_path, out_root):
             items = chat.get("messages") or list((chat.get("history") or {}).get("messages", {}).values())
             msgs = [(m.get("role", "?"), text_from_blocks(m.get("content")))
                     for m in items if isinstance(m, dict)]
-            write_conv(out, "open-webui", {"id": str(cid)[:12], "title": title,
+            write_conv(out, "open-webui", {"id": str(cid), "title": title,
                        "created": None, "messages": msgs}, st)
         except Exception: st["failed"] += 1
     return st
@@ -1250,7 +1409,7 @@ def write_scan_report(vault, roots):
               "see `docs/collect-with-agent.md`."]
     else:
         L.append("- (none found)")
-    report.write_text("\n".join(L) + "\n", encoding="utf-8")
+    _atomic_write(report, "\n".join(L) + "\n")
     hdr("Scan report")
     ok(f"Wrote {report}")
     info(f"Recognized: {len(recognized)}   Unknown AI-ish: {len(unknown)}   Imported: 0")
@@ -1404,7 +1563,7 @@ def build_index(vault):
             L.append(f"- `{date}` — {title}  ·  `05-AI-Sessions/{rel}`")
         L.append("")
     out_root.mkdir(parents=True, exist_ok=True)
-    (out_root / "INDEX.md").write_text("\n".join(L).rstrip() + "\n", encoding="utf-8")
+    _atomic_write(out_root / "INDEX.md", "\n".join(L).rstrip() + "\n")
     return total
 
 def main():
@@ -1562,18 +1721,26 @@ def main():
             results[name] = run_source(name, out_root, scan_roots=scan_roots)
 
     hdr("Summary")
-    print(f"\n  {'source':<16} {'new':>5} {'updated':>8} {'skipped':>8} {'empty':>6} {'failed':>7}")
-    print("  " + "-" * 55)
+    print(f"\n  {'source':<16} {'new':>5} {'updated':>8} {'skipped':>8} {'edited':>7} {'empty':>6} {'failed':>7}")
+    print("  " + "-" * 62)
     tot = _stats()
     for name, s in results.items():
         # An explicitly requested --source always gets its row — an all-zero
         # result the user asked for must be visible, not silently dropped
         # (a Swedish takeout imported 0 with no trace, live round 2026-07-05).
         if any(s.values()) or a.source:
-            print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['empty']:>6} {s['failed']:>7}")
+            print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['edited']:>7} {s['empty']:>6} {s['failed']:>7}")
         for k in tot: tot[k] += s[k]
-    print("  " + "-" * 55)
-    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['updated']:>8} {tot['skipped']:>8} {tot['empty']:>6} {tot['failed']:>7}\n")
+    print("  " + "-" * 62)
+    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['updated']:>8} {tot['skipped']:>8} {tot['edited']:>7} {tot['empty']:>6} {tot['failed']:>7}\n")
+    if tot["edited"]:
+        warn(f"{tot['edited']} vault file(s) were edited by hand and left "
+             "untouched — delete a file to let ingest re-import that conversation")
+    # Honest exit code (v2.27): a run with failed conversations must not
+    # exit 0 — a hook/cron caller has only the exit code to notice.
+    rc = 1 if tot["failed"] else 0
+    if rc:
+        err(f"{tot['failed']} conversation(s)/source(s) FAILED to import — see errors above")
     if tot["new"] or tot["updated"]:
         bits = []
         if tot["new"]:     bits.append(f"{tot['new']} new")
@@ -1641,7 +1808,7 @@ def main():
         print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
               + c("1;36", "hermes chat") + f"   (from {vault})")
         print()
-        return 0
+        return rc
     # Offer to launch hermes right here
     if have_hermes:
         # Default NO, and never under --yes: a non-interactive run must not
@@ -1663,7 +1830,7 @@ def main():
     print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
           + c("1;36", "hermes chat") + f"   (from {vault})")
     print()
-    return 0
+    return rc
 
 try:
     sys.exit(main())
