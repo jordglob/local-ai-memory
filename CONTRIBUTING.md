@@ -2,7 +2,7 @@
 
 This is a small, source-available, **unsupported** project — issues and PRs
 are off on purpose, so this document mostly exists **for forks**: if you adopt
-the code, these are the house rules that keep the nine-script family coherent
+the code, these are the house rules that keep the seven-script family coherent
 (and what I'd hold a patch to if one ever reaches me another way).
 
 ## Before you push
@@ -19,7 +19,7 @@ is the floor; a real live run on the affected OS is the bar (see below).
 - **bash 3.2 / macOS compatible.** `/bin/bash` on macOS is 3.2. No associative
   arrays, no `mapfile`/`readarray`, no `${var,,}`. `pipefail` broke on 3.2
   historically — match each script's existing `set` discipline (`doctor` and
-  `mux` are `set -uo pipefail` on purpose; they run things allowed to fail).
+  `sync` are `set -uo pipefail` on purpose; they run things allowed to fail).
 - **Portable tool flags.** Use precise `grep` gates (`grep -q "Status: active"`,
   not `grep -q active`); go through the `apt_get` wrapper, not bare `apt`; probe
   `/dev/tty` by opening it (`{ : >/dev/tty; } 2>/dev/null`), not `[[ -r/-w ]]`.

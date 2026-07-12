@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.27
+#  ai-memory-ingest.sh  v2.28
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.28: the fleet/remote layer moved to the companion repo
+#         local-ai-memory-fleet — the next-steps footer no longer points at
+#         the remote node-setup script (it doesn't ship here anymore).
 #  v2.27: DATA-SAFETY round. (1) Conversation ids are never truncated — a
 #         12-char cut collided every same-day codex session (stems start with
 #         the timestamp) and trimmed gemini-cli/openclaw/cursor/lmstudio/
@@ -146,7 +149,7 @@ import html as htmllib
 import itertools, tempfile
 from pathlib import Path
 
-VERSION = "2.27"
+VERSION = "2.28"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -1796,13 +1799,11 @@ def main():
     hdr("Next steps")
     import shutil, subprocess
     have_hermes = shutil.which("hermes") is not None
-    remote = vault / ".tools" / "ai-memory-remote.sh"
     if ASSUME_YES or not (sys.stdin and os.path.exists("/dev/tty")):
         if have_hermes:
             print(f"  Start your agent:  {c('1', 'hermes chat')}  (from {vault})")
         else:
             print(f"  Install/relaunch a shell, then: {c('1', 'hermes chat')}")
-        print(f"  Optional headless node: {c('1', 'bash ' + str(remote))}")
         # §B4: the LAST thing on screen is the literal next command
         print()
         print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
@@ -1824,7 +1825,6 @@ def main():
         info("'hermes' isn't on PATH in this shell yet.")
         info("Open a new terminal, then run:  hermes chat   (from the vault)")
     print()
-    info(f"Optional — set up a headless/remote node later: bash {remote}")
     # §B4: the LAST thing on screen is the literal next command
     print()
     print(c("1;32", "▶ NEXT — talk to your memory:") + "  "

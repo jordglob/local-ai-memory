@@ -8,8 +8,7 @@ Plain markdown on your own disk.
 
 > 🌱 **New to the terminal?** Start with **[GET-STARTED.md](GET-STARTED.md)** — a
 > beginner walkthrough, one copy-paste block at a time (it handles the classic
-> *"git: command not found"* wall that trips people on a fresh machine). Provisioning
-> many machines hands-off? See the sketch in **[docs/ADVANCED-NETBOOT.md](docs/ADVANCED-NETBOOT.md)**.
+> *"git: command not found"* wall that trips people on a fresh machine).
 
 > ## Status — read this first
 >
@@ -20,10 +19,10 @@ Plain markdown on your own disk.
 >   it, no expectations either way.
 > - **Most of the chain has now run on real hardware** (Linux, WSL2, and — since
 >   2026-07-03 — a physical Apple Silicon Mac). **Some paths still have not** —
->   above all **`ai-memory-remote.sh` has only ever run in a VM and can silently
->   lock you out of a headless box.**
-> - **Read the code before you run it**, especially anything touching SSH, keys, or
->   power settings. See *What's proven vs. unproven* below — it's specific and honest.
+>   see *What's proven vs. unproven* below, it's specific and honest.
+> - **Read the code before you run it**, especially anything touching keys or
+>   your vault. Nothing in this repo touches SSH or can lock you out of a
+>   machine — that layer lives in the companion repo (see *Remote access* below).
 
 ## Get the scripts (no `unzip` required)
 
@@ -59,9 +58,7 @@ bash ai-memory-ingest.sh       # imports your AI history from local exports
 bash ai-memory-doctor.sh       # verify memory is reachable from every door (read-only)
 bash ai-memory-search.sh "topic"   # deterministic vault search — also the recall hook
 hermes chat                    # talk to an agent that knows your past
-bash ai-memory-remote.sh       # optional: SSH/WireGuard/Tailscale node setup
 bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
-bash ai-memory-mux.sh          # optional: launch the agent in a mouse-driven tmux tab
 bash ai-memory-sync.sh         # optional: push this machine's history to a central vault
 ```
 
@@ -157,14 +154,6 @@ Same tool, same vault format, both ends of the hardware spectrum.
   `pre_llm_call` hook so even a small local model answers from your real
   history in one step. `ai-memory-doctor.sh` verifies the whole chain,
   read-only.
-- **Remote/node setup** — `ai-memory-remote.sh` is role-aware (MAIN / NODE /
-  SOLO). It sets up SSH + your public key (password login disabled only after
-  a verified key login), then analyzes your connection and recommends a
-  remote-access path — **WireGuard (fully local) first**, with Tailscale
-  offered for convenience or behind CGNAT, and an optional Cloudflare DNS
-  updater for dynamic IPs. Plus no-sleep + auto-restart power profile and a
-  printed identity block. *(See the maturity note — this script is the least
-  proven and the most dangerous to get wrong.)*
 - **Ingest** — importers for Claude.ai, ChatGPT, Claude Code, Codex CLI,
   Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, and Google
   Takeout (Gemini). Idempotent — re-run any time. A `--scan-report` mode maps
@@ -172,6 +161,16 @@ Same tool, same vault format, both ends of the hardware spectrum.
 - **Uninstall / backup** — `ai-memory-uninstall.sh` is **export-first** (it
   archives your vault, with a migration manifest, *before* removing anything)
   and **dry-run by default**. Also the clean way to reset between trial runs.
+
+## Remote access
+
+Want to reach a memory machine from elsewhere? Use **Tailscale** plus your
+OS's **built-in Remote Login (SSH)** — both are mature, well-documented, and
+have near-zero lockout surface. The heavier fleet tooling (WireGuard hub,
+sshd hardening, netboot provisioning, tmux cockpit) was split out of this
+repo in July 2026 into the companion repo **`local-ai-memory-fleet`**
+(a sibling folder/repo, same MIT-unsupported posture), so nothing in *this*
+repo can lock you out of a machine.
 
 ## Requirements
 
@@ -197,7 +196,7 @@ with the evidence. The short version:
   the dual-context fix a capable local model needs); `ingest` importing a real
   Claude.ai export idempotently (the Claude Code, Hermes, OpenClaw and
   LM Studio sources have also run in live use); `uninstall`'s
-  **export/backup** path; `mux`; and the full test harness.
+  **export/backup** path; and the full test harness.
 - **macOS — proven on a physical Apple Silicon Mac since 2026-07-03:** the
   chain ran end-to-end as the hub of a hub-and-spoke setup — `setup`,
   `configure` **including local-model selection on capable hardware**,
@@ -210,20 +209,20 @@ with the evidence. The short version:
 
 **Not yet run on real hardware — treat as unproven:**
 
-- **`ai-memory-remote.sh`.** Validated only in a local VM. It edits `sshd`, can
-  disable password login, and brings up a WireGuard hub — a mistake here is a
-  *silent lockout of a possibly-headless box*, not a red error. The code now
-  gates the password-auth flip behind a machine-verified key login with an
-  auto-revert timer, but none of that has been exercised on a real remote
-  node. First-run it with a screen/console attached and keep a second way in.
 - **`uninstall`'s actual removal** (its export path is tested; the teardown is
   not).
 - Several `ingest` parsers (ChatGPT, Cursor, Codex CLI, Gemini CLI, Aider,
   Open WebUI, Takeout) are written defensively against known on-disk layouts
   but are unverified against real, current exports.
 
+*(The most dangerous unproven surface used to live here too: the `remote`
+node-setup script — VM-validated only, able to lock you out of a headless
+box. In July 2026 it moved — with `mux` and the netboot sketch — to the
+companion repo `local-ai-memory-fleet`, precisely so this repo carries no
+lockout risk. Its ledger entries stay in [TESTING.md](TESTING.md).)*
+
 Because of the above this is published **as-is, unsupported, issues off**. If you
-fork it and prove out the remote path, all the better — but nothing here
+fork it and prove out the unproven paths, all the better — but nothing here
 expects you to, and nothing expects me to answer for it.
 
 **[GET-STARTED.md](GET-STARTED.md) is the single beginner path** — from a blank
@@ -237,7 +236,6 @@ current script family — don't follow it.)
 setup:      --no-hermes  --no-autostart  --yes
 configure:  --yes
 ingest:     --list-sources  --source NAME  --scan DIR  --deep-scan  --scan-report  --yes
-remote:     --yes
 uninstall:  --export-only  --no-export  --remove-ollama  --yes   (dry-run unless --yes)
 all:        --help  --version
 ```

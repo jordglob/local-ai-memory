@@ -83,4 +83,5 @@ curl -fsSL https://raw.githubusercontent.com/jordglob/local-ai-memory/main/boots
 ---
 
 Power users: the terse path is in the main [README](README.md).
-Automating many machines hands-off: [docs/ADVANCED-NETBOOT.md](docs/ADVANCED-NETBOOT.md).
+Automating many machines hands-off: the netboot sketch lives in the companion
+repo `local-ai-memory-fleet` (with the rest of the fleet/remote tooling).

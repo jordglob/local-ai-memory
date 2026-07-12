@@ -17,11 +17,12 @@ spec here (it drifts and starts to contradict).
   outward-facing actions (e.g. pushing a remote, deleting data you didn't make).
 
 ## The repo in one breath
-Nine self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
-→ `search` → `remote` (optional) → `uninstall` (optional) → `mux` (optional)
-→ `sync` (optional) — plus the spec. Bash-portable, idempotent, secrets never
-logged. Read SPEC §3.1 for the family conventions before adding to any of
-them; match the surrounding code.
+Seven self-contained bash scripts — `setup` → `configure` → `ingest` →
+`doctor` → `search` → `uninstall` (optional) → `sync` (optional) — plus the
+spec. Bash-portable, idempotent, secrets never logged. (The fleet/remote
+layer — `remote`, `mux`, netboot — lives in the sibling repo
+`local-ai-memory-fleet` since July 2026.) Read SPEC §3.1 for the family
+conventions before adding to any of them; match the surrounding code.
 
 ## How to work here (habits that have paid off, not a checklist to perform)
 - **Read the spec before a build/design round** — fully, not skimmed — and
@@ -32,7 +33,7 @@ them; match the surrounding code.
   If a path can't be tested here (e.g. a WSL path on this non-WSL box), label
   it **written-but-unproven** — never "done".
 - **Pattern-hunt every real bug (SPEC §11):** fix the *class* across the whole
-  nine-script family, not the one instance.
+  seven-script family, not the one instance.
 - **Verify before you claim:** read a file back after writing it; check a tool
   exists before assuming it; report what actually happened — including failures
   and skipped steps. A green log that did nothing is a bug, not a success.

@@ -12,7 +12,8 @@ with a finding when there is no public issue tracker.
 - Otherwise: it's MIT-licensed and unsupported — **fork it and fix it**. A patch
   is worth more than a report here.
 - Please don't open a public PR that includes a working exploit against the
-  `remote.sh` / `uninstall.sh` paths without a heads-up.
+  `uninstall.sh` path without a heads-up. (The remote-hardening surface lives
+  in the companion repo `local-ai-memory-fleet` since July 2026.)
 
 ## Threat model & guarantees
 
@@ -33,20 +34,18 @@ one, that's a security bug:
 
 ## Dangerous surfaces (and their rails)
 
-Two scripts can do irreversible or lock-you-out things. They are isolated and
-gated:
+One script can do irreversible things. It is isolated and gated:
 
 - **`ai-memory-uninstall.sh`** — export-first, **DRY-RUN by default**. Deleting
   the vault without an export requires an un-skippable DELETE confirm; the only
   non-interactive way to skip it is the explicit `--force-no-export`. Exports
   are validated (`tar -tzf`) before anything is removed. Never touches
   `~/.paperclip`; only removes paths it created; never runs `sudo` itself.
-- **`ai-memory-remote.sh`** — edits `sshd`, can set up WireGuard/Tailscale/
-  Cloudflare. It disables SSH password auth **only after a real key-login test
-  passes**, arms an auto-revert, and verifies the **live** daemon (`sshd -T`),
-  not just the config file. Its SSH/WireGuard paths are **written-but-unproven
-  on real nodes** — treat as such (see `TESTING.md`). Do not run its hardening
-  on a box without an out-of-band console.
+
+The lock-you-out surface — the `remote` node-setup script (edits `sshd`,
+WireGuard/Tailscale/Cloudflare) — moved to the companion repo
+`local-ai-memory-fleet` in July 2026, precisely so nothing in this repo can
+lock you out of a machine. Audit those rails there.
 
 ## Automated checks
 

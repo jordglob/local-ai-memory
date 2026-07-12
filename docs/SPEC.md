@@ -60,7 +60,7 @@ and its export archive safe to move over USB / scp / cloud / email.
 
 ## 3. The script family
 
-Nine self-contained bash scripts, run in this order (the last three optional):
+Seven self-contained bash scripts, run in this order (the last two optional):
 
 | Script | Role |
 |---|---|
@@ -69,10 +69,13 @@ Nine self-contained bash scripts, run in this order (the last three optional):
 | `ai-memory-ingest.sh` | multi-source history import into the vault; idempotent; rebuilds INDEX.md |
 | `ai-memory-doctor.sh` | read-only per-door reachability verifier (opt-in `--live` recall round-trip) |
 | `ai-memory-search.sh` | deterministic vault retrieval; also the `pre_llm_call` recall hook |
-| `ai-memory-remote.sh` | optional: SSH / WireGuard / Tailscale node setup (the dangerous one) |
 | `ai-memory-uninstall.sh` | export-first reversal, dry-run by default; `--backup` alias |
-| `ai-memory-mux.sh` | optional: agent in a mouse-driven tmux split |
 | `ai-memory-sync.sh` | optional: add-only push of one machine's history to a central vault |
+
+The fleet/remote layer (the `remote` node-setup script, the `mux` tmux
+cockpit, the netboot sketch) was split into the companion repo
+**`local-ai-memory-fleet`** in July 2026 so that nothing in this family can
+lock you out of a machine; its normative content lives there.
 
 ### 3.1 Family conventions (what lets the family grow)
 
@@ -95,8 +98,8 @@ conventions:
 ## 4. The dividing line — deterministic work is a script, messy reality is an agent
 
 The parts of the stack that meet **predictable, deterministic** work —
-install, configure, back up, set up remote access, search — are **bash
-scripts**: fast, free, reviewable, repeatable, no tokens, no surprises.
+install, configure, back up, search — are **bash scripts**: fast, free,
+reviewable, repeatable, no tokens, no surprises.
 
 The parts that meet **messy, unpredictable, changing reality** — the zoo of AI
 export formats each vendor changes on its own schedule — suit an **agent**: an
@@ -246,17 +249,15 @@ The vault is the unit that moves; config is re-derived on purpose.
 
 ## 9. Dangerous surfaces
 
-Two scripts can do irreversible or lock-you-out things; they are isolated and
-gated (details and current rails in `SECURITY.md`):
+One script can do irreversible things; it is isolated and gated (details and
+current rails in `SECURITY.md`):
 
 - `ai-memory-uninstall.sh` — export-first, dry-run by default; deleting
   without an export demands an un-skippable typed confirm even under `--yes`.
-- `ai-memory-remote.sh` — edits `sshd`, can disable password login, brings up
-  WireGuard. Its failure mode is a *silent lockout of a possibly-headless
-  box*, and it remains unproven on real remote nodes (see `TESTING.md`).
-  Password auth is disabled only after a machine-verified key login, with an
-  auto-revert timer armed and the *effective* daemon state (`sshd -T`)
-  checked — never on self-attested success.
+
+The lock-you-out surface (the `remote` node-setup script: sshd hardening,
+WireGuard, and its rails) lives in the companion repo `local-ai-memory-fleet`
+since July 2026 — nothing left in this repo can lock you out of a machine.
 
 ## 10. Out of scope
 
@@ -264,8 +265,9 @@ gated (details and current rails in `SECURITY.md`):
 - Semantic per-request model routing (Level B) — agent territory.
 - Hermes-native memory backends (state.db import skill, Memory Provider
   plugin) — separate upstream projects.
-- Hand-rolled relays: NAT traversal is WireGuard first, then Tailscale, then
-  Cloudflare Tunnel — never our own relay infrastructure.
+- Remote/fleet access (sshd hardening, WireGuard/Tailscale node setup, NAT
+  traversal, netboot, tmux cockpit) — moved to the companion repo
+  `local-ai-memory-fleet` (July 2026).
 
 ## 11. Build discipline
 
@@ -305,7 +307,7 @@ numbers. They resolve here as follows:
 | §4.5 | script-vs-agent dividing line | §4 |
 | §4.55 | `--scan-report` bridge | §4 |
 | §4.6 / §4.7 | GitHub opt-in; agent-prompt decoupling | §7, §4 |
-| §4.8 / §4.9 | remote.sh risk + fallback ladder | §9, §10 |
+| §4.8 / §4.9 | remote-node risk + fallback ladder | §9, §10 (content now in the companion repo `local-ai-memory-fleet`) |
 | §4.10 / §4.13 | NEXT footers; guided/expert modes | §3.1, history |
 | §4.11 / §4.12 | uninstall; migration/portability | §9, §8 |
 | §5 (journal) | build workflow & pattern-hunt | §11 |

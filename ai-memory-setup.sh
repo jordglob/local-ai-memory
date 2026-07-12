@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.18
+#  ai-memory-setup.sh  v8.19
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -44,6 +44,9 @@ IFS=$'\n\t'
 
 # Single source of truth for the version — the --version flag and the banner
 # both read $VERSION, so they can never drift from each other again.
+# v8.19: the fleet/remote layer (remote, mux) moved to the companion repo
+#        local-ai-memory-fleet — the summary no longer points at a script
+#        that doesn't ship here.
 # v8.18: handoff to configure no longer orphans the sudo keepalive (killed
 #        before the exec — the EXIT trap never fires past an exec, so the sudo
 #        timestamp stayed warm indefinitely); the vault log is a SYMLINK to the
@@ -61,7 +64,7 @@ IFS=$'\n\t'
 # v8.16: safe download-then-run for piped installers, python3-free disk check,
 #        JSON built via python3 (not string interpolation), sudo-keepalive
 #        killed on exit, surfaced apt errors, persisted npm-global PATH.
-VERSION="8.18"
+VERSION="8.19"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -1685,7 +1688,7 @@ if [[ $ERRORS -eq 0 ]]; then
   echo -e "${BOLD}Next steps:${NC}"
   blank
   echo -e "  1. Open Obsidian → point it at: ${CYAN}$VAULT${NC}  (optional, do anytime)"
-  echo -e "  2. Configure your model (next)   3. Import history   4. (optional) remote node"
+  echo -e "  2. Configure your model (next)   3. Import history"
   blank
 
   # ── Chain into configure (Model B: offer, don't force) ─────────────────────
@@ -1730,7 +1733,8 @@ if [[ $ERRORS -eq 0 ]]; then
   fi
   blank
   # Machine identity — generic facts only (v8.18: no personal-workflow
-  # references; useful later for ai-memory-remote.sh or any SSH access).
+  # references; useful later for any SSH/remote access — that tooling lives
+  # in the companion repo local-ai-memory-fleet).
   IDENT_HOST="$(hostname 2>/dev/null || echo '?')"
   if [[ "$OS" == "macos" ]]; then
     IDENT_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '?')"

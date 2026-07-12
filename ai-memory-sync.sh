@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-sync.sh  v1.1
+#  ai-memory-sync.sh  v1.2
+#  v1.2: comment-only — the remote and mux scripts moved to the companion
+#        repo local-ai-memory-fleet; the "isolated surface" note no longer
+#        names scripts that don't ship in this repo. No behavior change.
 #  v1.1: (1) the outgoing secret gate now matches ingest's FULL scrub set
 #        (github_pat_, AIza, whsec_, JWTs were missing — tests/run.sh now
 #        enforces parity so the two lists can never drift again). (2) the
@@ -16,7 +19,8 @@
 #  "scrape locally, push at need" flow for a hub-and-spoke setup (one central
 #  memory, satellite machines that sync manually when they have something new).
 #
-#  This is an OPTIONAL, isolated surface (like remote.sh and mux.sh). It is
+#  This is an OPTIONAL, isolated surface (like the fleet scripts in the
+#  companion repo local-ai-memory-fleet). It is
 #  NOT the one-time migration loop (uninstall --backup → setup --restore) and
 #  NOT continuous sync — it is a deliberate, verifiable, add-only hand-off.
 #
@@ -58,7 +62,7 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC}  $*" >&2; }
 ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 
-VERSION="1.1"
+VERSION="1.2"
 
 # ── args ─────────────────────────────────────────────────────────────────────
 # --yes is accepted for family-flag consistency (§2.8) but sync never prompts;

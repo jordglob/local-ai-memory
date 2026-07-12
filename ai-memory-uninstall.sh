@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-uninstall.sh  v1.3
+#  ai-memory-uninstall.sh  v1.4
 #  AI Memory Stack — clean reversal, EXPORT-FIRST
 #
+#  v1.4: the fleet/remote layer moved to the companion repo
+#        local-ai-memory-fleet — help/summary wording no longer names the
+#        remote script as part of this repo (--remote stub kept, not built).
 #  v1.3: the export archive now also carries Hermes' OWN memory
 #        (~/.hermes/state.db) — ~/.hermes is no longer rm -rf'd while its
 #        state.db sits outside the export (config.yaml/.env stay excluded:
@@ -28,7 +31,8 @@
 #  KEPT unless you opt in:
 #    Ollama runtime + downloaded models   (--remove-ollama)
 #    Node.js / npm prefix                 (too shared — never removed)
-#    remote.sh changes (sshd/WireGuard/…) (increment 2 — --remote, not yet built)
+#    remote-access changes (sshd/WireGuard/…) — made by the companion repo
+#    local-ai-memory-fleet's remote script    (increment 2 — --remote, not built)
 #
 #  Usage:  bash ai-memory-uninstall.sh [path/to/vault] [flags]
 #
@@ -38,7 +42,7 @@
 
 set -euo pipefail
 
-VERSION="1.3"
+VERSION="1.4"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -60,7 +64,8 @@ Flags:
   --force-no-export  with --no-export: skip the DELETE confirm too (irreversible,
                      non-interactive data loss — you have been warned)
   --remove-ollama    ALSO remove downloaded Ollama models (opt-in; off by default)
-  --remote           reverse remote.sh changes too (increment 2 — not yet built)
+  --remote           reverse remote-access changes too (made by the companion
+                     repo local-ai-memory-fleet — increment 2, not yet built)
   --help / --version
 
 What it removes (core stack): the vault (only AFTER a successful export),
@@ -220,7 +225,7 @@ yn() { if "$@"; then echo present; else echo absent; fi; }
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.3 — Uninstall      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.4 — Uninstall      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -327,7 +332,7 @@ show_plan() {
   else
     echo -e "    ${DIM}•  Ollama runtime + models   kept; opt in with --remove-ollama${NC}"
   fi
-  echo -e "    ${DIM}•  remote.sh changes (sshd/WireGuard/linger/RustDesk)   see --remote below${NC}"
+  echo -e "    ${DIM}•  remote-access changes (sshd/WireGuard/linger/RustDesk)   see --remote below${NC}"
 
   blank
   echo -e "  ${DIM}Never touched: ~/.paperclip, and anything we did not create.${NC}"
