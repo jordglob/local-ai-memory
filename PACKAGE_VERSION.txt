@@ -833,3 +833,15 @@ History:
                           not `hermes -z` (5 probes) — so MoA correctness there is an
                           analytical union ceiling from measured single-model data; cost
                           is exact. Suite: 102 passed, 0 failed, 1 skipped.
+  v51 CC   2026-07-12  — ingest v2.26 hardens the v2.14 secret-scrub: adds a
+                          `github_pat_*` pattern for fine-grained GitHub PATs. The
+                          existing `gh[pousr]_` rule only caught classic/OAuth tokens
+                          (ghp_/gho_/ghu_/ghs_/ghr_) — a modern fine-grained PAT
+                          (github_pat_…) begins `ghi`, so it slipped straight through
+                          into the synced vault. This closes the exact leak vector that
+                          made a GitHub push feel unsafe: a PAT pasted into a Claude Code
+                          session rode the transcript into the vault. Scrub still runs in
+                          write_conv for EVERY source before hashing, so re-ingest also
+                          sanitizes files written by older versions. Regression test
+                          extended to assert both an api-key and a fine-grained PAT are
+                          redacted end-to-end. Suite: 102 passed, 0 failed, 1 skipped.

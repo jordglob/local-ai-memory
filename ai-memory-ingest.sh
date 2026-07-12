@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.25
+#  ai-memory-ingest.sh  v2.26
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.26: secret-scrub adds `github_pat_*` (fine-grained PATs) — the `gh[pousr]_`
+#         pattern only caught classic/OAuth tokens; modern fine-grained PATs
+#         (github_pat_…) slipped through. Closes the exact leak vector where a
+#         pasted PAT rode a CC transcript into the synced vault.
 #  v2.25: `--local` sweeps every directory/db-based agent store (hermes,
 #         claude-code, codex, gemini-cli, cursor, aider, lmstudio, open-webui,
 #         openclaw) and SKIPS the zip/Downloads exporters. This is the OS-general,
@@ -122,7 +126,7 @@ import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
 from pathlib import Path
 
-VERSION = "2.25"
+VERSION = "2.26"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -162,6 +166,7 @@ def ask_yn(question, default=True):
 _SECRET_PATTERNS = (
     (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),                     "[REDACTED:api-key]"),
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),              "[REDACTED:github-token]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),            "[REDACTED:github-token]"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                        "[REDACTED:aws-key]"),
     (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),                   "[REDACTED:google-key]"),
     (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),            "[REDACTED:slack-token]"),
