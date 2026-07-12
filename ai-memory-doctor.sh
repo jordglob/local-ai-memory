@@ -55,13 +55,17 @@ w() { echo -e "  ${YELLOW}⚠${NC}  $*"; WARN=$((WARN+1)); }
 f() { echo -e "  ${RED}✗${NC}  $*"; FAIL=$((FAIL+1)); }
 fix() { echo -e "      ${DIM}fix: $*${NC}"; }
 
+# Single source of truth for the version — the --version flag and the banner
+# both read $VERSION, so they can never drift from each other again.
+VERSION="1.2"
+
 LIVE=false
 VAULT=""
 for arg in "$@"; do
   case "$arg" in
     --live) LIVE=true ;;
     -h|--help)    sed -n '2,28p' "$0" | sed 's/^#//'; exit 0 ;;
-    -V|--version) echo "ai-memory-doctor.sh v1.2"; exit 0 ;;
+    -V|--version) echo "ai-memory-doctor.sh v$VERSION"; exit 0 ;;
     -*) ;;
     *) [[ -z "$VAULT" ]] && VAULT="$arg" ;;
   esac
@@ -78,7 +82,7 @@ INGEST="$VAULT/.tools/ai-memory-ingest.sh"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.2 — Doctor         ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v$VERSION — Doctor         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 info "Vault:       $VAULT"
 info "Hermes home: $HERMES_HOME"

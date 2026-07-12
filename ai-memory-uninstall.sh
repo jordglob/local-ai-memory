@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-uninstall.sh  v1.4
+#  ai-memory-uninstall.sh  v1.5
 #  AI Memory Stack — clean reversal, EXPORT-FIRST
 #
+#  v1.5: the banner and the export manifest's exported_by now derive from the
+#        $VERSION constant (both hardcoded the number; the manifest had already
+#        drifted to a stale "v1.3"); the state.db-not-exported warning prints
+#        the real $HERMES_HOME path instead of a non-expanding quoted "~"
+#        (SC2088).
 #  v1.4: the fleet/remote layer moved to the companion repo
 #        local-ai-memory-fleet — help/summary wording no longer names the
 #        remote script as part of this repo (--remote stub kept, not built).
@@ -42,7 +47,7 @@
 
 set -euo pipefail
 
-VERSION="1.4"
+VERSION="1.5"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -225,7 +230,7 @@ yn() { if "$@"; then echo present; else echo absent; fi; }
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.4 — Uninstall      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v$VERSION — Uninstall      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -255,16 +260,16 @@ vault_size() {  # human-readable size of the vault, best-effort
 MANIFEST_NAME="ai-memory-export-manifest.json"
 build_manifest() {  # build_manifest <out-path> <state-db yes|no> ; 1 if no python3
   command -v python3 &>/dev/null || return 1
-  python3 - "$1" "$VAULT" "$OS" "$STAMP" "${2:-no}" << 'PY'
+  python3 - "$1" "$VAULT" "$OS" "$STAMP" "${2:-no}" "$VERSION" << 'PY'
 import sys, json, os, socket, getpass
-out, vault, os_name, stamp, state_db = sys.argv[1:6]
+out, vault, os_name, stamp, state_db, version = sys.argv[1:7]
 m = {
   "format": "ai-memory-vault-export",
   "schema_version": 1,
   "created_utc": stamp,
   "source": {"os": os_name, "host": socket.gethostname(), "user": getpass.getuser()},
   "vault_dir": os.path.basename(vault.rstrip("/")),
-  "exported_by": "ai-memory-uninstall.sh v1.3",
+  "exported_by": "ai-memory-uninstall.sh v" + version,
   "includes": ["vault: markdown memory, notes, imported AI sessions"]
               + (["hermes/state.db: Hermes' own memory (agent state database)"]
                  if state_db == "yes" else []),
@@ -514,7 +519,7 @@ remove_hermes() {
   # but did not make it into the archive, keep ~/.hermes rather than destroy
   # unexported data. (--no-export already required the loud DELETE confirm.)
   if $DO_EXPORT && [[ -f "$STATE_DB" ]] && [[ "${HERMES_STATE_IN_EXPORT:-false}" != true ]]; then
-    warn "~/.hermes/state.db is NOT in the export archive — keeping ~/.hermes."
+    warn "$HERMES_HOME/state.db is NOT in the export archive — keeping $HERMES_HOME."
     warn "Re-run once the export works, or use --no-export (loud DELETE confirm) to drop it without a backup."
     return 0
   fi

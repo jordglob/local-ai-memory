@@ -127,10 +127,14 @@ prompt_read() {  # prompt_read [read-flags] VAR — read a reply from the right 
   if $CAN_PROMPT; then read "$@" < /dev/tty; else read "$@"; fi
 }
 
+# Single source of truth for the version — the --version flag and the banner
+# both read $VERSION, so they can never drift from each other again.
+VERSION="5.13"
+
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.13"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v$VERSION"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -158,7 +162,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.13 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v$VERSION — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \

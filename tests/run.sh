@@ -6,7 +6,8 @@
 #    • bash -n parse of every script
 #    • shellcheck of every script        (skipped with a note if not installed)
 #    • --version / --help smoke tests     (exit 0, prints a version)
-#    • version consistency                (header == --version == banner)
+#    • version consistency                (one VERSION constant per script;
+#      --version, banner and header comment all agree with it)
 #    • regression: uninstall --no-export --yes must NOT delete without the
 #      loud DELETE confirm / --force-no-export  (locks in the v1.2 fix)
 #    • mux: a real tmux session has 2 SIDE-BY-SIDE panes + mouse on — the
@@ -132,21 +133,38 @@ for s in $FAMILY; do
   if bash "$s" --help >/dev/null 2>&1; then pass "$s --help"; else fail "$s --help" "non-zero exit"; fi
 done
 
-# ── 4. version consistency (header == --version == banner) ───────────────────
+# ── 4. version consistency (one VERSION constant per script) ─────────────────
+# Each script has exactly ONE authoritative version: the VERSION="x.y" constant
+# near the top of the .sh — or, for the thin launchers (ingest/search), the
+# VERSION in the lib/ engine. Everything else must DERIVE from it:
+#   (a) --version prints it (runtime proof the flag reads the constant),
+#   (b) any banner (║ box line) references $VERSION / {VERSION}, never a
+#       hardcoded number that can drift,
+#   (c) the header comment (documentation) states the same number.
 hdr "version consistency"
 for s in $FAMILY; do
   [ -f "$s" ] || continue
-  if [ "$s" = ai-memory-ingest.sh ] && [ "$PY_OK" = 0 ]; then skip "$s (no real python3 here)"; continue; fi
+  case "$s" in
+    ai-memory-ingest.sh) src=lib/aimem_ingest.py ;;
+    ai-memory-search.sh) src=lib/aimem_search.py ;;
+    *)                   src=$s ;;
+  esac
+  const=$(grep -m1 -E '^VERSION *= *"[0-9]+\.[0-9]+"' "$src" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+')
+  if [ -z "$const" ]; then fail "$s: no VERSION constant" "expected VERSION=\"x.y\" in $src"; continue; fi
+  if [ "$src" != "$s" ] && [ "$PY_OK" = 0 ]; then skip "$s (no real python3 here)"; continue; fi
+  # (a) --version output carries exactly the constant
   vflag=$(bash "$s" --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+' | head -1)
-  [ -z "$vflag" ] && { skip "$s (no --version)"; continue; }
-  # header line 2-4 must mention the same vX.Y
-  if head -6 "$s" | grep -qF " $vflag"; then hdr_ok=1; else hdr_ok=0; fi
-  # banner (the box line) — only scripts that draw one; tolerate absence
-  if grep -qE '║.*'"$vflag" "$s"; then ban_ok=1; else ban_ok=2; fi
-  if [ "$hdr_ok" = 1 ] && [ "$ban_ok" != 0 ]; then
-    pass "$s  header/banner agree on $vflag"
+  if [ "$vflag" = "v$const" ]; then flag_ok=1; else flag_ok=0; fi
+  # (b) banner box lines never hardcode a version — they must read the constant
+  if grep -E '║' "$src" | grep -qE 'v[0-9]+\.[0-9]+'; then ban_ok=0
+  elif grep -E '║' "$src" | grep -q 'VERSION'; then ban_ok=1   # derives from the constant
+  else ban_ok=2; fi                                            # no version banner — fine
+  # (c) header comment (first lines of the .sh) states the same number
+  if head -6 "$s" | grep -qF " v$const"; then hdr_ok=1; else hdr_ok=0; fi
+  if [ "$flag_ok" = 1 ] && [ "$ban_ok" != 0 ] && [ "$hdr_ok" = 1 ]; then
+    pass "$s  VERSION=$const drives --version/banner/header"
   else
-    fail "$s version drift" "flag=$vflag header_match=$hdr_ok banner=$ban_ok"
+    fail "$s version drift" "const=$const flag=$vflag flag_ok=$flag_ok banner=$ban_ok header=$hdr_ok"
   fi
 done
 
