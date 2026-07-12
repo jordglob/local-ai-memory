@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-uninstall.sh  v1.2
+#  ai-memory-uninstall.sh  v1.3
 #  AI Memory Stack — clean reversal, EXPORT-FIRST
 #
+#  v1.3: the export archive now also carries Hermes' OWN memory
+#        (~/.hermes/state.db) — ~/.hermes is no longer rm -rf'd while its
+#        state.db sits outside the export (config.yaml/.env stay excluded:
+#        secrets and hardware-specific settings never travel); the Claude
+#        Desktop MCP step now reports whether an entry was ACTUALLY removed
+#        (no green log for a no-op).
 #  v1.2: --no-export always requires the loud DELETE confirm (even under --yes;
 #        override only with --force-no-export); the export archive is now
 #        integrity- and completeness-verified before any vault removal;
@@ -32,7 +38,7 @@
 
 set -euo pipefail
 
-VERSION="1.2"
+VERSION="1.3"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -58,7 +64,9 @@ Flags:
   --help / --version
 
 What it removes (core stack): the vault (only AFTER a successful export),
-~/.hermes, mcpvault (npm global), the Ollama autostart service/agent, the
+~/.hermes (its state.db — Hermes' own memory — goes into the export archive
+first; config.yaml/.env secrets never travel), mcpvault (npm global), the
+Ollama autostart service/agent, the
 Claude Desktop MCP entry, the Session Continuity skill, the shell-rc hermes()
 launcher, and temp logs/checkpoints.
 
@@ -158,6 +166,8 @@ fi
 # ── Paths every installer in the family creates (single source of truth) ─────
 OS="linux"; [[ "$OSTYPE" == "darwin"* ]] && OS="macos"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+STATE_DB="$HERMES_HOME/state.db"        # Hermes' own memory — exported with the vault
+HERMES_STATE_IN_EXPORT=false            # set true only when state.db is verified in the archive
 SKILL_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/commands"
 SKILL_FILE="$SKILL_DIR/session-continuity.md"
 case "$OS" in
@@ -210,7 +220,7 @@ yn() { if "$@"; then echo present; else echo absent; fi; }
 # ═════════════════════════════════════════════════════════════════════════════
 blank
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v1.2 — Uninstall      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v1.3 — Uninstall      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 blank
 info "Vault:  $VAULT"
@@ -238,24 +248,26 @@ vault_size() {  # human-readable size of the vault, best-effort
 # root so a future `setup --restore` knows what it's looking at and what was
 # DELIBERATELY left out (config is hardware-specific; keys never travel).
 MANIFEST_NAME="ai-memory-export-manifest.json"
-build_manifest() {  # build_manifest <out-path> ; 0 on success, 1 if no python3
+build_manifest() {  # build_manifest <out-path> <state-db yes|no> ; 1 if no python3
   command -v python3 &>/dev/null || return 1
-  python3 - "$1" "$VAULT" "$OS" "$STAMP" << 'PY'
+  python3 - "$1" "$VAULT" "$OS" "$STAMP" "${2:-no}" << 'PY'
 import sys, json, os, socket, getpass
-out, vault, os_name, stamp = sys.argv[1:5]
+out, vault, os_name, stamp, state_db = sys.argv[1:6]
 m = {
   "format": "ai-memory-vault-export",
   "schema_version": 1,
   "created_utc": stamp,
   "source": {"os": os_name, "host": socket.gethostname(), "user": getpass.getuser()},
   "vault_dir": os.path.basename(vault.rstrip("/")),
-  "exported_by": "ai-memory-uninstall.sh v1.2",
-  "includes": ["vault: markdown memory, notes, imported AI sessions"],
+  "exported_by": "ai-memory-uninstall.sh v1.3",
+  "includes": ["vault: markdown memory, notes, imported AI sessions"]
+              + (["hermes/state.db: Hermes' own memory (agent state database)"]
+                 if state_db == "yes" else []),
   "excludes": [
     "~/.hermes/config.yaml  (hardware-specific — re-derived by configure on the new machine)",
     "~/.hermes/.env API keys (secrets never travel in an export — re-enter on the new machine)",
-    "Hermes native state.db (agent-private, version-coupled)",
-  ],
+  ] + ([] if state_db == "yes"
+       else ["Hermes native state.db (not present on the source machine)"]),
   "restore_hint": "On the new machine run: bash ai-memory-setup.sh — a future version will offer to restore this archive as your vault.",
 }
 open(out, "w").write(json.dumps(m, indent=2) + "\n")
@@ -269,11 +281,18 @@ show_plan() {
   hdr "Step 1/3  Export your memory (always first)"
   if ! $DO_EXPORT; then
     warn "Export DISABLED (--no-export) — your imported memory will NOT be backed up."
-  elif vault_ok; then
-    echo -e "    Vault → portable archive (your data is never destroyed without a copy):"
+  elif vault_ok || [[ -f "$STATE_DB" ]]; then
+    echo -e "    Your data → portable archive (never destroyed without a copy):"
     echo -e "      ${CYAN}$ARCHIVE${NC}"
-    echo -e "      ${DIM}source: $VAULT  (~$(vault_size) of markdown + notes)${NC}"
+    if vault_ok; then
+      echo -e "      ${DIM}source: $VAULT  (~$(vault_size) of markdown + notes)${NC}"
+    else
+      plan_line absent "vault at $VAULT — nothing to export there"
+    fi
+    [[ -f "$STATE_DB" ]] && echo -e "      ${DIM}+ Hermes' own memory (~/.hermes/state.db → hermes/state.db)${NC}"
     echo -e "      ${DIM}+ a small migration manifest (no secrets) so a new machine can restore it${NC}"
+    echo -e "      ${DIM}NOT in the archive: ~/.hermes config.yaml + .env API keys"
+    echo -e "      (hardware-specific / secrets — re-created on the new machine)${NC}"
   else
     plan_line absent "vault at $VAULT — nothing to export"
   fi
@@ -292,7 +311,7 @@ show_plan() {
   rc_block_present "$RC_ZSH" && plan_line present "shell launcher block" "${RC_ZSH/#$HOME/~} (between our markers)"
   plan_line "$(yn tmp_present)"          "temp logs + checkpoints"  "${TMP_DIR}/ai-memory-*"
   plan_line "$(yn scan_report_present)"  "scan report"              "${SCAN_REPORT/#$HOME/~} (inside vault)"
-  plan_line "$(yn hermes_present)"       "Hermes Agent home"        "${HERMES_HOME/#$HOME/~}  (config + keys + Hermes' own memory)"
+  plan_line "$(yn hermes_present)"       "Hermes Agent home"        "${HERMES_HOME/#$HOME/~}  (config + keys; its state.db memory goes into the export first)"
   if vault_ok; then
     plan_line present "vault tree"  "$VAULT  ${YELLOW}(removed LAST, only after a verified export)${NC}"
   else
@@ -329,37 +348,63 @@ do_export() {
     warn "Skipping export (--no-export)."
     return 0
   fi
-  if ! vault_ok; then
-    info "No vault to export at $VAULT — skipping export."
+  local have_vault=false have_state=false
+  vault_ok && have_vault=true
+  [[ -f "$STATE_DB" ]] && have_state=true
+  if ! $have_vault && ! $have_state; then
+    info "No vault at $VAULT and no Hermes state.db — nothing to export."
     return 0
   fi
   hdr "Exporting your memory"
-  info "Archiving the vault — this is your safety copy."
+  info "Archiving your data — this is your safety copy."
   local stage; stage="$(mktemp -d 2>/dev/null || echo '')"
-  local extra=()
-  if [[ -n "$stage" ]] && build_manifest "$stage/$MANIFEST_NAME"; then
-    extra=(-C "$stage" "$MANIFEST_NAME")
+  local extra=() manifested=false
+  if [[ -n "$stage" ]] && build_manifest "$stage/$MANIFEST_NAME" "$($have_state && echo yes || echo no)"; then
+    extra=(-C "$stage" "$MANIFEST_NAME"); manifested=true
   else
-    warn "Skipping migration manifest (python3 unavailable) — vault still exported."
+    warn "Skipping migration manifest (python3 unavailable) — data still exported."
   fi
+  # Hermes' OWN memory travels too (v1.3): ~/.hermes is removed later, and
+  # export-first must cover the agent's state.db, not only the vault.
+  # config.yaml and .env stay out on purpose (hardware-specific / secrets).
+  if $have_state; then
+    if [[ -n "$stage" ]] && mkdir -p "$stage/hermes" 2>/dev/null \
+       && cp "$STATE_DB" "$stage/hermes/state.db" 2>/dev/null; then
+      extra+=(-C "$stage" hermes)
+    else
+      warn "Could not stage ~/.hermes/state.db — it will NOT be in the archive."
+    fi
+  fi
+  local vault_member=()
+  $have_vault && vault_member=(-C "$(dirname "$VAULT")" "$(basename "$VAULT")")
   if tar -czf "$ARCHIVE" ${extra[@]+"${extra[@]}"} \
-        -C "$(dirname "$VAULT")" "$(basename "$VAULT")" 2>/dev/null \
+        ${vault_member[@]+"${vault_member[@]}"} 2>/dev/null \
        && [[ -s "$ARCHIVE" ]] \
        && tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
     # Non-empty AND readable is not enough: a truncated archive can still list.
     # Compare the *.md count in the archive against the vault on disk — trust the
     # export only if it contains at least as many markdown files as the source.
-    local disk_md arch_md
+    local disk_md arch_md state_cnt
     disk_md="$(find "$VAULT" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
-    arch_md="$(tar -tzf "$ARCHIVE" 2>/dev/null | grep -c '\.md$')"
+    arch_md="$(tar -tzf "$ARCHIVE" 2>/dev/null | grep -c '\.md$' || true)"
     if [[ "${disk_md:-0}" -gt 0 && "${arch_md:-0}" -lt "${disk_md:-0}" ]]; then
       rm -f "$ARCHIVE" 2>/dev/null || true
       [[ -n "$stage" ]] && rm -rf "$stage" 2>/dev/null || true
       die "Export INCOMPLETE — archive holds $arch_md of $disk_md markdown file(s).\n  Refusing to remove anything. Your vault is untouched."
     fi
     ok "Exported → $ARCHIVE  ($(du -h "$ARCHIVE" 2>/dev/null | awk '{print $1}'))"
-    info "Verified archive: readable and $arch_md markdown file(s) present."
-    [[ ${#extra[@]} -gt 0 ]] && info "Included migration manifest ($MANIFEST_NAME) — contains no secrets."
+    $have_vault && info "Verified archive: readable and $arch_md markdown file(s) present."
+    # Verify state.db actually made it in — remove_hermes checks this flag and
+    # keeps ~/.hermes rather than destroy unexported agent memory.
+    state_cnt="$(tar -tzf "$ARCHIVE" 2>/dev/null | grep -c 'hermes/state\.db$' || true)"
+    if [[ "${state_cnt:-0}" -gt 0 ]]; then
+      HERMES_STATE_IN_EXPORT=true
+      info "Included Hermes' own memory (hermes/state.db)."
+      info "Not included: ~/.hermes config.yaml + .env API keys (secrets never travel)."
+    elif $have_state; then
+      warn "Hermes state.db is NOT in the archive — ~/.hermes will be KEPT, not removed."
+    fi
+    $manifested && info "Included migration manifest ($MANIFEST_NAME) — contains no secrets."
     EXPORT_OK=true
   else
     rm -f "$ARCHIVE" 2>/dev/null || true
@@ -376,22 +421,36 @@ remove_claude_entry() {
   claude_entry_present || { return 0; }
   command -v python3 &>/dev/null || { warn "python3 not found — leaving $CLAUDE_DESKTOP untouched"; return 0; }
   cp "$CLAUDE_DESKTOP" "$CLAUDE_DESKTOP.bak.$STAMP" 2>/dev/null || true
-  python3 - "$CLAUDE_DESKTOP" "$VAULT" << 'PY' && ok "Removed Claude Desktop MCP entry (backup saved)"
+  # The python reports what it DID (exit 0 = removed, 3 = nothing matched) — a
+  # green log for a no-op is a bug, not a success.
+  local prc=0
+  python3 - "$CLAUDE_DESKTOP" "$VAULT" << 'PY' || prc=$?
 import sys, json
 p, vault = sys.argv[1], sys.argv[2]
 try:
     cfg = json.load(open(p))
 except Exception:
-    sys.exit(0)
+    sys.exit(3)   # unreadable/invalid JSON — nothing was removed
 servers = cfg.get("mcpServers", {})
+removed = False
 # remove only the entry WE added (its args reference this vault path)
 for name in list(servers.keys()):
     s = servers[name]
     args = s.get("args", []) if isinstance(s, dict) else []
     if name == "obsidian-vault" and any(vault in str(a) for a in args):
         servers.pop(name, None)
-json.dump(cfg, open(p, "w"), indent=2)
+        removed = True
+if removed:
+    json.dump(cfg, open(p, "w"), indent=2)
+sys.exit(0 if removed else 3)
 PY
+  if [[ "$prc" -eq 0 ]]; then
+    ok "Removed Claude Desktop MCP entry (backup saved)"
+  elif [[ "$prc" -eq 3 ]]; then
+    info "Claude Desktop MCP entry found, but none references this vault ($VAULT) — left untouched"
+  else
+    warn "Could not edit $CLAUDE_DESKTOP (python exited $prc) — entry left in place"
+  fi
 }
 remove_mcpvault() {
   mcpvault_present || return 0
@@ -446,7 +505,15 @@ remove_hermes() {
   # Guard: must be exactly ~/.hermes, never a symlink pointing elsewhere, never paperclip
   [[ "$HERMES_HOME" == "$HOME/.hermes" && ! -L "$HERMES_HOME" ]] \
     || { warn "Skipping $HERMES_HOME — not the expected ~/.hermes path"; return 0; }
-  rm -rf "$HERMES_HOME" && ok "Removed Hermes home (~/.hermes — config, keys, native memory)"
+  # Export-first covers the agent's own memory too (v1.3): if state.db exists
+  # but did not make it into the archive, keep ~/.hermes rather than destroy
+  # unexported data. (--no-export already required the loud DELETE confirm.)
+  if $DO_EXPORT && [[ -f "$STATE_DB" ]] && [[ "${HERMES_STATE_IN_EXPORT:-false}" != true ]]; then
+    warn "~/.hermes/state.db is NOT in the export archive — keeping ~/.hermes."
+    warn "Re-run once the export works, or use --no-export (loud DELETE confirm) to drop it without a backup."
+    return 0
+  fi
+  rm -rf "$HERMES_HOME" && ok "Removed Hermes home (~/.hermes — config + keys; state.db was exported first if it existed)"
 }
 remove_ollama_models() {
   $REMOVE_OLLAMA || return 0

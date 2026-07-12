@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-remote.sh  v2.9
+#  ai-memory-remote.sh  v2.10
 #  Remote access & always-on setup for AI Memory Stack nodes
+#  v2.10: safety round — disabling password auth is interactive-only (--yes can
+#        never do it), the local key self-test is advisory with a fingerprint
+#        check, the auto-revert net is root-owned, 15 min and never cancelled by
+#        the script itself (macOS skips the disabled-by-default `at`);
+#        sshd_config is backed up and auto-restored if `sshd -t` fails; the
+#        WireGuard hub install is step-guarded; --yes honors each question's
+#        default; fixed the step-7 crash on the missing `ask` helper.
 #  v2.9: NEW step 7/7 — reach the hermes WEB DASHBOARD remotely. It binds to
 #        127.0.0.1 by default (unreachable from outside); this offers an SSH
 #        tunnel (no password) or a LAN/VPN 0.0.0.0 bind (hermes requires a
@@ -31,7 +38,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="2.9"
+VERSION="2.10"
 
 case "${1:-}" in
   -h|--help)
@@ -75,7 +82,11 @@ VAULT="${VAULT:-$HOME/Documents/ai-memory}"
 
 ask_yn() {  # ask_yn "question" default(y|n)
   local q="$1" def="${2:-y}" ans
-  if $ASSUME_YES; then return 0; fi
+  if $ASSUME_YES; then
+    # --yes accepts each question's stated DEFAULT — it never force-answers
+    # 'yes' to a default-No opt-in (curl|sh installers, RustDesk, ...).
+    [[ "$def" == "y" ]]; return $?
+  fi
   if ! $CAN_PROMPT; then
     warn "Non-interactive — assuming '$def' for: $q"
     [[ "$def" == "y" ]]; return $?
@@ -115,7 +126,7 @@ fi
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack — Remote v2.9          ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack — Remote v2.10         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "OS: $OS${PKG:+ ($PKG)} · Node user: ${USER:-$(id -un)}"
@@ -274,9 +285,15 @@ hdr "2/7  Your public key"
 AUTH="$HOME/.ssh/authorized_keys"
 mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"; touch "$AUTH"; chmod 600 "$AUTH"
 
+# Fingerprints of the key(s) the operator explicitly installed/confirmed in
+# THIS run of step 2 — step 3 compares them against whatever key actually
+# authenticates in the self-test (the node's own key would pass otherwise).
+STEP2_FPS=""
 add_key() {  # add_key "ssh-ed25519 AAAA... comment"
-  local k="$1"
+  local k="$1" fp
   [[ "$k" == ssh-* || "$k" == ecdsa-* ]] || { warn "That does not look like a public key — skipped"; return 1; }
+  fp="$(printf '%s\n' "$k" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' || true)"
+  [[ -n "$fp" ]] && STEP2_FPS="$STEP2_FPS$fp"$'\n'
   if grep -qF "$(echo "$k" | awk '{print $2}')" "$AUTH" 2>/dev/null; then
     skip "Key already installed"
   else
@@ -344,44 +361,87 @@ if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
   IPGUESS="$( { [[ "$OS" == "macos" ]] && ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}'; } || true )"
 
   # ── Gate: prove key-only login works BEFORE touching password auth ──────────
-  # --yes must NEVER be able to disable password auth on its own. We proceed only
-  # when a real key-only login test passes, or (test unavailable) an explicit
-  # interactive confirmation — never on --yes alone.
-  key_login_test() {  # key_login_test — 0 if key-only auth succeeds to this box
-    local t
+  # --yes must NEVER be able to disable password auth — the decision is ALWAYS a
+  # live interactive answer on /dev/tty (ask_disable below ignores --yes). The
+  # self-test is ADVISORY: it proves *a* key can log in from this node — not
+  # necessarily YOURS (this node's own key would pass too). It only counts as
+  # verification when the fingerprint that authenticated matches a key the
+  # operator installed in step 2 of this run.
+  KEY_TEST_FP=""
+  key_login_test() {  # 0 if key-only auth succeeds to this box; sets KEY_TEST_FP
+    local t out
+    KEY_TEST_FP=""
     for t in localhost "${IPGUESS:-}"; do
       [[ -n "$t" ]] || continue
-      if ssh -o BatchMode=yes -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
+      if out="$(ssh -v -o BatchMode=yes -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-             -o ConnectTimeout=5 "$REMOTE_USER@$t" true 2>/dev/null; then
+             -o ConnectTimeout=5 "$REMOTE_USER@$t" true 2>&1)"; then
+        # Best-effort: which key did the server accept? (parsed from the -v log)
+        KEY_TEST_FP="$(printf '%s\n' "$out" \
+          | awk '/Server accepts key/{for(i=1;i<=NF;i++) if($i ~ /^SHA256:/){print $i; exit}}' || true)"
         return 0
       fi
     done
     return 1
   }
 
+  ask_disable() {  # interactive-only [y/N] — --yes NEVER answers this question
+    local q="$1" ans
+    $CAN_PROMPT || return 1
+    if $ASSUME_YES; then
+      info "--yes is deliberately ignored for this question — disabling password"
+      info "auth always requires a live answer (lockout protection)."
+    fi
+    echo -e "${BOLD}$q [y/N]${NC}" > /dev/tty
+    read -r ans < /dev/tty || ans=""
+    ans="$(lc "${ans:-n}")"
+    [[ "$ans" == "y" || "$ans" == "yes" || "$ans" == "j" || "$ans" == "ja" ]]
+  }
+
   info "Testing key-only login (no password) before disabling password auth..."
   KEY_LOGIN_OK=false
-  if key_login_test; then KEY_LOGIN_OK=true; ok "Key-only login verified from this node"; fi
+  KEY_FP_MATCHES=false
+  if key_login_test; then
+    KEY_LOGIN_OK=true
+    if [[ -n "$KEY_TEST_FP" && -n "$STEP2_FPS" ]] && printf '%s' "$STEP2_FPS" | grep -qF "$KEY_TEST_FP"; then
+      KEY_FP_MATCHES=true
+      ok "Key-only login verified — the accepted key ($KEY_TEST_FP) is one you installed in step 2"
+    else
+      warn "A key can log in from this node — but not necessarily YOURS (advisory:"
+      warn "this node's own key would pass this test too)."
+    fi
+  fi
 
   DO_DISABLE=false
-  if $KEY_LOGIN_OK; then
-    # Proof exists — safe to let --yes proceed, because the test (not the flag)
-    # is what makes this safe.
-    ask_yn "Disable password login now? (key-only login is verified)" y && DO_DISABLE=true
+  if ! $CAN_PROMPT; then
+    # v2.10: --yes / non-interactive can NEVER disable password auth.
+    warn "Non-interactive — password login kept ON. Disabling it always requires"
+    warn "a live confirmation on this terminal (--yes is deliberately not enough)."
+  elif $KEY_FP_MATCHES; then
+    ask_disable "Disable password login now? (key-only login verified with YOUR step-2 key)" && DO_DISABLE=true
   else
-    warn "Automated key-only login test did NOT pass from this node."
-    warn "That is expected if this node has no matching PRIVATE key locally"
-    warn "(your client key never leaves your client). Verify by hand instead:"
-    echo  "  From your CLIENT machine, open a NEW terminal and run:"
+    if ! $KEY_LOGIN_OK; then
+      warn "Automated key-only login test did NOT pass from this node."
+      warn "That is expected if this node has no matching PRIVATE key locally"
+      warn "(your client key never leaves your client)."
+    fi
+    echo  "  Verify by hand: from your CLIENT machine, open a NEW terminal and run:"
     echo -e "    ${CYAN}ssh $REMOTE_USER@${IPGUESS:-<this-machine-ip>}${NC}"
     echo  "  It must log in WITHOUT asking for the account password"
     echo  "  (a key passphrase prompt is fine — that is your key, not the account)."
-    if $CAN_PROMPT && ! $ASSUME_YES; then
-      # NEVER auto-satisfied by --yes: this path requires a live interactive answer.
-      ask_yn "Confirm ONLY if key login just worked from your client — disable password login?" n && DO_DISABLE=true
+    ask_disable "Confirm ONLY if key login just worked from your client — disable password login?" && DO_DISABLE=true
+  fi
+
+  if $DO_DISABLE; then
+    # v2.10: timestamped backup BEFORE any modification — auto-restored below if
+    # the changed config fails `sshd -t` (a broken sshd_config on a headless box
+    # means a dead sshd at the next reboot).
+    SSHD_BACKUP="/etc/ssh/sshd_config.ai-memory-bak.$(date +%Y%m%d-%H%M%S)"
+    if sudo cp -p /etc/ssh/sshd_config "$SSHD_BACKUP" 2>/dev/null; then
+      info "Backed up sshd_config → $SSHD_BACKUP"
     else
-      warn "Non-interactive and key login unproven — password login kept ON (safe)."
+      warn "Could not back up /etc/ssh/sshd_config — refusing to modify it. Password login kept ON."
+      DO_DISABLE=false
     fi
   fi
 
@@ -408,25 +468,38 @@ if [[ -s "$AUTH" ]] && grep -q "ssh-" "$AUTH" 2>/dev/null; then
       fi
     fi
     if ! sudo sshd -t 2>/dev/null; then
-      warn "sshd config test failed — NOT restarting. Password login left ON; fix sshd_config first."
+      # Auto-restore: never leave a mutated config that fails validation.
+      sudo cp -p "$SSHD_BACKUP" /etc/ssh/sshd_config 2>/dev/null || true
+      [[ "$SSHD_DROPIN" != "/etc/ssh/sshd_config" ]] && sudo rm -f "$SSHD_DROPIN" 2>/dev/null || true
+      if sudo sshd -t 2>/dev/null; then
+        warn "sshd config test failed — RESTORED the pre-change config from $SSHD_BACKUP."
+        warn "Password login left ON; NOT restarting sshd."
+      else
+        warn "sshd config test failed and STILL fails after restoring $SSHD_BACKUP —"
+        warn "inspect /etc/ssh manually BEFORE rebooting this machine."
+      fi
     else
       # ── Auto-revert safety net ────────────────────────────────────────────
       # Before the change goes live, schedule a rollback that re-enables password
-      # auth after REVERT_MIN minutes UNLESS a confirmed new session drops a
-      # sentinel file. This is what stops a broken key setup from locking you out
-      # of a headless box. The rollback runs as root (scheduled while we hold sudo).
-      REVERT_MIN=5
-      SENTINEL="/tmp/ai-memory-ssh-confirmed.$$"
-      rm -f "$SENTINEL" 2>/dev/null || true
+      # auth after REVERT_MIN minutes UNLESS a HUMAN, from a verified separate
+      # session, drops the sentinel file. This is what stops a broken key setup
+      # from locking you out of a headless box. v2.10: the script itself NEVER
+      # cancels its own net (its self-test can be satisfied by the node's own
+      # key), and the sentinel + revert script live root-owned under /etc/ssh —
+      # a /tmp path could be forged or rewritten by any local user before root
+      # runs it.
+      REVERT_MIN=15
+      SENTINEL="/etc/ssh/ai-memory-ssh-confirmed"
+      REVERT_SH="/etc/ssh/ai-memory-ssh-revert.sh"
+      sudo rm -f "$SENTINEL" 2>/dev/null || true
       if [[ "$SSHD_DROPIN" == "/etc/ssh/sshd_config" ]]; then
         REVERT_CMD="sed -i -E 's/^PasswordAuthentication no/PasswordAuthentication yes/; s/^KbdInteractiveAuthentication no/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config"
       else
         REVERT_CMD="printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > '$SSHD_DROPIN'"
       fi
-      REVERT_SH="$(mktemp 2>/dev/null || echo "/tmp/ai-memory-revert.$$")"
-      cat > "$REVERT_SH" <<REVERT
+      sudo tee "$REVERT_SH" >/dev/null <<REVERT || true
 #!/bin/sh
-# ai-memory auto-revert: re-enable password login unless the new session confirmed.
+# ai-memory auto-revert: re-enable password login unless a human confirmed.
 [ -f "$SENTINEL" ] && exit 0
 $REVERT_CMD
 if command -v systemctl >/dev/null 2>&1; then
@@ -436,17 +509,23 @@ else
   launchctl kill HUP system/com.openssh.sshd 2>/dev/null || true
 fi
 REVERT
-      chmod +x "$REVERT_SH" 2>/dev/null || true
+      sudo chmod 700 "$REVERT_SH" 2>/dev/null || true
       REVERT_ARMED=false
-      if command -v systemd-run &>/dev/null && \
+      if ! sudo test -s "$REVERT_SH" 2>/dev/null; then
+        warn "Could not write $REVERT_SH — auto-revert cannot be armed."
+      elif command -v systemd-run &>/dev/null && \
          sudo systemd-run --quiet --on-active="${REVERT_MIN}min" --unit=ai-memory-ssh-revert /bin/sh "$REVERT_SH" 2>/dev/null; then
         REVERT_ARMED=true
-      elif command -v at &>/dev/null && echo "/bin/sh $REVERT_SH" | sudo at now + "$REVERT_MIN" minutes 2>/dev/null; then
+      elif [[ "$OS" != "macos" ]] && command -v at &>/dev/null && \
+           echo "/bin/sh $REVERT_SH" | sudo at now + "$REVERT_MIN" minutes 2>/dev/null; then
+        # macOS never takes this branch: atrun is disabled by default there, so
+        # `at` queues silently and the promised revert would never actually run.
         REVERT_ARMED=true
       else
-        # Detached fallback: sudo holds root for the whole sleep window, so the
-        # rollback still has privileges after this script exits.
-        sudo sh -c "sleep $((REVERT_MIN*60)); /bin/sh '$REVERT_SH'" &
+        # Detached fallback (and the macOS path): the sudo'd shell keeps root
+        # for the whole sleep window, so the rollback still has privileges after
+        # this script exits.
+        nohup sudo sh -c "sleep $((REVERT_MIN*60)); /bin/sh '$REVERT_SH'" >/dev/null 2>&1 &
         REVERT_ARMED=true
       fi
       if $REVERT_ARMED; then
@@ -473,25 +552,32 @@ REVERT
       fi
 
       # ── Verify the LIVE daemon, not just the file ─────────────────────────
+      # v2.10: the self-test below is ADVISORY only — it can be satisfied by the
+      # node's OWN key, so it must never cancel the auto-revert. Only a human,
+      # from a verified separate session, may drop the sentinel.
       EFF="$(sudo sshd -T 2>/dev/null | awk '$1=="passwordauthentication"{print $2}' || true)"
       KEY_STILL_OK=false
       if $RESTART_OK && key_login_test; then KEY_STILL_OK=true; fi
-      if [[ "$EFF" == "no" ]] && $KEY_STILL_OK; then
-        # Programmatic proof the hardened daemon still accepts key login → the box
-        # is reachable, so cancel the auto-revert on our own behalf.
-        : > "$SENTINEL" 2>/dev/null || true
-        ok "Password login disabled and VERIFIED on the LIVE daemon (key login still works) — $SSHD_DROPIN"
-        ok "Auto-revert cancelled — key login confirmed programmatically."
-        warn "Keep your key safe — it is now the only way in over SSH"
-      elif [[ "$EFF" == "no" ]] && ! $RESTART_OK; then
-        warn "Config says passwordauthentication=no but the sshd reload/restart did NOT succeed."
-        warn "The change may not be live. Check: sudo systemctl status ssh"
-        $REVERT_ARMED && echo -e "  Once a NEW key session works, keep it disabled with: ${CYAN}touch $SENTINEL${NC}"
-      elif [[ "$EFF" == "no" ]]; then
-        warn "sshd -T reports passwordauthentication=no, but I could NOT confirm key"
-        warn "login from this node (no local private key is normal). Confirm from your CLIENT."
-        $REVERT_ARMED && echo -e "  Then KEEP it disabled from that session with: ${CYAN}touch $SENTINEL${NC}"
-        $REVERT_ARMED && echo  "  Do nothing and password login auto-reverts in ${REVERT_MIN} min."
+      if [[ "$EFF" == "no" ]]; then
+        if $KEY_STILL_OK; then
+          ok "Password login disabled on the LIVE daemon; a key can still log in from this node — $SSHD_DROPIN"
+          info "That re-test is advisory (a key logged in — not necessarily YOURS), so"
+          info "the auto-revert stays ARMED until you confirm from a real client session."
+        elif ! $RESTART_OK; then
+          warn "Config says passwordauthentication=no but the sshd reload/restart did NOT succeed."
+          warn "The change may not be live. Check: sudo systemctl status ssh"
+        else
+          warn "sshd -T reports passwordauthentication=no, but I could NOT confirm key"
+          warn "login from this node (no local private key is normal). Confirm from your CLIENT."
+        fi
+        if $REVERT_ARMED; then
+          echo -e "  Now open a ${BOLD}NEW${NC} SSH session from your client. If it logs in with your"
+          echo -e "  key, KEEP password login disabled by running in that NEW session:"
+          echo -e "    ${CYAN}sudo touch $SENTINEL${NC}"
+          echo -e "  Do nothing and password login auto-reverts in ${REVERT_MIN} min"
+          echo -e "  ${DIM}(pre-change config backup: $SSHD_BACKUP)${NC}"
+        fi
+        warn "Keep your key safe — key-only is now the intended way in over SSH"
       else
         warn "Tried to disable password login, but sshd still reports passwordauthentication=${EFF:-unknown}."
         warn "Password login is STILL ON (so you are not locked out). A higher-priority setting overrides ours."
@@ -666,13 +752,26 @@ WG
   echo -e "  ($IDENT_HINT). See the checklist for router examples."
   echo -e "${BOLD}Verify from OUTSIDE${NC} (phone hotspot) — a port-checker website will"
   echo -e "wrongly say 'closed' because WireGuard stays silent by design."
-  # start the hub
+  # start the hub — every step guarded (v2.10): the client's PRIVATE key above
+  # was shown exactly ONCE, so a silent set -e death here would waste it. Any
+  # failure dies with what to do next; the hub keys stay intact in $WGDIR.
   if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
-    sudo cp "$HUB_CONF" /etc/wireguard/wg0.conf 2>/dev/null &&     sudo sed -i "/PrivateKey/d" /etc/wireguard/wg0.conf 2>/dev/null
-    # inject private key into the system copy only
-    sudo sed -i "/^\[Interface\]/a PrivateKey = $(cat "$HUB_PRIV_REF")" /etc/wireguard/wg0.conf 2>/dev/null
-    sudo chmod 600 /etc/wireguard/wg0.conf
-    sudo systemctl enable --now wg-quick@wg0 2>/dev/null && ok "WireGuard hub running (wg-quick@wg0)"       || warn "Start manually: sudo wg-quick up wg0"
+    local HUB_PRIV
+    HUB_PRIV="$(cat "$HUB_PRIV_REF" 2>/dev/null || true)"
+    [[ -n "$HUB_PRIV" ]] \
+      || die "Cannot read $HUB_PRIV_REF — WireGuard hub NOT started.\n  Your configs are intact in $WGDIR; fix permissions and re-run,\n  or start manually: sudo wg-quick up $HUB_CONF"
+    sudo mkdir -p /etc/wireguard \
+      || die "Could not create /etc/wireguard — WireGuard hub NOT started.\n  Your configs are intact in $WGDIR; start manually: sudo wg-quick up $HUB_CONF"
+    sudo cp "$HUB_CONF" /etc/wireguard/wg0.conf \
+      || die "Could not copy the hub config to /etc/wireguard/wg0.conf.\n  Your configs are intact in $WGDIR; start manually: sudo wg-quick up $HUB_CONF"
+    # inject the private key into the ROOT-OWNED system copy only
+    sudo sed -i "/PrivateKey/d" /etc/wireguard/wg0.conf \
+      && sudo sed -i "/^\[Interface\]/a PrivateKey = $HUB_PRIV" /etc/wireguard/wg0.conf \
+      && sudo chmod 600 /etc/wireguard/wg0.conf \
+      || die "Could not finalize /etc/wireguard/wg0.conf (private-key injection failed).\n  Remove it (sudo rm /etc/wireguard/wg0.conf), then start manually:\n  sudo wg-quick up $HUB_CONF"
+    sudo systemctl enable --now wg-quick@wg0 2>/dev/null \
+      && ok "WireGuard hub running (wg-quick@wg0)" \
+      || warn "Start manually: sudo wg-quick up wg0"
     if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
       sudo ufw allow 51820/udp >/dev/null 2>&1 && ok "ufw: UDP 51820 opened"
     fi
@@ -819,7 +918,9 @@ else
   echo -e "  How should it be reachable?"
   echo -e "    1) SSH tunnel  ${GREEN}(most secure)${NC} — stays on 127.0.0.1, no password."
   echo -e "    2) LAN / VPN bind — 0.0.0.0, browse directly; hermes requires a password."
-  ask "Choice [1/2] (ENTER = 1):"
+  # (Only reachable interactively: the ask_yn gate above declines by default
+  #  under --yes and when no /dev/tty is available.)
+  echo -e "${BOLD}Choice [1/2] (ENTER = 1):${NC}" > /dev/tty
   read -r _dc < /dev/tty || _dc=""
   if [[ "$_dc" == "2" ]]; then DASH_HOST="0.0.0.0"; else DASH_HOST="127.0.0.1"; fi
 
