@@ -18,9 +18,10 @@ Plain markdown on your own disk.
 >
 > - **Unsupported — GitHub issues are off** (on purpose). It's MIT: fork it, adapt
 >   it, no expectations either way.
-> - **Some paths have run on real hardware** (Linux + WSL2). **Others have not** —
->   in particular **macOS has never run on a real Mac**, and **`ai-memory-remote.sh`
->   has only run in a VM and can silently lock you out of a headless box.**
+> - **Most of the chain has now run on real hardware** (Linux, WSL2, and — since
+>   2026-07-03 — a physical Apple Silicon Mac). **Some paths still have not** —
+>   above all **`ai-memory-remote.sh` has only ever run in a VM and can silently
+>   lock you out of a headless box.**
 > - **Read the code before you run it**, especially anything touching SSH, keys, or
 >   power settings. See *What's proven vs. unproven* below — it's specific and honest.
 
@@ -56,12 +57,19 @@ bash ai-memory-setup.sh        # installs the stack (Node, Ollama, Hermes, vault
 bash ai-memory-configure.sh    # picks a model for YOUR hardware, writes Hermes config
 bash ai-memory-ingest.sh       # imports your AI history from local exports
 bash ai-memory-doctor.sh       # verify memory is reachable from every door (read-only)
+bash ai-memory-search.sh "topic"   # deterministic vault search — also the recall hook
+hermes chat                    # talk to an agent that knows your past
 bash ai-memory-remote.sh       # optional: SSH/WireGuard/Tailscale node setup
 bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
-hermes chat                    # talk to an agent that knows your past
 bash ai-memory-mux.sh          # optional: launch the agent in a mouse-driven tmux tab
 bash ai-memory-sync.sh         # optional: push this machine's history to a central vault
 ```
+
+`search` is more than a CLI: `configure` wires it into Hermes as a
+`pre_llm_call` hook, so matching vault excerpts are injected into every
+question you ask the agent — recall never depends on the model *deciding* to
+search (small local models reliably don't). `doctor` then proves the whole
+wiring per entry point, instead of asking you to take a green log on faith.
 
 The scripts are a family: same flags everywhere (`--help` `--version` `--yes`),
 idempotent re-runs, and on first run they install themselves to
@@ -124,7 +132,7 @@ Same tool, same vault format, both ends of the hardware spectrum.
 - **Deterministic work is a script; messy reality is an agent.** Install,
   configure, back up — predictable, so they're plain bash you can read and
   trust. Interpreting the messy zoo of AI export formats is better suited to an
-  agent. The dividing line keeps each part honest. (See `docs/REQUIREMENTS.md` §4.5.)
+  agent. The dividing line keeps each part honest. (See `docs/SPEC.md` §4.)
 - **No lock-in, no BigTech assumptions.** No required cloud accounts; GitHub,
   OpenRouter, etc. are opt-in, never assumed.
 - **Verify against the source; the sandbox lies.** Real behaviour on real hardware
@@ -144,6 +152,11 @@ Same tool, same vault format, both ends of the hardware spectrum.
   instructions that make it actively maintain the vault — including a
   read-only Update Advisor that reports available upgrades but never
   installs them itself.
+- **Recall** — `ai-memory-search.sh` scores every imported session against
+  your question and quotes the best-matching lines; wired in as a Hermes
+  `pre_llm_call` hook so even a small local model answers from your real
+  history in one step. `ai-memory-doctor.sh` verifies the whole chain,
+  read-only.
 - **Remote/node setup** — `ai-memory-remote.sh` is role-aware (MAIN / NODE /
   SOLO). It sets up SSH + your public key (password login disabled only after
   a verified key login), then analyzes your connection and recommends a
@@ -175,31 +188,48 @@ are skipped, interrupted ones resume.
 
 ## What's proven vs. unproven (honest)
 
-**Run and verified on real hardware:** `setup`; `configure` (cloud-only path);
-`ingest` (including real WSL2 importing a real Claude.ai export, idempotently);
-and `uninstall`'s **export/backup** path.
+[TESTING.md](TESTING.md) is the provenance ledger — what actually ran, where,
+with the evidence. The short version:
+
+**Run and verified on real hardware:**
+
+- **Linux / WSL2:** `setup`; `configure` (cloud-only and local paths, including
+  the dual-context fix a capable local model needs); `ingest` importing a real
+  Claude.ai export idempotently (the Claude Code, Hermes, OpenClaw and
+  LM Studio sources have also run in live use); `uninstall`'s
+  **export/backup** path; `mux`; and the full test harness.
+- **macOS — proven on a physical Apple Silicon Mac since 2026-07-03:** the
+  chain ran end-to-end as the hub of a hub-and-spoke setup — `setup`,
+  `configure` **including local-model selection on capable hardware**,
+  `doctor` (all checks green, searchability verified from a foreign cwd),
+  `sync` pushing a satellite's history to the Mac's central vault, and
+  cross-machine recall (the Mac's agent answered from a session archived on
+  the WSL machine the day before).
+- CI runs the harness on Linux **and** macOS (whose `/bin/bash` is 3.2) for
+  every push.
 
 **Not yet run on real hardware — treat as unproven:**
 
-- **macOS, all of it.** The code is cross-platform but the macOS branches have
-  never executed on a real Mac.
 - **`ai-memory-remote.sh`.** Validated only in a local VM. It edits `sshd`, can
   disable password login, and brings up a WireGuard hub — a mistake here is a
-  *silent lockout of a possibly-headless box*, not a red error. First-run it with
-  a screen/console attached and keep a second way in.
-- **`configure`'s local-model selection** on capable hardware, and **`uninstall`'s
-  actual removal** (its export path is tested; the teardown is not).
-- Several `ingest` parsers (Cursor, LM Studio, Open WebUI, Codex CLI, Gemini CLI,
-  Takeout) are written defensively against known on-disk layouts but are unverified
-  against current app versions.
+  *silent lockout of a possibly-headless box*, not a red error. The code now
+  gates the password-auth flip behind a machine-verified key login with an
+  auto-revert timer, but none of that has been exercised on a real remote
+  node. First-run it with a screen/console attached and keep a second way in.
+- **`uninstall`'s actual removal** (its export path is tested; the teardown is
+  not).
+- Several `ingest` parsers (ChatGPT, Cursor, Codex CLI, Gemini CLI, Aider,
+  Open WebUI, Takeout) are written defensively against known on-disk layouts
+  but are unverified against real, current exports.
 
 Because of the above this is published **as-is, unsupported, issues off**. If you
-fork it and prove out the macOS / remote paths, all the better — but nothing here
+fork it and prove out the remote path, all the better — but nothing here
 expects you to, and nothing expects me to answer for it.
 
-`docs/installation-checklist.pdf` is a tick-box walkthrough from blank hardware to
-a running agent. It targets non-experts, but its macOS track shares the
-unproven-on-real-Mac caveat above — read it as a draft for a technical reader.
+**[GET-STARTED.md](GET-STARTED.md) is the single beginner path** — from a blank
+machine to a running agent, one copy-paste block at a time. (An older tick-box
+PDF now lives in `docs/history/`; it predates the real-hardware runs and the
+current script family — don't follow it.)
 
 ## Flags worth knowing
 

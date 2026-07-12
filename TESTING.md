@@ -5,6 +5,10 @@ so a green checkmark never has to be taken on faith. This complements the
 project's rule that a path you cannot live-test is *written-but-unproven*, never
 "done".
 
+Entries are dated and kept verbatim, so script *counts* in older entries
+reflect the family's size on that date (the family has grown to nine scripts —
+`tests/run.sh`'s `FAMILY` list is authoritative).
+
 ## Legend
 
 | Level | Meaning |

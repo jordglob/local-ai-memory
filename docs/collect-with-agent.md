@@ -4,7 +4,7 @@
 free, idempotent). The messy long tail — vendor formats it doesn't recognize, or
 history that has no clean export at all — is a better fit for an **agent** that
 can *interpret* unknown data instead of needing a fixed schema. This file is the
-agent-facing half of that split (see REQUIREMENTS.md §4.5 "DECIDED" and §4.7).
+agent-facing half of that split (see `docs/SPEC.md` §4, the dividing line).
 
 **Why this lives in docs, not in the script:** the script is durable and changes
 slowly; agents and their skills change fast. Keeping the prompt here lets it be

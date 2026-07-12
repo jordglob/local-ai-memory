@@ -1,3 +1,5 @@
+> **Frozen snapshot (2026-07-12).** This is the historical design journal; the living, normative spec is now [`docs/SPEC.md`](../SPEC.md) (its section map translates the `§` numbers used below).
+
 # AI Memory Stack — Requirements Specification v1.42
 
 <!-- Doc hygiene (2026-07-01): scrubbed leaked personal infrastructure from the prose

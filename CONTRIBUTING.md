@@ -1,8 +1,9 @@
 # Contributing
 
-This is a small, source-available, **unsupported** project (issues are off).
-You're welcome to fork and adapt it. If you send a PR, these are the house
-rules that keep the six-script family coherent.
+This is a small, source-available, **unsupported** project — issues and PRs
+are off on purpose, so this document mostly exists **for forks**: if you adopt
+the code, these are the house rules that keep the nine-script family coherent
+(and what I'd hold a patch to if one ever reaches me another way).
 
 ## Before you push
 
@@ -46,5 +47,7 @@ and label anything you couldn't live-test.
 
 ## The spec is the source of truth
 
-`docs/REQUIREMENTS.md` governs. `CLAUDE.md` is working habits. If code and spec
-disagree after a real test, fix the code **and** correct the spec.
+`docs/SPEC.md` governs (the frozen design journal behind it is
+`docs/history/REQUIREMENTS.md`). `CLAUDE.md` is working habits; `TESTING.md`
+is the provenance ledger. If code and spec disagree after a real test, fix the
+code **and** correct the spec.

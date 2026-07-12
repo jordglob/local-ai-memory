@@ -84,9 +84,11 @@ autoinstall:
    whole point of the hardening pass was that `--yes` must not silently do
    destructive/lockout things. A netboot install runs headless by definition — so
    `remote.sh` must **never** be in the auto-chain, and `setup`/`configure --yes`
-   must be re-audited for any irreversible step. See [REVIEW.md](../REVIEW.md).
+   must be re-audited for any irreversible step. See the archived security
+   review, [history/REVIEW.md](history/REVIEW.md).
 2. **No secrets in the image.** API keys must be entered *after* first boot (or
-   pulled from the proposed encrypted secrets bundle, REVIEW.md Appendix A) — never
+   pulled from the proposed encrypted secrets bundle, history/REVIEW.md
+   Appendix A) — never
    baked into the autoinstall file, which sits on a TFTP/HTTP server.
 3. **Which distro to prove first?** Ubuntu autoinstall (see above).
 4. **Model download on first boot** can be many GB — fine on a fast LAN, painful

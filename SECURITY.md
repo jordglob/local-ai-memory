@@ -1,8 +1,9 @@
 # Security
 
-`local-ai-memory` is **source-available and unsupported** (issues are off on
-purpose — see the README). This file documents the security *model* so you can
-audit it, and how to report something without a public issue tracker.
+`local-ai-memory` is **source-available and unsupported** (issues and PRs are
+off on purpose — see the README), so this file exists **for auditors and
+forks**: it documents the security *model* so you can audit it, and what to do
+with a finding when there is no public issue tracker.
 
 ## Reporting a vulnerability
 
@@ -20,7 +21,7 @@ one, that's a security bug:
 
 - **The vault never contains secrets.** The plain-markdown vault and its export
   archive are safe to move over USB / scp / cloud / email because they carry no
-  keys. (§2.7 / §4.12)
+  keys. (`docs/SPEC.md` §7–§8)
 - **Secrets never travel in an export**, are **never passed as CLI arguments**
   (they'd leak into shell history / `ps`), and are **never written to the tee
   log**. Anything read interactively uses `read -s`.

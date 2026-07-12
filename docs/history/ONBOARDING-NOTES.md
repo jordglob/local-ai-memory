@@ -1,3 +1,5 @@
+> **Historical snapshot (moved 2026-07-12).** Superseded by [`TESTING.md`](../../TESTING.md), the provenance ledger — in particular, the "still open" claim at the bottom is stale: the first real-hardware macOS run happened on 2026-07-03 and is recorded there.
+
 # Onboarding notes — live-run lessons
 
 Honest, dated record of what real beginner testing ("naive-user dogfooding") taught

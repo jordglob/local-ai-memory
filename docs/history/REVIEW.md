@@ -1,3 +1,32 @@
+> **Point-in-time snapshot — read the date before believing a claim.** This
+> review describes the repo as it stood in early July 2026, when the family
+> had six scripts and no test harness. It is kept verbatim as history (moved
+> to `docs/history/` 2026-07-12); the text below has **not** been updated.
+> Much of it has since been fixed — notably, "no automated tests at all"
+> (item 10) is no longer true: `tests/run.sh` (1000+ lines) runs on every
+> push/PR on Linux **and** macOS via CI. Current truth lives in
+> [`TESTING.md`](../../TESTING.md) (provenance) and [`docs/SPEC.md`](../SPEC.md)
+> (design).
+>
+> **Status of the prioritized fix list, verified against the code and tests
+> as of 2026-07-12:**
+>
+> | # | Finding | Status |
+> |---|---|---|
+> | 1 | `uninstall --no-export --yes` silent vault delete | **Fixed & regression-locked** — v1.2 demands a typed `DELETE` confirm even under `--yes` (only the explicit `--force-no-export` skips it); `tests/run.sh` locks the gate in, including with no controlling tty |
+> | 2 | `remote --yes` disables password auth unverified, no revert | **Fixed in code** — the flip is gated behind a machine-verified `ssh -o BatchMode=yes -o PasswordAuthentication=no` key login, and a timed auto-revert is armed (cancelled only on confirmed key login). **Still unproven on real remote nodes** — VM-tested only; see TESTING.md |
+> | 3 | `sshd -T` false "VERIFIED"; macOS `kickstart -k` drops the session | **Fixed in code** — the *effective* daemon state is read back from `sshd -T` before claiming success, and the disruptive `kickstart -k` restart is avoided. Same real-hardware caveat as #2 |
+> | 4 | Export "verified" by `-s` only | **Fixed** — the archive is listed with `tar -tzf` and its `.md` entry count checked before any removal |
+> | 5 | `curl \| sudo -E bash` installs | **Fixed** — installers download to a file, verify the fetch completed, then execute; nothing pipes an interruptible stream into a root shell, and root no longer inherits the full env |
+> | 6 | ingest idempotency (mtime names) + path traversal | **Fixed** — filenames/dedupe key on the stable conversation id (found regardless of date/slug prefix) and `id`/`created` are sanitized against path separators. Id-collision edge cases are under active hardening |
+> | 7 | configure YAML splice + base-name model match | **Fixed** — values are emitted through `json.dumps` (always valid YAML scalars) and model presence is an exact full `name:tag` match against `ollama list` |
+> | 8 | setup robustness (disk check, JSON, keepalive, apt, PATH) | **Fixed** — POSIX `df -Pk` disk check, JSON built via `json.dumps`, the sudo-keepalive PID is killed in the exit trap, apt goes through a lock-waiting wrapper that surfaces errors, PATH is persisted to the shell rc |
+> | 9 | doctor vacuous green / `--live` vs read-only claim | **Fixed** — a missing python3 is an explicit warn with a fix hint, never a silent pass; `--live` is labeled as the one non-read-only check |
+> | 10 | No automated tests | **Fixed** — `tests/run.sh` covers flag parsing, version drift, the `--yes` safety gates, ingest fixtures (idempotency, secret-scrub, CRLF) and more; CI runs it on ubuntu and macos (bash 3.2) for every push/PR |
+> | 11 | Housekeeping (version drift, publish guard, spec split) | **Fixed** — the harness fails on version drift between header/`--version`/banner; the dead `publish-to-github.sh` placeholder guard is removed; the spec/journal split is done (`docs/SPEC.md` + this `docs/history/` archive) |
+>
+> Appendix A (the encrypted secrets bundle) remains a design sketch — not built.
+
 # Code Review — local-ai-memory
 
 *Engineering review of the six-script AI Memory Stack. Line references are to the

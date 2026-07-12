@@ -1,10 +1,12 @@
 # CLAUDE.md — working agreement for local-ai-memory
 
-**`docs/REQUIREMENTS.md` is the source of truth.** It holds the design, the
-backlog, and the build discipline (§5). If anything in *this* file conflicts
-with the spec, the spec wins — and say so, don't silently follow this file.
-This file is habits, not a second spec; don't duplicate the spec here (it drifts
-and starts to contradict).
+**`docs/SPEC.md` is the source of truth.** It holds the normative design and
+the build discipline (SPEC §11); `docs/history/REQUIREMENTS.md` is the frozen
+design journal it was extracted from (old `§` numbers resolve via SPEC's
+section map), and `TESTING.md` is the provenance ledger. If anything in *this*
+file conflicts with the spec, the spec wins — and say so, don't silently
+follow this file. This file is habits, not a second spec; don't duplicate the
+spec here (it drifts and starts to contradict).
 
 ## Hard rules (non-negotiable)
 - **Never touch `~/.paperclip`** — irreplaceable, unrelated to this project.
@@ -15,22 +17,22 @@ and starts to contradict).
   outward-facing actions (e.g. pushing a remote, deleting data you didn't make).
 
 ## The repo in one breath
-Eight self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
-→ `remote` → `uninstall` (optional) → `mux` (optional) → `sync` (optional) —
-plus the spec. Bash-portable,
-idempotent, secrets never logged. Read §2.8 for the family conventions before
-adding to any of them; match the surrounding code.
+Nine self-contained bash scripts — `setup` → `configure` → `ingest` → `doctor`
+→ `search` → `remote` (optional) → `uninstall` (optional) → `mux` (optional)
+→ `sync` (optional) — plus the spec. Bash-portable, idempotent, secrets never
+logged. Read SPEC §3.1 for the family conventions before adding to any of
+them; match the surrounding code.
 
 ## How to work here (habits that have paid off, not a checklist to perform)
 - **Read the spec before a build/design round** — fully, not skimmed — and
   before touching any behavior it describes. For a genuinely trivial one-off,
   use judgement; don't ritualize it.
 - **Live-test on this machine before calling anything done.** The sandbox lies
-  (§5): `bash -n` + a clean run is the floor; real behavior is the bar. If a
-  path can't be tested here (e.g. a WSL path on this non-WSL box), label it
-  **written-but-unproven** — never "done".
-- **Pattern-hunt every real bug (§5.3):** fix the *class* across all six
-  scripts, not the one instance.
+  (SPEC §11): `bash -n` + a clean run is the floor; real behavior is the bar.
+  If a path can't be tested here (e.g. a WSL path on this non-WSL box), label
+  it **written-but-unproven** — never "done".
+- **Pattern-hunt every real bug (SPEC §11):** fix the *class* across the whole
+  nine-script family, not the one instance.
 - **Verify before you claim:** read a file back after writing it; check a tool
   exists before assuming it; report what actually happened — including failures
   and skipped steps. A green log that did nothing is a bug, not a success.
@@ -47,7 +49,8 @@ adding to any of them; match the surrounding code.
   **CC**. Bundle = `zip -r` the clean working tree (no `.git`) from the parent dir,
   then set the archive comment to the HEAD commit hash (`zip -z`).
 - **Keep shipped scripts + README generic** — no machine names, personal paths,
-  or one-box specifics. `REQUIREMENTS.md` may keep live-run lessons as history.
+  or one-box specifics. `docs/history/` keeps live-run lessons as history;
+  `TESTING.md` records what was actually proven, where.
 - **When a live test contradicts the spec, fix the code AND correct the spec**
   (note the finding). The spec is "truth" only because we keep it true.
 - **Git:** commit only what the task asks; one commit per logical change in the
