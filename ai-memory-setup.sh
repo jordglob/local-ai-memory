@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.20
+#  ai-memory-setup.sh  v8.21
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
@@ -44,6 +44,9 @@ IFS=$'\n\t'
 
 # Single source of truth for the version — the --version flag and the banner
 # both read $VERSION, so they can never drift from each other again.
+# v8.21: the family self-install also copies lib/ (aimem_*.py — the python
+#        engines behind the ingest v3.0 / search v2.0 thin launchers) into
+#        <vault>/.tools/lib, so the installed copies keep working.
 # v8.20: mux is back in the family as the STANDARD interface — tmux joins
 #        the base packages on every platform (apt/dnf/pacman/brew), and the
 #        next-steps text names the mux cockpit as the way in to your agent
@@ -68,7 +71,7 @@ IFS=$'\n\t'
 # v8.16: safe download-then-run for piped installers, python3-free disk check,
 #        JSON built via python3 (not string interpolation), sudo-keepalive
 #        killed on exit, surfaced apt errors, persisted npm-global PATH.
-VERSION="8.20"
+VERSION="8.21"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -1273,6 +1276,9 @@ INBOXMD
 fi
 
 # ── Family self-install: permanent home for all scripts ──────────────────────
+# v8.21: also installs lib/ (the python engines aimem_common/ingest/search.py)
+# — since ingest v3.0 / search v2.0 those .sh files are thin launchers that
+# need lib/ next to them (<vault>/.tools/lib), or they die at startup.
 mkdir -p "$TOOLS"
 COPIED=0
 for s in "$SCRIPT_DIR"/ai-memory-*.sh; do
@@ -1283,6 +1289,16 @@ for s in "$SCRIPT_DIR"/ai-memory-*.sh; do
     COPIED=$(( COPIED + 1 ))
   fi
 done
+if compgen -G "$SCRIPT_DIR/lib/aimem_*.py" > /dev/null; then
+  mkdir -p "$TOOLS/lib"
+  for s in "$SCRIPT_DIR"/lib/aimem_*.py; do
+    dest="$TOOLS/lib/$(basename "$s")"
+    if [[ "$s" != "$dest" ]] && ! cmp -s "$s" "$dest" 2>/dev/null; then
+      cp "$s" "$dest"
+      COPIED=$(( COPIED + 1 ))
+    fi
+  done
+fi
 if [[ $COPIED -gt 0 ]]; then
   ok "Scripts installed to $TOOLS ($COPIED file(s)) — safe to delete the downloads"
 else

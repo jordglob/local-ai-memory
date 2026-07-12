@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.12
+#  ai-memory-configure.sh  v5.13
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,10 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.13: installs lib/ (the python engines aimem_common/ingest/search.py) into
+#         <vault>/.tools/lib alongside the ingest/search launchers — since
+#         ingest v3.0 / search v2.0 the .sh files are thin launchers and the
+#         hooks' .tools copies need the engine next to them.
 #  v5.12: the "start a session" pointer names the mux cockpit (bash
 #         ai-memory-mux.sh — back in the family as the standard interface)
 #         with `hermes chat` as the no-tmux alternative.
@@ -126,7 +130,7 @@ prompt_read() {  # prompt_read [read-flags] VAR — read a reply from the right 
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.12"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.13"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -154,7 +158,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.12 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.13 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1239,6 +1243,39 @@ install_ingest_tool() {
   fi
 }
 install_ingest_tool
+
+# v5.13: ingest + search are thin launchers since ingest v3.0 / search v2.0 —
+# their python engines live in lib/ (aimem_common/aimem_ingest/aimem_search.py)
+# and MUST be installed alongside the .tools copies, or the launchers (and the
+# self-ingest + pre_llm_call hooks that run them) die with a missing-engine
+# error. Same source preference as the tools themselves: the lib/ shipped next
+# to this script; keep an existing .tools/lib if no source is available.
+install_lib_dir() {
+  local here srcdir dstdir f dst copied=0
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  srcdir="$here/lib"
+  dstdir="$VAULT/.tools/lib"
+  if [[ -d "$srcdir" ]] && ls "$srcdir"/aimem_*.py >/dev/null 2>&1; then
+    mkdir -p "$dstdir"
+    for f in "$srcdir"/aimem_*.py; do
+      dst="$dstdir/$(basename "$f")"
+      if [[ "$f" != "$dst" ]] && ! cmp -s "$f" "$dst" 2>/dev/null; then
+        cp "$f" "$dst" && copied=$(( copied + 1 ))
+      fi
+    done
+    if [[ $copied -gt 0 ]]; then
+      ok "Python engine (lib/) installed → ${dstdir/#$HOME/~} ($copied file(s))"
+    else
+      ok "Python engine (lib/) already current in .tools/lib/"
+    fi
+  elif ls "$dstdir"/aimem_*.py >/dev/null 2>&1; then
+    ok "Python engine already present in .tools/lib/"
+  else
+    warn "lib/ (python engine) not found next to configure — the .tools ingest/"
+    warn "search launchers will fail until lib/*.py lands in $dstdir (re-run setup)"
+  fi
+}
+install_lib_dir
 
 # ── v5.11: ALL managed config.yaml edits in ONE pass ──────────────────────────
 # The three separate regex editors (search hook v5.5, self-ingest hooks

@@ -88,8 +88,12 @@ content lives there.
 Any number of scripts can join the chain if they follow the shared
 conventions:
 
-- Naming: `ai-memory-<role>.sh`; a single self-contained file.
-- Self-copy to `$VAULT/.tools/` on first run; all docs reference that home.
+- Naming: `ai-memory-<role>.sh`; the entrypoint is a single bash file. Since
+  ingest v3.0 / search v2.0 their python engines live in `lib/aimem_*.py`
+  (stdlib-only), resolved as `<script_dir>/lib` first, then
+  `<vault>/.tools/lib`; the other scripts remain fully self-contained.
+- Self-copy to `$VAULT/.tools/` on first run (setup/configure also install
+  `lib/` to `$VAULT/.tools/lib/`); all docs reference that home.
 - Standard flags everywhere: `--help`, `--version`, `--yes`.
 - Shared behaviors: idempotent checkpoints, human-in-the-loop checkpoints for
   GUI actions, TTY/non-interactive detection (probe `/dev/tty` by *opening*

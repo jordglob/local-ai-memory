@@ -91,6 +91,33 @@ else
   done
 fi
 
+# ── 2b. python engine (lib/) — syntax + import smoke (ingest v3.0/search v2.0) ─
+# The ingest/search entrypoints are thin launchers over lib/aimem_*.py. Compile
+# and import them from a TMP copy so the check never litters the working tree
+# with __pycache__/.
+hdr "python engine (lib/aimem_*.py)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f lib/aimem_common.py ]; then
+  fail "lib/aimem_common.py missing (ingest/search launchers cannot run)"
+else
+  mkdir -p "$TMP/libcheck"
+  cp lib/aimem_common.py lib/aimem_ingest.py lib/aimem_search.py "$TMP/libcheck/" 2>/dev/null
+  for p in aimem_common.py aimem_ingest.py aimem_search.py; do
+    if [ ! -f "$TMP/libcheck/$p" ]; then fail "lib/$p missing"; continue; fi
+    if out=$(python3 -m py_compile "$TMP/libcheck/$p" 2>&1); then
+      pass "lib/$p compiles (py_compile)"
+    else
+      fail "lib/$p does not compile" "$out"
+    fi
+  done
+  if out=$(cd "$TMP/libcheck" && python3 -c 'import aimem_common, aimem_ingest, aimem_search' 2>&1); then
+    pass "import smoke: all three modules import (no top-level side effects)"
+  else
+    fail "lib import smoke" "$out"
+  fi
+fi
+
 # ── 3. --version / --help smoke ──────────────────────────────────────────────
 hdr "--version / --help"
 for s in $FAMILY; do
@@ -792,6 +819,16 @@ PYEOF
     else
       fail "configure did not install a --local-capable ingest tool into .tools/"
     fi
+    # v5.13: the launchers need their python engine NEXT TO the .tools copies —
+    # configure must install lib/ too, and the installed ingest must actually run.
+    if [ -f "$TMP/cfgvault/.tools/lib/aimem_common.py" ] \
+       && [ -f "$TMP/cfgvault/.tools/lib/aimem_ingest.py" ] \
+       && [ -f "$TMP/cfgvault/.tools/lib/aimem_search.py" ] \
+       && HOME="$TMP/cfghome" bash "$TMP/cfgvault/.tools/ai-memory-ingest.sh" --version >/dev/null 2>&1; then
+      pass "configure installed lib/ into .tools/lib (installed ingest launcher runs)"
+    else
+      fail "configure did not install a working .tools/lib python engine"
+    fi
     # v5.5: configure registers the pre_llm_call hook + flips hooks_auto_accept
     if grep -q "pre_llm_call:" "$TMP/hh1/config.yaml" 2>/dev/null \
        && grep -q "ai-memory-search.sh --hook" "$TMP/hh1/config.yaml" 2>/dev/null \
@@ -1147,13 +1184,15 @@ fi
 # The two lists live in different languages (python re / grep ERE) and drifted
 # once (github_pat_/AIza/whsec_/JWT missing from sync). This check extracts
 # BOTH sets and fails the suite when they drift — the durable fix.
+# Since ingest v3.0 the python pattern set lives in lib/aimem_common.py (the
+# shared engine module), not in the ingest heredoc — read it from there.
 hdr "regression: sync/ingest secret-gate parity"
 if [ "$PY_OK" = 0 ]; then
   skip "no real python3 here"
-elif [ ! -f ai-memory-sync.sh ] || [ ! -f ai-memory-ingest.sh ]; then
-  skip "ai-memory-sync.sh or ai-memory-ingest.sh absent"
+elif [ ! -f ai-memory-sync.sh ] || [ ! -f lib/aimem_common.py ]; then
+  skip "ai-memory-sync.sh or lib/aimem_common.py absent"
 else
-  if parity=$(python3 - ai-memory-ingest.sh ai-memory-sync.sh <<'PYFIX'
+  if parity=$(python3 - lib/aimem_common.py ai-memory-sync.sh <<'PYFIX'
 import re, sys
 ing = open(sys.argv[1], encoding="utf-8").read()
 syn = open(sys.argv[2], encoding="utf-8").read()
@@ -1178,6 +1217,80 @@ PYFIX
     pass "sync gate matches ingest's scrub set ($parity)"
   else
     fail "sync/ingest secret patterns drifted" "$parity"
+  fi
+fi
+
+# ── 6l. launcher degrades gracefully when lib/ is missing (v3.0/v2.0) ─────────
+# A stray copy of the .sh with no lib/ anywhere must die LOUDLY with the two
+# valid layouts named — never a silent python traceback or a half-run. HOME is
+# pointed at an empty sandbox so the default-vault fallback can't accidentally
+# find a real ~/Documents/ai-memory/.tools/lib on this machine.
+hdr "launcher missing-lib error (ingest v3.0 / search v2.0)"
+mkdir -p "$TMP/nolib" "$TMP/nolibhome"
+for s in ai-memory-ingest.sh ai-memory-search.sh; do
+  if [ ! -f "$s" ]; then skip "$s absent"; continue; fi
+  cp "$s" "$TMP/nolib/"
+  out=$(HOME="$TMP/nolibhome" bash "$TMP/nolib/$s" --version 2>&1)
+  rc=$?
+  if [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "python engine not found" \
+     && printf '%s' "$out" | grep -q ".tools/lib"; then
+    pass "$s: missing lib/ → clear error naming both layouts, exit $rc"
+  else
+    fail "$s did not degrade clearly without lib/" "rc=$rc: $(printf '%s' "$out" | head -2)"
+  fi
+done
+
+# ── 6m. installed layout: .tools copies run WITHOUT the repo checkout ─────────
+# setup/configure install the launchers into <vault>/.tools/ and the engines
+# into <vault>/.tools/lib/. Simulate exactly that layout in a sandbox (same
+# files the installers copy), point HOME away from any real vault, and prove
+# (a) the .tools copies work standalone — the self-ingest hook path — and
+# (b) a stray launcher elsewhere finds the engine via its vault argument.
+hdr "installed layout (.tools + .tools/lib, no repo)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f lib/aimem_ingest.py ] || [ ! -f ai-memory-ingest.sh ] || [ ! -f ai-memory-search.sh ]; then
+  skip "launchers or lib/ absent"
+else
+  IV="$TMP/instvault"
+  mkdir -p "$IV/05-AI-Sessions" "$IV/.tools/lib" "$TMP/insthome"
+  cp ai-memory-ingest.sh ai-memory-search.sh "$IV/.tools/"
+  cp lib/aimem_common.py lib/aimem_ingest.py lib/aimem_search.py "$IV/.tools/lib/"
+  # (a) the .tools copies themselves (launcher finds <script_dir>/lib)
+  iv=$(HOME="$TMP/insthome" bash "$IV/.tools/ai-memory-ingest.sh" --version 2>&1)
+  if [ $? -eq 0 ] && printf '%s' "$iv" | grep -q "v3.0"; then
+    pass ".tools ingest runs standalone ($iv)"
+  else
+    fail ".tools ingest failed without the repo" "$iv"
+  fi
+  mkdir -p "$TMP/instfake/proj"
+  printf '%s\n' \
+    '{"type":"ai-title","aiTitle":"Installed layout"}' \
+    '{"type":"user","timestamp":"2026-01-03T00:00:00Z","message":{"role":"user","content":"installerad-markor fungerar"}}' \
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ja"}]}}' \
+    > "$TMP/instfake/proj/77777777-7777-7777-7777-777777777777.jsonl"
+  HOME="$TMP/insthome" bash "$IV/.tools/ai-memory-ingest.sh" "$IV" \
+    --source claude-code --path "$TMP/instfake" --yes > "$TMP/inst.out" 2>&1
+  if ls "$IV/05-AI-Sessions/claude-code/"*.md >/dev/null 2>&1 \
+     && grep -rq "installerad-markor" "$IV/05-AI-Sessions/claude-code/"; then
+    pass ".tools ingest imports for real (the self-ingest hook path)"
+  else
+    fail ".tools ingest import failed" "$(tail -3 "$TMP/inst.out")"
+  fi
+  sv=$(HOME="$TMP/insthome" bash "$IV/.tools/ai-memory-search.sh" "$IV" "installerad markor fungerar" 2>&1)
+  if [ $? -eq 0 ] && printf '%s' "$sv" | grep -q "MEMORY SEARCH"; then
+    pass ".tools search runs standalone against the vault"
+  else
+    fail ".tools search failed without the repo" "$(printf '%s' "$sv" | head -2)"
+  fi
+  # (b) stray launcher + vault argument → engine resolved via <vault>/.tools/lib
+  mkdir -p "$TMP/stray"
+  cp ai-memory-search.sh "$TMP/stray/"
+  sv2=$(HOME="$TMP/insthome" bash "$TMP/stray/ai-memory-search.sh" "$IV" "installerad markor fungerar" 2>&1)
+  if [ $? -eq 0 ] && printf '%s' "$sv2" | grep -q "MEMORY SEARCH"; then
+    pass "stray launcher finds the engine via its vault argument (.tools/lib fallback)"
+  else
+    fail "vault-argument lib fallback failed" "$(printf '%s' "$sv2" | head -2)"
   fi
 fi
 
