@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v2.28
+#  ai-memory-ingest.sh  v2.29
 #  Import scattered AI conversations into the vault — 13 sources
+#  v2.29: the next-steps footer names the mux cockpit (bash ai-memory-mux.sh,
+#         back in the family as the standard interface) as the talk-to-your-
+#         agent step, `hermes chat` staying the no-tmux path; an interactive
+#         run offers to open the cockpit (default yes, tmux present only) —
+#         non-interactive/--yes runs still only PRINT the command (the v2.15
+#         no-takeover rule is untouched).
 #  v2.28: the fleet/remote layer moved to the companion repo
 #         local-ai-memory-fleet — the next-steps footer no longer points at
 #         the remote node-setup script (it doesn't ship here anymore).
@@ -149,7 +155,7 @@ import html as htmllib
 import itertools, tempfile
 from pathlib import Path
 
-VERSION = "2.28"
+VERSION = "2.29"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -1799,37 +1805,44 @@ def main():
     hdr("Next steps")
     import shutil, subprocess
     have_hermes = shutil.which("hermes") is not None
-    if ASSUME_YES or not (sys.stdin and os.path.exists("/dev/tty")):
-        if have_hermes:
-            print(f"  Start your agent:  {c('1', 'hermes chat')}  (from {vault})")
-        else:
-            print(f"  Install/relaunch a shell, then: {c('1', 'hermes chat')}")
+    have_tmux = shutil.which("tmux") is not None
+    # The mux cockpit (v2.29): the standard talk-to-your-agent step. Prefer
+    # the family's permanent home in the vault; fall back to a repo-dir copy.
+    mux = vault / ".tools" / "ai-memory-mux.sh"
+    if not mux.exists() and (Path.cwd() / "ai-memory-mux.sh").exists():
+        mux = Path.cwd() / "ai-memory-mux.sh"
+    mux_cmd = f"bash {mux}" if mux.exists() else "bash ai-memory-mux.sh"
+    def _next_footer():
         # §B4: the LAST thing on screen is the literal next command
         print()
-        print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
-              + c("1;36", "hermes chat") + f"   (from {vault})")
+        print(c("1;32", "▶ NEXT — talk to your memory:") + "  " + c("1;36", mux_cmd))
+        print("  (the standard two-pane tmux cockpit — no tmux? plain: "
+              + c("1;36", "hermes chat") + f"  from {vault})")
         print()
+    if ASSUME_YES or not (sys.stdin and os.path.exists("/dev/tty")):
+        # Non-interactive (or --yes): only PRINT the command — never launch an
+        # interactive surface (v2.15 rule: a hook/cron run must not take over).
+        if not have_hermes:
+            print(f"  Install/relaunch a shell first, then: {c('1', mux_cmd)}")
+        _next_footer()
         return rc
-    # Offer to launch hermes right here
-    if have_hermes:
-        # Default NO, and never under --yes: a non-interactive run must not
-        # exec an interactive agent (auto-yes here hijacked a shared tmux pane
-        # in the 2026-07-05 live round — the TUI wiped the run's own output).
-        if not ASSUME_YES and ask_yn("Start your agent (hermes chat) now?", default=False):
-            os.chdir(vault)
+    # Offer to open the mux cockpit right here (default YES — it is the
+    # standard interface, and mux nests safely: inside tmux it switch-clients).
+    # Never under --yes (guarded above): the 2026-07-05 live round showed an
+    # auto-launched interactive surface wipes a non-interactive run's output.
+    if have_hermes and have_tmux and mux.exists():
+        if not ASSUME_YES and ask_yn("Open the mux cockpit (agent + terminal, mouse on) now?",
+                                     default=True):
             try:
-                os.execvp("hermes", ["hermes", "chat"])
+                os.execvp("bash", ["bash", str(mux), "start", str(vault)])
             except OSError:
-                err("Could not launch hermes — run 'hermes chat' from the vault.")
-    else:
+                err(f"Could not launch the cockpit — run: {mux_cmd}")
+    elif not have_hermes:
         info("'hermes' isn't on PATH in this shell yet.")
-        info("Open a new terminal, then run:  hermes chat   (from the vault)")
-    print()
-    # §B4: the LAST thing on screen is the literal next command
-    print()
-    print(c("1;32", "▶ NEXT — talk to your memory:") + "  "
-          + c("1;36", "hermes chat") + f"   (from {vault})")
-    print()
+        info(f"Open a new terminal, then run:  {mux_cmd}")
+    elif not have_tmux:
+        info(f"tmux isn't installed — plain 'hermes chat' (from {vault}) works without it.")
+    _next_footer()
     return rc
 
 try:

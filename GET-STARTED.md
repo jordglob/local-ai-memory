@@ -59,7 +59,8 @@ You now have a folder called `local-ai-memory-main`.
 It installs everything else and guides you step by step. When it asks for your
 **password**, type it and press Enter — *nothing shows on screen while you type; that's
 normal.* At the end it prints the exact **next** command; follow that (`configure` →
-`doctor` → `hermes chat`).
+`ingest` → `doctor` → `bash ai-memory-mux.sh`, which opens your agent in a
+mouse-friendly split-screen terminal).
 
 ---
 

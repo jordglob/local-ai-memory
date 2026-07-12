@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-configure.sh  v5.11
+#  ai-memory-configure.sh  v5.12
 #  Interactive configuration of the AI Memory Stack
 #
 #  What it does:
@@ -16,6 +16,9 @@
 #         bash ai-memory-configure.sh [vault] --remote-ollama=HOST[:PORT]
 #  Requires: ai-memory-setup.sh completed first
 #  Estimated time: 2–5 min (plus model download if you choose to pull one)
+#  v5.12: the "start a session" pointer names the mux cockpit (bash
+#         ai-memory-mux.sh — back in the family as the standard interface)
+#         with `hermes chat` as the no-tmux alternative.
 #  v5.11: prompts read /dev/tty when stdin is a terminal OR a pipe (the
 #         bootstrap curl|bash chain) — redirected-stdin runs (tests, cron) stay
 #         non-interactive exactly as before; the three config.yaml editors are
@@ -123,7 +126,7 @@ prompt_read() {  # prompt_read [read-flags] VAR — read a reply from the right 
 case "${1:-}" in
   -h|--help)
     sed -n '2,25p' "$0" | sed 's/^#//'; exit 0 ;;
-  -V|--version) echo "ai-memory-configure.sh v5.11"; exit 0 ;;
+  -V|--version) echo "ai-memory-configure.sh v5.12"; exit 0 ;;
 esac
 
 ASSUME_YES=false
@@ -151,7 +154,7 @@ CONFIG_PREEXISTED=false; [[ -f "$HERMES_CONFIG" ]] && CONFIG_PREEXISTED=true
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   AI Memory Stack  v5.11 — Configure      ║${NC}"
+echo -e "${BOLD}║   AI Memory Stack  v5.12 — Configure      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 [[ -d "$VAULT/entities" ]] \
@@ -1448,7 +1451,8 @@ echo -e "  Hermes config: ${CYAN}$HERMES_CONFIG${NC}"
 echo -e "  API keys:      ${CYAN}$HERMES_ENV${NC} (chmod 600)"
 echo -e "  Model report:  ${CYAN}$REPORT${NC}"
 echo ""
-echo -e "${BOLD}Start a session:${NC}  ${CYAN}hermes chat${NC}   or   ${CYAN}bash $VAULT/.tools/resume.sh hermes${NC}"
+echo -e "${BOLD}Start a session:${NC}  ${CYAN}bash $VAULT/.tools/ai-memory-mux.sh${NC}   ${DIM}(the standard way in —"
+echo -e "  a mouse-friendly two-pane tmux cockpit; no tmux? plain ${NC}${CYAN}hermes chat${NC}${DIM} works too)${NC}"
 echo ""
 echo -e "${BOLD}Switch models any time — no restart needed:${NC}"
 echo -e "  ${CYAN}/model${NC} in a chat          — picker; or ${CYAN}/model <tag>${NC} directly"

@@ -57,7 +57,9 @@ bash ai-memory-configure.sh    # picks a model for YOUR hardware, writes Hermes 
 bash ai-memory-ingest.sh       # imports your AI history from local exports
 bash ai-memory-doctor.sh       # verify memory is reachable from every door (read-only)
 bash ai-memory-search.sh "topic"   # deterministic vault search — also the recall hook
-hermes chat                    # talk to an agent that knows your past
+bash ai-memory-mux.sh          # talk to an agent that knows your past (the standard
+                               # mouse-friendly two-pane tmux cockpit; plain
+                               # `hermes chat` works too, no tmux needed)
 bash ai-memory-uninstall.sh    # export-first reversal (dry-run by default)
 bash ai-memory-sync.sh         # optional: push this machine's history to a central vault
 ```
@@ -158,6 +160,10 @@ Same tool, same vault format, both ends of the hardware spectrum.
   Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, and Google
   Takeout (Gemini). Idempotent — re-run any time. A `--scan-report` mode maps
   unknown/messy exports to a bridge file your agent can act on.
+- **Cockpit** — `ai-memory-mux.sh` is the default way to talk to your agent:
+  a mouse-friendly two-pane tmux cockpit (agent chat and a working terminal
+  side by side; click, scroll, drag borders, detach and re-attach). Plain
+  `hermes chat` works too if you'd rather skip tmux.
 - **Uninstall / backup** — `ai-memory-uninstall.sh` is **export-first** (it
   archives your vault, with a migration manifest, *before* removing anything)
   and **dry-run by default**. Also the clean way to reset between trial runs.
@@ -167,7 +173,7 @@ Same tool, same vault format, both ends of the hardware spectrum.
 Want to reach a memory machine from elsewhere? Use **Tailscale** plus your
 OS's **built-in Remote Login (SSH)** — both are mature, well-documented, and
 have near-zero lockout surface. The heavier fleet tooling (WireGuard hub,
-sshd hardening, netboot provisioning, tmux cockpit) was split out of this
+sshd hardening, netboot provisioning) was split out of this
 repo in July 2026 into the companion repo **`local-ai-memory-fleet`**
 (a sibling folder/repo, same MIT-unsupported posture), so nothing in *this*
 repo can lock you out of a machine.
@@ -217,9 +223,11 @@ with the evidence. The short version:
 
 *(The most dangerous unproven surface used to live here too: the `remote`
 node-setup script — VM-validated only, able to lock you out of a headless
-box. In July 2026 it moved — with `mux` and the netboot sketch — to the
-companion repo `local-ai-memory-fleet`, precisely so this repo carries no
-lockout risk. Its ledger entries stay in [TESTING.md](TESTING.md).)*
+box. In July 2026 it moved — with the netboot sketch — to the companion repo
+`local-ai-memory-fleet`, precisely so this repo carries no lockout risk;
+`mux` made the trip too but came straight back as the standard interface —
+it can't lock you out of anything. The ledger entries stay in
+[TESTING.md](TESTING.md).)*
 
 Because of the above this is published **as-is, unsupported, issues off**. If you
 fork it and prove out the unproven paths, all the better — but nothing here
@@ -237,6 +245,7 @@ setup:      --no-hermes  --no-autostart  --yes
 configure:  --yes
 ingest:     --list-sources  --source NAME  --scan DIR  --deep-scan  --scan-report  --yes
 uninstall:  --export-only  --no-export  --remove-ollama  --yes   (dry-run unless --yes)
+mux:        start | attach | menu | ls | kill | tips  --no-attach  --yes
 all:        --help  --version
 ```
 

@@ -60,7 +60,7 @@ and its export archive safe to move over USB / scp / cloud / email.
 
 ## 3. The script family
 
-Seven self-contained bash scripts, run in this order (the last two optional):
+Eight self-contained bash scripts, run in this order (the last two optional):
 
 | Script | Role |
 |---|---|
@@ -69,13 +69,19 @@ Seven self-contained bash scripts, run in this order (the last two optional):
 | `ai-memory-ingest.sh` | multi-source history import into the vault; idempotent; rebuilds INDEX.md |
 | `ai-memory-doctor.sh` | read-only per-door reachability verifier (opt-in `--live` recall round-trip) |
 | `ai-memory-search.sh` | deterministic vault retrieval; also the `pre_llm_call` recall hook |
+| `ai-memory-mux.sh` | the standard interface: two-pane tmux cockpit for the agent |
 | `ai-memory-uninstall.sh` | export-first reversal, dry-run by default; `--backup` alias |
 | `ai-memory-sync.sh` | optional: add-only push of one machine's history to a central vault |
 
-The fleet/remote layer (the `remote` node-setup script, the `mux` tmux
-cockpit, the netboot sketch) was split into the companion repo
-**`local-ai-memory-fleet`** in July 2026 so that nothing in this family can
-lock you out of a machine; its normative content lives there.
+`ai-memory-mux.sh` is the standard way to talk to the agent: a tmux session
+with the vault chat pane and a working terminal pane side by side, mouse
+support on, applied at session scope (a user's `~/.tmux.conf` is never
+touched); plain `hermes chat` remains the supported no-tmux path.
+
+The fleet/remote layer (the `remote` node-setup script, the netboot sketch)
+was split into the companion repo **`local-ai-memory-fleet`** in July 2026 so
+that nothing in this family can lock you out of a machine; its normative
+content lives there.
 
 ### 3.1 Family conventions (what lets the family grow)
 
@@ -266,7 +272,7 @@ since July 2026 — nothing left in this repo can lock you out of a machine.
 - Hermes-native memory backends (state.db import skill, Memory Provider
   plugin) — separate upstream projects.
 - Remote/fleet access (sshd hardening, WireGuard/Tailscale node setup, NAT
-  traversal, netboot, tmux cockpit) — moved to the companion repo
+  traversal, netboot) — moved to the companion repo
   `local-ai-memory-fleet` (July 2026).
 
 ## 11. Build discipline

@@ -9,6 +9,8 @@
 #    • version consistency                (header == --version == banner)
 #    • regression: uninstall --no-export --yes must NOT delete without the
 #      loud DELETE confirm / --force-no-export  (locks in the v1.2 fix)
+#    • mux: a real tmux session has 2 SIDE-BY-SIDE panes + mouse on — the
+#      standard-interface default (skipped if no tmux)
 #
 #  Kept bash-3.2 / macOS safe on purpose (the scripts target bash 3.2, and the
 #  macOS CI runner's /bin/bash IS 3.2): no associative arrays, no mapfile, no
@@ -38,7 +40,7 @@ hdr()  { printf "\n${B}── %s ──${N}\n" "$1"; }
 
 # Family scripts must carry --help/--version/--yes and a consistent version
 # (§2.8). publish-to-github.sh is an internal helper: syntax + shellcheck only.
-FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-uninstall.sh ai-memory-sync.sh ai-memory-search.sh"
+FAMILY="ai-memory-setup.sh ai-memory-configure.sh ai-memory-ingest.sh ai-memory-doctor.sh ai-memory-uninstall.sh ai-memory-mux.sh ai-memory-sync.sh ai-memory-search.sh"
 HELPERS="publish-to-github.sh"
 SCRIPTS="$FAMILY $HELPERS"
 
@@ -66,7 +68,7 @@ fi
 
 TMP=$(mktemp -d 2>/dev/null || echo "/tmp/aimtest.$$")
 mkdir -p "$TMP"
-cleanup() { rm -rf "$TMP" 2>/dev/null; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null; return 0; }
+cleanup() { rm -rf "$TMP" 2>/dev/null; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null; command -v tmux >/dev/null 2>&1 && tmux kill-session -t aimtest_mux 2>/dev/null; return 0; }
 trap cleanup EXIT
 
 # ── 1. bash -n parse ─────────────────────────────────────────────────────────
@@ -1177,6 +1179,34 @@ PYFIX
   else
     fail "sync/ingest secret patterns drifted" "$parity"
   fi
+fi
+
+# ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
+hdr "mux tmux session (live)"
+if ! command -v tmux >/dev/null 2>&1; then
+  skip "tmux not installed"
+elif [ ! -f ai-memory-mux.sh ]; then
+  skip "ai-memory-mux.sh absent"
+else
+  tmux kill-session -t aimtest_mux 2>/dev/null || true
+  mkdir -p "$TMP/muxvault"
+  AI_MEMORY_MUX_SESSION=aimtest_mux AI_MEMORY_VAULT="$TMP/muxvault" \
+    AI_MEMORY_AGENT_CMD="exec bash" AI_MEMORY_NO_INGEST=1 \
+    bash ai-memory-mux.sh start --no-attach >/dev/null 2>&1
+  panes=$(tmux list-panes -t aimtest_mux 2>/dev/null | grep -c . )
+  mouse=$(tmux show-options -t aimtest_mux mouse 2>/dev/null)
+  # Side-by-side default (v1.3): both panes start at the same top row —
+  # a stacked (horizontal) split would give two distinct pane_top values.
+  tops=$(tmux list-panes -t aimtest_mux -F '#{pane_top}' 2>/dev/null | sort -u | grep -c .)
+  lefts=$(tmux list-panes -t aimtest_mux -F '#{pane_left}' 2>/dev/null | sort -u | grep -c .)
+  tmux kill-session -t aimtest_mux 2>/dev/null || true
+  if [ "$panes" = 2 ]; then pass "2-pane split created"; else fail "expected 2 panes, got $panes"; fi
+  if [ "$tops" = 1 ] && [ "$lefts" = 2 ]; then
+    pass "panes are SIDE BY SIDE (shared top edge, distinct left edges)"
+  else
+    fail "split is not side-by-side" "pane_top values: $tops, pane_left values: $lefts"
+  fi
+  case "$mouse" in *"mouse on"*) pass "mouse on";; *) fail "mouse not on" "$mouse";; esac
 fi
 
 # ── summary ──────────────────────────────────────────────────────────────────

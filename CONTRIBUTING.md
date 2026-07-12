@@ -2,7 +2,7 @@
 
 This is a small, source-available, **unsupported** project — issues and PRs
 are off on purpose, so this document mostly exists **for forks**: if you adopt
-the code, these are the house rules that keep the seven-script family coherent
+the code, these are the house rules that keep the eight-script family coherent
 (and what I'd hold a patch to if one ever reaches me another way).
 
 ## Before you push

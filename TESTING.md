@@ -9,8 +9,9 @@ Entries are dated and kept verbatim, so script *counts* in older entries
 reflect the family's size on that date (the family has grown to nine scripts —
 `tests/run.sh`'s `FAMILY` list is authoritative).
 In July 2026 `ai-memory-remote.sh` and `ai-memory-mux.sh` moved to the
-companion repo `local-ai-memory-fleet` (the family here is now seven scripts);
-their entries below are kept verbatim as history.
+companion repo `local-ai-memory-fleet`; later that month `ai-memory-mux.sh`
+moved back as the standard interface (the family here is now eight scripts).
+All entries below are kept verbatim as history.
 
 ## Legend
 

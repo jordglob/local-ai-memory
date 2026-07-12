@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-setup.sh  v8.19
+#  ai-memory-setup.sh  v8.20
 #  AI Memory Stack — works on a brand new machine
 #
 #  Installs automatically:
 #    Homebrew · Xcode CLI Tools · Node.js 22 · npm · git · python3
-#    curl · Ollama · mcpvault · Hermes Agent
+#    curl · tmux · Ollama · mcpvault · Hermes Agent
 #    MCP config for Claude Desktop + Claude Code
 #    Session Continuity skill
 #
@@ -44,6 +44,10 @@ IFS=$'\n\t'
 
 # Single source of truth for the version — the --version flag and the banner
 # both read $VERSION, so they can never drift from each other again.
+# v8.20: mux is back in the family as the STANDARD interface — tmux joins
+#        the base packages on every platform (apt/dnf/pacman/brew), and the
+#        next-steps text names the mux cockpit as the way in to your agent
+#        (plain `hermes chat` stays the no-tmux alternative).
 # v8.19: the fleet/remote layer (remote, mux) moved to the companion repo
 #        local-ai-memory-fleet — the summary no longer points at a script
 #        that doesn't ship here.
@@ -64,7 +68,7 @@ IFS=$'\n\t'
 # v8.16: safe download-then-run for piped installers, python3-free disk check,
 #        JSON built via python3 (not string interpolation), sudo-keepalive
 #        killed on exit, surfaced apt errors, persisted npm-global PATH.
-VERSION="8.19"
+VERSION="8.20"
 
 # ── --help / --version (before anything else) ────────────────────────────────
 case "${1:-}" in
@@ -86,7 +90,7 @@ Flags:
   --yes, -y        assume yes on all prompts (non-interactive)
   --help/--version
 
-Installs: Node.js 22, git, python3, Ollama, mcpvault, Hermes Agent,
+Installs: Node.js 22, git, python3, tmux, Ollama, mcpvault, Hermes Agent,
 MCP config for Claude Desktop/Code, and an Obsidian vault structure.
 
 Safe to re-run — completed steps are skipped.
@@ -849,6 +853,9 @@ install_pkg python3 python@3 python3 python3 python
 # unpacking exports; `zstd` is required by the Ollama installer's bundle.
 install_pkg unzip unzip unzip unzip unzip
 install_pkg zstd  zstd  zstd  zstd  zstd
+# tmux backs ai-memory-mux.sh — the standard way in to the agent (in the
+# default repos on every supported platform).
+install_pkg tmux  tmux  tmux  tmux  tmux
 
 # ── Node.js ───────────────────────────────────────────────────────────────────
 install_node() {
@@ -1689,6 +1696,9 @@ if [[ $ERRORS -eq 0 ]]; then
   blank
   echo -e "  1. Open Obsidian → point it at: ${CYAN}$VAULT${NC}  (optional, do anytime)"
   echo -e "  2. Configure your model (next)   3. Import history"
+  echo -e "  4. Talk to your agent: ${CYAN}bash $TOOLS/ai-memory-mux.sh${NC}"
+  echo -e "     ${DIM}(the standard way in — a mouse-friendly two-pane tmux cockpit;"
+  echo -e "     plain 'hermes chat' works too if you'd rather skip tmux)${NC}"
   blank
 
   # ── Chain into configure (Model B: offer, don't force) ─────────────────────
