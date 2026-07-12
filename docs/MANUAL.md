@@ -263,30 +263,56 @@ out on purpose so that *nothing in this repo can lock you out of a machine*,
 and has never run on real hardware — read its README's warnings before
 touching it.
 
-## 9 · Keys and the safety model
+## 9 · Passwords, keys, and secrets
 
-### Where your API key lives (and who controls that)
+Three different things get called "passwords" around a system like this. The
+stack treats each one differently, and it helps to know which is which.
+
+### Your computer password (sudo)
+
+When setup needs to install system packages it asks for **your own user
+password**, through the operating system's normal `sudo` mechanism. Two things
+to know:
+
+- **Nothing shows on screen while you type it.** That is the OS hiding your
+  input, not a frozen terminal — type it and press Enter.
+- **The scripts never see, store, or log it.** The OS checks it and hands the
+  scripts temporary permission; the password itself goes nowhere. When the
+  script finishes (or you Ctrl-C), that permission lapses. No script in this
+  repo ever asks you to put a password in a file.
+
+### Your API key (cloud mode only)
 
 Exactly **one** script writes keys: `configure`. The design in one breath:
 
 - **The place is a project convention, not an OS decision:**
   `~/.hermes/.env` — one file, in your home directory, so the *path* is the
   same on Linux, macOS and WSL (`$HOME` differs; the location inside it never
-  does).
+  does). The scripts decide *where*; the OS just provides the folder.
 - **The OS's only job is the lock on the door:** configure sets the file to
   mode `600` (readable and writable by your user account only) and replaces it
   atomically, so a crash can never leave a half-written key file. It edits only
   its own entries and preserves anything else you put there.
 - **The agent reads it at startup:** Hermes loads `.env` when a session starts;
-  nothing else needs the key, so nothing else stores it.
+  nothing else needs the key, so nothing else stores it. Pasted keys are
+  sanity-checked before saving — a mangled paste is refused, never stored
+  silently.
 - **Everything else is built to keep keys OUT:** ingest scrubs key-shaped
   strings from imported conversations (bodies, titles, filenames); sync scans
   outgoing files and refuses to push anything key-shaped; uninstall's export
   archive excludes `.env` by construction. Losing the archive can never mean
   losing a secret.
 
-(SSH keys are a different animal and belong to the fleet repo — in this repo,
-no script creates or moves SSH keys.)
+### If a key leaks anyway
+
+Scrubbing is a safety net, not a promise — a key pasted in an unusual format
+can slip through. If you find one: **rotate it at the provider first** (the
+copy on disk is then worthless), delete it from the affected file, and re-run
+`configure` to store the new key. Old imports made by earlier versions are
+re-scrubbed as ingest touches them.
+
+*(SSH keys are a different animal and belong to the fleet companion repo — in
+this repo, no script creates or moves SSH keys.)*
 
 ### The guarantees in one place
 
@@ -300,7 +326,59 @@ no script creates or moves SSH keys.)
 | Honest failure | Scripts exit non-zero when something failed and say what. "A green log that did nothing is a bug" is a project rule. |
 | You can always leave | Plain markdown plus a secret-free archive; no lock-in anywhere. |
 
-## 10 · Reference
+## 10 · What leaves your machine
+
+"Local-first" is a checkable claim, not a slogan. This is the complete list of
+moments the stack touches the network — everything else happens on your disk.
+
+| When | What goes out | To whom |
+|---|---|---|
+| setup | Downloads of the tools themselves (Node, Ollama, Hermes, system packages) — saved to disk first, then run | The official sources (your distro's repos, Homebrew, ollama.com, GitHub) |
+| configure, local mode | The model download you approved (size shown first) | ollama.com |
+| **chatting, local mode** | **Nothing.** The model runs on your hardware; questions, answers and your entire history stay on disk | — |
+| chatting, cloud mode | Your current question plus the recall lines injected for it — *not* your whole vault | OpenRouter, under your own key |
+| ingest, doctor, search | Nothing. They read and write local files only | — |
+| sync (optional) | Vault files that passed the secret gate | Your *own* central machine, over SSH |
+
+No telemetry, no analytics, no update phone-home: nothing in the stack reports
+anything to the project's author or anyone else. The Update Advisor (an agent
+routine) *reads* release pages to tell you what's newer; it never installs and
+never reports back. In cloud mode the honest caveat is the obvious one: what
+you send to a cloud model is governed by that provider's terms — which is
+exactly why local mode is the default on capable hardware.
+
+## 11 · How recall works — and its honest limits
+
+When you ask the agent a question, this happens before the model sees it:
+
+1. The **recall hook** runs a fast lexical search across the vault (the same
+   engine as `ai-memory-search.sh`), scoring files by how many of your
+   question's meaningful words they contain.
+2. Strong matches get their best lines **injected into the prompt** as context,
+   with file references. Vague time questions ("what did we do last week?")
+   instead pull recent conversations from INDEX.md.
+3. The model answers with the evidence already in front of it.
+
+**Why lexical search and not a vector database?** Deliberate: no extra model to
+install, nothing to re-embed when files change, results you can reproduce by
+hand with grep — and it degrades gracefully on weak hardware. Live testing
+showed the real failure mode wasn't search quality; it was models *pretending*
+to have searched. Injection removes that option.
+
+**The honest limits:**
+
+- It matches **words, not meanings**. Asking about "the greenhouse project"
+  finds files that say greenhouse — not files that only say "växthus". Use the
+  words you actually used at the time.
+- **Small models stay small.** The hook lifts a 7–14B model from useless to
+  usable for recall, but reasoning over what it recalls still scales with model
+  size — that's why configure is blunt about hardware ceilings.
+- **It recalls what was ingested.** A conversation that never went through
+  ingest doesn't exist to the agent. When in doubt: `bash ai-memory-doctor.sh`
+  proves the loop end-to-end, and `--live` makes the agent demonstrate a real
+  search in front of you.
+
+## 12 · Reference
 
 ### Flags shared by the whole family
 
