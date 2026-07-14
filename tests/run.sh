@@ -1245,6 +1245,39 @@ PYFIX
   fi
 fi
 
+# ── 6k2. regression: sync never downgrades the central's tools (sync v1.3) ────
+# A stale clone's push used to overwrite the central's newer .tools copy on
+# every run (live incident 2026-07-14→15). _tool_newer is the guard: extract
+# the function from the script and prove strictly-newer semantics.
+hdr "regression: sync tool-install never downgrades (sync v1.3)"
+if [ ! -f ai-memory-sync.sh ]; then
+  skip "ai-memory-sync.sh absent"
+else
+  fndef=$(sed -n '/^_tool_newer()/,/^}/p' ai-memory-sync.sh)
+  if [ -z "$fndef" ]; then
+    fail "_tool_newer missing from ai-memory-sync.sh" ""
+  else
+    eval "$fndef"
+    tn_ok=1
+    _tool_newer 3.1 2.26  || tn_ok=0     # newer local → install
+    _tool_newer 3.1 ""    || tn_ok=0     # no remote   → first install
+    _tool_newer 2.26 3.1  && tn_ok=0     # older local → keep central
+    _tool_newer 3.1 3.1   && tn_ok=0     # same        → no rewrite
+    _tool_newer 3.10 3.9  || tn_ok=0     # sort -V, not lexical
+    if [ "$tn_ok" = 1 ]; then
+      pass "_tool_newer: strictly-newer semantics (incl. 3.10 > 3.9, empty remote)"
+    else
+      fail "_tool_newer semantics wrong — downgrade guard unreliable" ""
+    fi
+    if grep -q '_tool_newer "$lver" "$rver"' ai-memory-sync.sh \
+       && grep -q 'tools/lib' ai-memory-sync.sh; then
+      pass "push gates the tool install on _tool_newer and ships lib/ with it"
+    else
+      fail "tool install is not gated on _tool_newer (or lib/ not shipped)" ""
+    fi
+  fi
+fi
+
 # ── 6l. launcher degrades gracefully when lib/ is missing (v3.0/v2.0) ─────────
 # A stray copy of the .sh with no lib/ anywhere must die LOUDLY with the two
 # valid layouts named — never a silent python traceback or a half-run. HOME is

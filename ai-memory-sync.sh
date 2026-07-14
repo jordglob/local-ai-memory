@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-sync.sh  v1.2
+#  ai-memory-sync.sh  v1.3
+#  v1.3: NEVER-DOWNGRADE tool install. push used to rsync its own
+#        ai-memory-ingest.sh onto the central unconditionally — so one stale
+#        clone on any machine silently reverted the central's tools on every
+#        push (live incident 2026-07-14→15: a v2.26 clone's nightly autosync
+#        overwrote the central's v3.1 at 21:00 each evening). Now the install
+#        happens only when the local version is STRICTLY newer (sort -V via
+#        _tool_newer; missing remote = first install; unparsable local =
+#        install nothing), and lib/ ships along with the launcher — a v3.0+
+#        launcher is thin and dead without its engine.
 #  v1.2: comment-only — the remote and mux scripts moved to the companion
 #        repo local-ai-memory-fleet; the "isolated surface" note no longer
 #        names scripts that don't ship in this repo. No behavior change.
@@ -62,7 +71,16 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC}  $*" >&2; }
 ok()   { echo -e "${GREEN}✓${NC}  $*"; }
 
-VERSION="1.2"
+VERSION="1.3"
+
+# v1.3: strictly-newer version check for tool installs on the central.
+# Usage: _tool_newer LOCAL_VER REMOTE_VER → 0 iff LOCAL is strictly newer
+# (an empty/unreadable REMOTE counts as older — first install).
+_tool_newer() {
+  [[ -z "$2" ]] && return 0
+  [[ "$1" == "$2" ]] && return 1
+  [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | tail -1)" == "$1" ]]
+}
 
 # ── args ─────────────────────────────────────────────────────────────────────
 # --yes is accepted for family-flag consistency (§2.8) but sync never prompts;
@@ -204,9 +222,27 @@ else
   warn "could not compare local vs central copies (rsync too old for the dry-run?) —"
   warn "locally re-scrubbed/retitled files may silently differ on the central."
 fi
-# Keep the central's toolbox current so the reindex below runs today's code.
+# Keep the central's toolbox current so the reindex below runs today's code —
+# but NEVER DOWNGRADE it (v1.3). The old unconditional install let any stale
+# clone overwrite the central's newer tools on every push (live incident
+# 2026-07-14→15: a v2.26 clone's nightly push reverted the central's v3.1 fix
+# at 21:00 each evening). Install only when the local copy is strictly newer,
+# and ship lib/ along with it — a v3.0+ launcher is thin and dead without its
+# engine. An unparsable local version installs nothing (can't prove newer).
 if [[ -n "$INGEST" ]]; then
-  rsync -a -e "ssh $SSH_OPTS" "$INGEST" "$TARGET:$REMOTE_VAULT/.tools/ai-memory-ingest.sh" 2>/dev/null || true
+  lver=$(sed -n 's/^#  ai-memory-ingest\.sh  v\([0-9][0-9.]*\).*/\1/p' "$INGEST" | head -1)
+  rver=$(remote "sed -n 's/^#  ai-memory-ingest\.sh  v\([0-9][0-9.]*\).*/\1/p' '$REMOTE_VAULT/.tools/ai-memory-ingest.sh' 2>/dev/null" | head -1)
+  if [[ -n "$lver" ]] && _tool_newer "$lver" "$rver"; then
+    rsync -a -e "ssh $SSH_OPTS" "$INGEST" "$TARGET:$REMOTE_VAULT/.tools/ai-memory-ingest.sh" 2>/dev/null || true
+    libdir="$(cd "$(dirname "$INGEST")" && pwd)/lib"
+    if [[ -d "$libdir" ]]; then
+      remote "mkdir -p '$REMOTE_VAULT/.tools/lib'" 2>/dev/null
+      rsync -a -e "ssh $SSH_OPTS" "$libdir/" "$TARGET:$REMOTE_VAULT/.tools/lib/" 2>/dev/null || true
+    fi
+    info "central toolbox updated: v${rver:-none} → v$lver"
+  else
+    info "central toolbox kept at v${rver:-?} (local is v${lver:-unparsable} — not newer)"
+  fi
 fi
 
 # ── push step 4: reindex ON the central (derived state is rebuilt, not copied) ─

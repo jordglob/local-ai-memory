@@ -6,6 +6,16 @@ in each script's header. History before v50 is in
 
 ## v52 — 2026-07-14
 
+- **sync push never downgrades the central's tools** (sync v1.3). The
+  unconditional "keep the toolbox current" rsync let any stale clone revert
+  the central's newer tools on every push — live incident 2026-07-14→15: a
+  v2.26 clone's nightly autosync overwrote the central's fresh v3.1 at 21:00
+  each evening, with preserved old mtimes masking the write. Now the install
+  is gated on `_tool_newer` (strictly newer by `sort -V`; missing remote =
+  first install; unparsable local installs nothing), and `lib/` ships with
+  the launcher — a v3.0+ launcher is thin and dead without its engine.
+  Locked by tests (semantics incl. `3.10 > 3.9`, and that push actually
+  gates on it).
 - **Conversation notes are generated artifacts — the edited-by-hand freeze is
   gone** (ingest v3.1). The v2.27 "never overwrite a hand-edited file" guard
   re-proved a note's stored hash by round-tripping its rendered markdown back
