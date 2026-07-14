@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v3.0
+#  ai-memory-ingest.sh  v3.1
 #  Import scattered AI conversations into the vault — 13 sources
+#  v3.1:  Vault conversation notes are GENERATED artifacts — ingest always
+#         regenerates a changed conversation in place. The v2.27 "never
+#         overwrite a hand-edited file" guard is REMOVED: it re-proved the
+#         stored hash by round-tripping rendered markdown back to source
+#         text, so brittle that v3.0's cleaning changes false-flagged every
+#         pre-v3.0 note as `edited` and silently froze it forever (live
+#         incident 2026-07-12→14: active CC sessions stopped updating).
+#         Manual commentary belongs in separate notes that link to the
+#         conversation file. The `edited` summary column is gone; the
+#         stored hash remains for what it is FOR — skip-if-unchanged.
 #  v3.0:  STRUCTURAL SPLIT — the ~1,550-line embedded python program moved out
 #         of the heredoc into lib/aimem_ingest.py (+ shared helpers in
 #         lib/aimem_common.py, also used by search). This file is now a thin

@@ -7,12 +7,11 @@
 # =============================================================================
 import sys, os, re, json, zipfile, sqlite3, argparse, datetime, fnmatch, hashlib
 import html as htmllib
-import itertools
 from pathlib import Path
 
 from aimem_common import scrub_secrets, slugify, _atomic_write, default_vault
 
-VERSION = "3.0"
+VERSION = "3.1"
 WITH_CRON = False
 HOME = Path.home()
 
@@ -238,43 +237,6 @@ def _dir_ids(out_dir: Path):
         _ID_CACHE[key] = cache
     return cache
 
-# Role labels write_conv emits are many-to-one ("user" and "human" both render
-# as **You:**) — when hashing a file BACK, try every original-role combination.
-_LABEL_ROLES = {"You": ("user", "human"),
-                "Assistant": ("assistant", "model", "ai"),
-                "System": ("system",)}
-
-def _disk_hash_ok(prior, stored):
-    """True iff the on-disk file still hashes to its OWN stored hash — i.e. it
-    is exactly what some ingest run wrote. False means the USER edited it by
-    hand (or the format is foreign), and it must never be overwritten (v2.27)."""
-    parts = prior.split("\n---\n", 1)
-    if len(parts) != 2:
-        return False
-    blocks, cur = [], None
-    for line in parts[1].splitlines():
-        m = re.match(r"^\*\*(.+):\*\*$", line)
-        if m:
-            cur = [m.group(1), []]
-            blocks.append(cur)
-        elif cur is not None:
-            cur[1].append(line)
-    if not blocks:
-        return False
-    parsed = [(lab, "\n".join(ls).strip()) for lab, ls in blocks]
-    labels = []
-    for lab, _t in parsed:
-        if lab not in labels:
-            labels.append(lab)
-    for combo in itertools.product(*[_LABEL_ROLES.get(l, (l,)) for l in labels]):
-        role_of = dict(zip(labels, combo))
-        h = hashlib.sha256()
-        for lab, t in parsed:
-            h.update((str(role_of[lab]) + "\x00" + t + "\x00").encode("utf-8"))
-        if h.hexdigest()[:16] == stored:
-            return True
-    return False
-
 def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     """conv: {id, title, created, messages:[(role,text)], note?}
 
@@ -282,10 +244,11 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
     prior import for this id is found by the EXACT `- id:` line embedded in the
     file (v2.27), its stored content hash is compared, and the file is SKIPPED
     if identical or REWRITTEN in place if the conversation grew/changed — no
-    duplicates. A file the USER edited by hand (content no longer matching its
-    own stored hash) is warned about and left untouched. Files written by
-    ≤v2.26 under a truncated id are adopted in place (id upgraded, filename
-    kept) rather than duplicated."""
+    duplicates. Vault conversation notes are GENERATED artifacts of their
+    transcripts (v3.1): ingest always regenerates on change, and manual edits
+    do not survive — commentary belongs in separate notes that link here.
+    Files written by ≤v2.26 under a truncated id are adopted in place (id
+    upgraded, filename kept) rather than duplicated."""
     raw_id = " ".join(str(conv.get("id") or "").split())
     cid = _safe_id(raw_id)
     date = _safe_date(conv.get("created"))
@@ -348,16 +311,13 @@ def write_conv(out_dir: Path, source: str, conv: dict, stats: dict):
         if same and prior_title == title and not adopted:
             stats["skipped"] += 1          # byte-for-byte the same conversation
             return
-        # About to rewrite this file — but NEVER over a human's edits (v2.27):
-        # if the file no longer hashes to its own stored hash, the user changed
-        # it by hand; warn and keep their version. (Legacy files without a hash
-        # line can't be verified — rewritten as before, that's how pre-v2.14
-        # files got sanitized.)
-        if stored_hash and not _disk_hash_ok(prior, stored_hash):
-            warn(f"{source}: {existing.name} was edited by hand — SKIPPED, "
-                 "never overwritten (delete the file to re-import it)")
-            stats["edited"] += 1
-            return
+        # Grown/changed → regenerate in place, unconditionally (v3.1). The old
+        # "never overwrite a hand-edited file" guard round-tripped the rendered
+        # markdown back to source text to re-prove the stored hash — so brittle
+        # that any version's change to cleaning/rendering false-flagged every
+        # older note as edited and silently froze it forever (bit us 2026-07-12,
+        # ingest v3.0). Notes here are generated artifacts of their transcripts;
+        # commentary belongs in separate files.
         if same and prior_title != title:
             # Same content, better title → RETITLE IN PLACE. The filename never
             # changes after first import: the add-only sync (--ignore-existing)
@@ -436,7 +396,7 @@ def text_from_blocks(content):
     return ""
 
 # ── parsers (each: parse(path, out_root) -> stats dict) ──────────────────────
-def _stats(): return {"new": 0, "updated": 0, "skipped": 0, "edited": 0,
+def _stats(): return {"new": 0, "updated": 0, "skipped": 0,
                       "empty": 0, "failed": 0}
 
 # Cap on a single decompressed zip member. A malicious/decompression-bomb export
@@ -1545,7 +1505,7 @@ def main():
             results[name] = run_source(name, out_root, scan_roots=scan_roots)
 
     hdr("Summary")
-    print(f"\n  {'source':<16} {'new':>5} {'updated':>8} {'skipped':>8} {'edited':>7} {'empty':>6} {'failed':>7}")
+    print(f"\n  {'source':<16} {'new':>5} {'updated':>8} {'skipped':>8} {'empty':>6} {'failed':>7}")
     print("  " + "-" * 62)
     tot = _stats()
     for name, s in results.items():
@@ -1553,13 +1513,10 @@ def main():
         # result the user asked for must be visible, not silently dropped
         # (a Swedish takeout imported 0 with no trace, live round 2026-07-05).
         if any(s.values()) or a.source:
-            print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['edited']:>7} {s['empty']:>6} {s['failed']:>7}")
+            print(f"  {name:<16} {s['new']:>5} {s['updated']:>8} {s['skipped']:>8} {s['empty']:>6} {s['failed']:>7}")
         for k in tot: tot[k] += s[k]
     print("  " + "-" * 62)
-    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['updated']:>8} {tot['skipped']:>8} {tot['edited']:>7} {tot['empty']:>6} {tot['failed']:>7}\n")
-    if tot["edited"]:
-        warn(f"{tot['edited']} vault file(s) were edited by hand and left "
-             "untouched — delete a file to let ingest re-import that conversation")
+    print(f"  {'TOTAL':<16} {tot['new']:>5} {tot['updated']:>8} {tot['skipped']:>8} {tot['empty']:>6} {tot['failed']:>7}\n")
     # Honest exit code (v2.27): a run with failed conversations must not
     # exit 0 — a hook/cron caller has only the exit code to notice.
     rc = 1 if tot["failed"] else 0

@@ -1071,10 +1071,13 @@ fi
 # ── 6j. regression: ingest data-safety round (v2.27) ─────────────────────────
 # Locks in the v2.27 fixes: (a) two same-day codex sessions no longer collide
 # on a truncated 12-char id, and a ≤v2.26 legacy file (truncated id) is ADOPTED
-# in place, never duplicated; (b) a vault file the USER edited by hand is
-# warned about and skipped, never overwritten; (c) a secret pasted into a
-# conversation TITLE never reaches the heading or the FILENAME; (d) a failed
-# source makes ingest exit nonzero (a hook/cron caller only sees the code).
+# in place, never duplicated; (b) notes are GENERATED artifacts (v3.1) — a
+# grown conversation is regenerated in place even if the vault file was
+# touched by hand (the v2.27 never-overwrite guard false-flagged whole vaults
+# on any cleaning change and silently froze them — live incident 2026-07-12);
+# (c) a secret pasted into a conversation TITLE never reaches the heading or
+# the FILENAME; (d) a failed source makes ingest exit nonzero (a hook/cron
+# caller only sees the code).
 hdr "regression: ingest data-safety (v2.27)"
 if [ "$PY_OK" = 0 ]; then
   skip "no real python3 here"
@@ -1134,37 +1137,41 @@ PYFIX
     fail "legacy file was duplicated or not migrated" "count=$cxn3 $(grep '^- id:' "$legacyf" 2>/dev/null)"
   fi
 
-  # (b) a user-edited vault file survives a re-ingest of a GROWN conversation
+  # (b) a GROWN conversation is regenerated in place even when the vault file
+  # was touched by hand (v3.1: notes are generated artifacts — no freeze)
   mkdir -p "$TMP/edfake/proj" "$TMP/edvault/05-AI-Sessions"
   printf '%s\n' \
-    '{"type":"ai-title","aiTitle":"Edit survival"}' \
+    '{"type":"ai-title","aiTitle":"Edit regeneration"}' \
     '{"type":"user","timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":"original question marker-one"}}' \
     '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"original answer"}]}}' \
     > "$TMP/edfake/proj/55555555-5555-5555-5555-555555555555.jsonl"
   bash ai-memory-ingest.sh "$TMP/edvault" --source claude-code --path "$TMP/edfake" --yes >/dev/null 2>&1
   edfile=$(ls "$TMP/edvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | head -1)
-  # the user annotates the vault file by hand …
+  # something touches the vault file (hand edit, or an older version's format) …
   python3 - "$edfile" <<'PYFIX'
 import sys
 p = sys.argv[1]; t = open(p, encoding="utf-8").read()
 open(p, "w", encoding="utf-8").write(t.replace(
     "original answer", "original answer\n\nMIN EGEN ANTECKNING: viktigt!"))
 PYFIX
-  # … then the SOURCE grows, so the incoming hash differs from the stored one
+  # … then the SOURCE grows: the file must be regenerated in place — the
+  # follow-up arrives, the foreign edit does not survive, no duplicate file
   printf '%s\n' \
     '{"type":"user","message":{"role":"user","content":"follow-up question"}}' \
     >> "$TMP/edfake/proj/55555555-5555-5555-5555-555555555555.jsonl"
   bash ai-memory-ingest.sh "$TMP/edvault" --source claude-code --path "$TMP/edfake" --yes > "$TMP/ed.out" 2>&1
-  if grep -q "MIN EGEN ANTECKNING" "$edfile" 2>/dev/null \
-     && ! grep -q "follow-up question" "$edfile" 2>/dev/null; then
-    pass "user-edited vault file survived re-ingest (never clobbered)"
+  edn=$(ls "$TMP/edvault/05-AI-Sessions/claude-code/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if grep -q "follow-up question" "$edfile" 2>/dev/null \
+     && ! grep -q "MIN EGEN ANTECKNING" "$edfile" 2>/dev/null \
+     && [ "$edn" = 1 ]; then
+    pass "grown conversation regenerated in place over a touched file (no freeze, no duplicate)"
   else
-    fail "user edit was clobbered by re-ingest" "$edfile"
+    fail "touched vault file was not regenerated in place" "count=$edn $(tail -5 "$TMP/ed.out")"
   fi
-  if grep -qi "edited by hand" "$TMP/ed.out"; then
-    pass "edited-file skip is loud (warn + summary column)"
+  if ! grep -qi "edited by hand" "$TMP/ed.out"; then
+    pass "no edited-by-hand freeze path remains (v3.1)"
   else
-    fail "edited-file skip was silent" "$(tail -5 "$TMP/ed.out")"
+    fail "edited-by-hand skip resurfaced" "$(tail -5 "$TMP/ed.out")"
   fi
 
   # (c) a secret in the TITLE must never reach the heading or the filename
@@ -1276,7 +1283,7 @@ else
   cp lib/aimem_common.py lib/aimem_ingest.py lib/aimem_search.py "$IV/.tools/lib/"
   # (a) the .tools copies themselves (launcher finds <script_dir>/lib)
   iv=$(HOME="$TMP/insthome" bash "$IV/.tools/ai-memory-ingest.sh" --version 2>&1)
-  if [ $? -eq 0 ] && printf '%s' "$iv" | grep -q "v3.0"; then
+  if [ $? -eq 0 ] && printf '%s' "$iv" | grep -q "v3\."; then
     pass ".tools ingest runs standalone ($iv)"
   else
     fail ".tools ingest failed without the repo" "$iv"

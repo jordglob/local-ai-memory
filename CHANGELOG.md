@@ -4,6 +4,22 @@ One entry per tagged release; per-script versions move independently and live
 in each script's header. History before v50 is in
 `docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
 
+## v52 — 2026-07-14
+
+- **Conversation notes are generated artifacts — the edited-by-hand freeze is
+  gone** (ingest v3.1). The v2.27 "never overwrite a hand-edited file" guard
+  re-proved a note's stored hash by round-tripping its rendered markdown back
+  to source text (including trying every role-label combination). Any version
+  change to cleaning/rendering broke that round-trip, false-flagging every
+  older note as `edited` and silently freezing it forever — live incident
+  2026-07-12→14: v3.0's cleaning changes froze the active Claude Code sessions'
+  notes while sync and ingest both reported green. Ingest now always
+  regenerates a changed conversation in place; the stored hash keeps doing its
+  functional job (skip-if-unchanged idempotence); the `edited` summary column
+  and warning are removed, `_disk_hash_ok` and the label→role table deleted.
+  Manual commentary belongs in separate notes that link to the conversation
+  file — MANUAL.md updated accordingly.
+
 ## v51 — 2026-07-12
 
 - **Fleet split.** The remote + netboot layer moved to the companion repo

@@ -53,7 +53,7 @@ tmux cockpit (`mux`) is the standard place you talk to it all.
 | **door** | Any way of reaching the vault: the Hermes agent, Claude Desktop (via MCP), plain grep, Obsidian. The design goal is that every door opens onto the same memory. |
 | **INDEX.md** | A generated table of contents over all imported conversations — what the recall hook and "what did we do last week?" questions lean on. |
 | **recall hook** | Before every question reaches the model, a fast lexical search runs over the vault and injects the best-matching lines into the prompt. This is the piece that makes small local models remember instead of guess. |
-| **hash line** | Every imported file carries its conversation id and a content hash. That is how re-runs stay idempotent — and how the importer notices you edited a file by hand and refuses to overwrite your edits. |
+| **hash line** | Every imported file carries its conversation id and a content hash. That is how re-runs stay idempotent: unchanged conversations are skipped, changed ones are regenerated in place. |
 | **local / cloud mode** | Configure measures your RAM and GPU and either picks a local Ollama model that fits, or (below ~6 GB) flips to cloud-only mode through OpenRouter, so an old laptop still works. |
 | **export archive** | A timestamped `tar.gz` of the vault (plus the agent's own memory database), produced by uninstall/backup. It contains no secrets — API keys and machine config are deliberately excluded and re-created on a new machine. |
 
@@ -166,8 +166,10 @@ GPU, or switching between local and cloud.
 
 Ingest reads exports and local tool stores, normalizes everything into one file
 per conversation, and is safe to re-run forever: unchanged conversations are
-skipped, grown ones are extended, and **files you have edited by hand are
-detected and left alone** — a warning tells you which ones.
+skipped, grown ones are regenerated in place. **Conversation files are
+generated artifacts** — don't edit them by hand (your edit is overwritten the
+next time that conversation changes); put commentary in a separate note that
+links to the conversation file.
 
 ### Where it looks
 
@@ -186,7 +188,7 @@ detected and left alone** — a warning tells you which ones.
 - **Writes are atomic** — a crash or Ctrl-C mid-import can never leave a
   half-written conversation.
 - **A failed source is loud**: the summary table shows imported / skipped /
-  edited / failed per source, and the script exits non-zero if anything failed.
+  failed per source, and the script exits non-zero if anything failed.
 - Messy pile of unknown exports? `--scan-report` maps a folder into a bridge
   file your agent can read and act on with you.
 
@@ -318,7 +320,7 @@ this repo, no script creates or moves SSH keys.)*
 
 | Guarantee | Mechanism |
 |---|---|
-| Your edits survive | ingest hash-checks every existing file; edited files are warned about and skipped, never overwritten. |
+| Conversation files always match their transcripts | ingest regenerates a changed conversation in place — no duplicates, no stale copies, and nothing can silently freeze an import. Commentary belongs in separate notes. |
 | No half-written memory | Atomic writes (temp file + rename) for conversations, the index, reports — and the key file. |
 | No secrets in vault or exports | Scrub on import; keys live only in `~/.hermes/.env` (mode 600); exports exclude them by construction. |
 | Nothing destructive by accident | Uninstall dry-runs by default; export verified before removal; `DELETE` must be typed to skip it. |
@@ -404,7 +406,7 @@ destructive steps)
 | A question you don't understand | Press Enter — every default is the safe one. You can re-run later. |
 | Agent says it found nothing, but the files exist | You are probably running hermes outside the launcher. Run `doctor`; check the hook and launcher lines. |
 | Import says "failed" for one source | The other sources still imported. Re-run with `--source NAME` and read its error; exports from newer app versions may need the `--scan-report` bridge. |
-| "edited — skipped" warnings during ingest | Working as intended: you changed those files by hand, and ingest refuses to overwrite them. |
+| A hand edit in a conversation file disappeared | Working as intended (v3.1): conversation files are regenerated from their transcripts. Keep commentary in a separate note that links to the conversation file. |
 | Something looks stuck during setup | Read the log path printed at the start (`tail -f` works for the whole run). Ctrl-C and re-run is always safe. |
 
 ### Where things live
