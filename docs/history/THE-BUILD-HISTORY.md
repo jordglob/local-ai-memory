@@ -170,7 +170,36 @@ own past, secret-scrubbing, hub-and-spoke sync, git-versioned history, a
 own, searchable with grep, exactly as that first benchmark result predicted.
 
 The next chapter is already written down: a **clean-room run on a fresh Linux box**,
-where most of the platform-specific ghosts simply won't exist. If the first two
-years taught anything, it's that the code will be fine — and something entirely
+where most of the platform-specific ghosts simply won't exist. If this history
+taught anything, it's that the code will be fine — and something entirely
 unexpected will break on first contact with real hardware. It always has. That's
 the project.
+
+---
+
+## The cost, in hours
+
+The archive puts real numbers on it: from the genesis chat on **2026-06-10** to
+tag **v54** on **2026-07-16** — about **five weeks**, **54 package versions**, and
+a ledger where nearly every entry ends in *"live-verified on real hardware."* So:
+
+**The builder's hours.** Across those five weeks — the research, the two-Claude
+spec/code ping-pong, the ingest and sync work, the model-cost study, the recall
+tuning, and the maintenance marathon — roughly **~100 hours.** A real slice of
+that wasn't building the thing; it was debugging the ground it stood on, one
+platform-specific surprise at a time, exactly as the version ledger records.
+
+**A pro dev today (2026), sane infra, AI-assisted:** about **50 hours.** The whole
+stack — 13-source ingest, the recall hook, sync, self-heal, ~120 tests — is maybe
+a week and a half of focused work for someone who knows the tools and isn't
+discovering each requirement by tripping over it on a live box.
+
+**A pro dev five years ago (2021):** **250–350 hours** — and a very different
+project. In 2021 there was no ambient LLM to co-write the code, no one-command
+local model server, no free embeddings, and, decisively, **no local model good
+enough to be the agent.** The core premise this project rests on — a small local
+model that can actually search its own memory and answer from it — was barely
+viable. The 2021 version costs triple, ships worse, and quietly suggests a text
+file.
+
+Which, five weeks and a hundred hours later, remains — technically — an option.
