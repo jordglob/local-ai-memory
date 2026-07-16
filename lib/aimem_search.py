@@ -12,7 +12,7 @@ from pathlib import Path
 
 from aimem_common import tokenize, default_vault
 
-VERSION = "2.1"
+VERSION = "2.2"
 
 # Recency ordinal (v2.1): a note's freshness as days since 2020-01-01, taken
 # from its LAST-WRITE time (mtime) — i.e. when ingest last wrote it because the
@@ -39,50 +39,69 @@ def _recency_ord(path):
             pass
     return 0
 
-def run_search(sess, terms):
-    """Score every 05-AI-Sessions/*.md by DISTINCT query terms covered, then
-    RECENCY (newer wins), then hit frequency. Returns a ranked list of
-    (score, nterms, path, hit_terms, snips).
+def run_search(roots, terms):
+    """Score every *.md under the given root(s) by DISTINCT query terms covered,
+    then RECENCY (newer wins), then hit frequency. `roots` is a Path or a list of
+    Paths. Returns a ranked list of (score, nterms, path, hit_terms, snips).
 
     Recency was added in v2.1: when the vault holds both an OLD and a NEW
     statement of a fact that changed (a job renamed, an agent that moved host),
     the two match a query equally on terms — and the old, more-repeated one used
     to win on frequency and get injected as 'the answer'. Newer now breaks that
     tie. Term coverage still dominates, so a richer canonical note is unaffected;
-    recency only decides between equally-relevant hits."""
+    recency only decides between equally-relevant hits.
+
+    v2.2 searches the vault's curated DURABLE notes (entities/) alongside the raw
+    session transcripts: the authoritative statement of a fact ('Hermes lives on
+    the mini') often lives ONLY in a hand/agent-curated note the hook never saw."""
+    if isinstance(roots, Path):
+        roots = [roots]
     results = []
-    for path in sess.rglob("*.md"):
-        if path.name == "INDEX.md":
+    for root in roots:
+        if not root.is_dir():
             continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        low = text.lower()
-        hit_terms, total = [], 0
-        for t in terms:
-            c = low.count(t)
-            if c:
-                hit_terms.append(t); total += c
-        if not hit_terms:
-            continue
-        lines = text.splitlines()
-        scored_lines = []
-        for i, ln in enumerate(lines):
-            ll = ln.lower()
-            d = sum(1 for t in hit_terms if t in ll)
-            if d:
-                scored_lines.append((d, i + 1, ln.strip()))
-        scored_lines.sort(key=lambda x: (-x[0], x[1]))
-        # Packing (v2.1): coverage (hit_terms) is the dominant digit block, then
-        # recency (0..~4000 days), then frequency (<100000). Each block is scaled
-        # so it can never bleed into the one above: coverage >> recency >> freq.
-        score = (len(hit_terms) * 10**10
-                 + _recency_ord(path) * 10**5
-                 + min(total, 99999))
-        results.append((score, len(hit_terms), path, hit_terms, scored_lines[:3]))
+        for path in root.rglob("*.md"):
+            if path.name == "INDEX.md":
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            low = text.lower()
+            hit_terms, total = [], 0
+            for t in terms:
+                c = low.count(t)
+                if c:
+                    hit_terms.append(t); total += c
+            if not hit_terms:
+                continue
+            lines = text.splitlines()
+            scored_lines = []
+            for i, ln in enumerate(lines):
+                ll = ln.lower()
+                d = sum(1 for t in hit_terms if t in ll)
+                if d:
+                    scored_lines.append((d, i + 1, ln.strip()))
+            scored_lines.sort(key=lambda x: (-x[0], x[1]))
+            # Packing: coverage (hit_terms) dominates, then recency, then freq.
+            score = (len(hit_terms) * 10**10
+                     + _recency_ord(path) * 10**5
+                     + min(total, 99999))
+            results.append((score, len(hit_terms), path, hit_terms, scored_lines[:3]))
     results.sort(key=lambda r: -r[0])
     return results
+
+# Durable curated notes that the recall hook should search ALONGSIDE the raw
+# session transcripts (v2.2). entities/ holds the authoritative one-per-thing
+# facts (who the user is, where Hermes runs, the mac-mini node); a fact stated
+# ONLY there used to be invisible to recall. Kept deliberately small — just
+# entities/ — so the per-turn search stays fast and low-noise.
+def _search_roots(vault):
+    roots = [vault / "05-AI-Sessions"]
+    ent = vault / "entities"
+    if ent.is_dir():
+        roots.append(ent)
+    return roots
 
 # ── hook mode (--hook): the model-agnostic path ──────────────────────────────
 # Live tests proved small models will not CALL a search tool from SOUL guidance
@@ -224,9 +243,25 @@ def run_hook(vault):
     dbg(f"msg={msg!r} terms={terms} meta={is_meta}")
     if len(terms) < HOOK_MIN_TERMS and not is_meta:
         dbg("too few terms, not meta"); return 0     # too vague (e.g. "hej")
-    results = run_search(sess, terms) if terms else []
-    best = results[0][1] if results else 0
-    dbg(f"results={len(results)} best={best}")
+    # Two pools, not one ranking (v2.2): a raw session transcript is huge and
+    # covers query terms INCIDENTALLY, which swamps a short curated entities note
+    # in a single ranking — no coverage weight tunes cleanly (too low: entities
+    # never surface; too high: they flood every query). So search them
+    # separately and always PREPEND the single best-matching curated note (if it
+    # meets the injection threshold) ahead of the top transcripts. Deterministic,
+    # no magic number: the authoritative fact is always shown when it matches,
+    # and at most one entities note is added so transcripts aren't crowded out.
+    tx = run_search(vault / "05-AI-Sessions", terms) if terms else []
+    ent = run_search(vault / "entities", terms) if terms else []
+    merged = []
+    if ent and ent[0][1] >= HOOK_MIN_TERMS:
+        merged.append(ent[0])
+    seen = {merged[0][2]} if merged else set()
+    for r in tx:
+        if r[2] not in seen:
+            merged.append(r); seen.add(r[2])
+    best = max((r[1] for r in merged), default=0)
+    dbg(f"tx={len(tx)} ent={len(ent)} merged={len(merged)} best={best}")
     # A strong TOPIC hit wins; else a time/meta question gets recent conversations.
     if best < HOOK_MIN_TERMS:
         if is_meta:
@@ -238,7 +273,7 @@ def run_hook(vault):
     rel = lambda p: str(p.relative_to(vault))
     lines = ["[Relevant memory from the user's own vault — they may be asking "
              "about this. Answer from it if it fits; ignore if not:]"]
-    for ri, (score, nterms, path, hit_terms, snips) in enumerate(results[:3]):
+    for ri, (score, nterms, path, hit_terms, snips) in enumerate(merged[:3]):
         if nterms < HOOK_MIN_TERMS:
             break
         lines.append(f"- {rel(path)}")
@@ -325,7 +360,7 @@ def main():
               "(all stopwords). Try naming the topic, brand, or year.")
         return 0
 
-    results = run_search(sess, terms)
+    results = run_search(_search_roots(vault), terms)
     rel = lambda p: str(p.relative_to(vault))
 
     print(f'MEMORY SEARCH — query: "{query}"')

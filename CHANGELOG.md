@@ -4,6 +4,25 @@ One entry per tagged release; per-script versions move independently and live
 in each script's header. History before v50 is in
 `docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
 
+## v54 — 2026-07-16
+
+- **Recall reaches the curated durable notes** (search v2.2). The hook only
+  searched `05-AI-Sessions/`, so an authoritative fact stated ONLY in a curated
+  `entities/` note (who the user is, where Hermes runs) was invisible to recall
+  regardless of recency. The hook now consults `entities/` too — but as a
+  SEPARATE pool, not one merged ranking: a raw session transcript is huge and
+  covers query terms incidentally, which swamps a short curated note, and no
+  single coverage weight tunes cleanly (too low → entities never surface; too
+  high → they flood every query — both were measured). So the hook searches the
+  two pools independently and PREPENDS the single best-matching curated note
+  (when it meets the injection threshold) ahead of the top transcripts.
+  Deterministic, no magic number, at most one entities note added so
+  transcripts aren't crowded out. HONEST LIMIT: a curated note still only
+  surfaces when it lexically shares ≥2 terms with the question — a pure
+  vocabulary mismatch ("bor numera" vs the note's "kör på") is the floor of
+  keyword search and is deliberately NOT chased with synonyms/embeddings.
+  One test: a fact only in `entities/` is recalled.
+
 ## v53 — 2026-07-16
 
 - **Recency ranking in memory search** (search v2.1). When the vault holds both

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v2.1
+#  ai-memory-search.sh  v2.2
+#  v2.2: recall also searches the vaults curated entities/ notes, not just the
+#        raw session transcripts. The authoritative statement of a fact (who
+#        the user is, where Hermes runs) often lives ONLY in a durable note the
+#        hook never saw; now it does. Kept small (entities/ only) for speed.
 #  v2.1: RECENCY ranking — when the vault holds both an OLD and a NEW statement
 #        of a changed fact, run_search now breaks the term-coverage tie by
 #        DATE (newer first) instead of raw hit-frequency, which used to let the

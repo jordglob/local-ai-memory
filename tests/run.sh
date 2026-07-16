@@ -1105,6 +1105,17 @@ else
   else
     fail "recency overpowered term coverage" "$cov"
   fi
+  # v2.2: the hook also searches the vault's curated entities/ — a fact stated
+  # ONLY in a durable note (never in a session transcript) must now be found.
+  mkdir -p "$TMP/recvault/entities"
+  printf '# mac-mini-node\nHermes agenten kor pa Mac minin som sin permanenta hemmavard.\n' \
+    > "$TMP/recvault/entities/mac-mini-node.md"
+  ent=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"var kor hermes agenten permanenta"}}' | bash ai-memory-search.sh --hook "$TMP/recvault" 2>/dev/null)
+  if printf '%s' "$ent" | grep -q "entities/mac-mini-node.md" && printf '%s' "$ent" | grep -q "Mac minin"; then
+    pass "durable entities/ note is searched: a fact only in a curated note is now recalled"
+  else
+    fail "entities/ not searched by the hook" "$ent"
+  fi
 fi
 
 # ── 6j. regression: ingest data-safety round (v2.27) ─────────────────────────
