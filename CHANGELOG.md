@@ -4,6 +4,25 @@ One entry per tagged release; per-script versions move independently and live
 in each script's header. History before v50 is in
 `docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
 
+## v53 — 2026-07-16
+
+- **Recency ranking in memory search** (search v2.1). When the vault holds both
+  an OLD and a NEW statement of a fact that changed (a job renamed, an agent
+  that moved host), the two match a query equally on terms — and the older,
+  more-repeated one used to win on hit-frequency and get injected as "the
+  answer". `run_search` now breaks the term-coverage tie by **freshness**
+  (a note's last-write mtime, days since 2020) instead of raw frequency; term
+  coverage still dominates, so a richer canonical note is unaffected and
+  recency only decides between equally-relevant hits. mtime (not the filename's
+  YYYY-MM-DD start-date prefix) is the signal, so a long-running session that
+  keeps appending today's facts ranks fresh. Motivated by a 16-question live
+  recall eval (2026-07-16): both nex-n2-mini and qwen3.6 failed mainly on
+  recently-changed facts, confidently retrieving the stale version. Two tests
+  lock it (newer-wins ordering + coverage-still-dominates guard).
+- KNOWN GAP (not yet fixed): the recall hook only indexes `05-AI-Sessions/`,
+  not the durable memory notes — so a fact that lives only in a memory file is
+  invisible to search regardless of recency.
+
 ## v52 — 2026-07-14
 
 - **sync push never downgrades the central's tools** (sync v1.3). The

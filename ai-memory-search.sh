@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-search.sh  v2.0
+#  ai-memory-search.sh  v2.1
+#  v2.1: RECENCY ranking — when the vault holds both an OLD and a NEW statement
+#        of a changed fact, run_search now breaks the term-coverage tie by
+#        DATE (newer first) instead of raw hit-frequency, which used to let the
+#        older, more-repeated fact win and get injected as the answer. Term
+#        coverage still dominates; recency only decides between equal hits.
 #  v2.0: STRUCTURAL SPLIT — the embedded python program moved out of the
 #        mktemp-copied heredoc into lib/aimem_search.py (+ shared helpers in
 #        lib/aimem_common.py, also used by ingest). This file is now a thin

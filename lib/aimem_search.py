@@ -12,11 +12,44 @@ from pathlib import Path
 
 from aimem_common import tokenize, default_vault
 
-VERSION = "2.0"
+VERSION = "2.1"
+
+# Recency ordinal (v2.1): a note's freshness as days since 2020-01-01, taken
+# from its LAST-WRITE time (mtime) — i.e. when ingest last wrote it because the
+# conversation grew. mtime beats the filename's YYYY-MM-DD prefix here: that
+# prefix is the session's START date, so a long-running session (started weeks
+# ago, still appending today's facts) would look stale by filename yet carries
+# the freshest content. Filename date is only a fallback when mtime is
+# unreadable. Bounded well under the frequency slot so it ranks ABOVE raw
+# hit-frequency but BELOW distinct-term coverage — see run_search's packing.
+_REC_EPOCH = _dt.date(2020, 1, 1).toordinal()
+
+def _recency_ord(path):
+    try:
+        return max(0, _dt.date.fromtimestamp(path.stat().st_mtime).toordinal()
+                      - _REC_EPOCH)
+    except (OSError, ValueError, OverflowError):
+        pass
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", path.name)
+    if m:
+        try:
+            return max(0, _dt.date(int(m.group(1)), int(m.group(2)),
+                                   int(m.group(3))).toordinal() - _REC_EPOCH)
+        except ValueError:
+            pass
+    return 0
 
 def run_search(sess, terms):
-    """Score every 05-AI-Sessions/*.md by DISTINCT query terms covered (then hit
-    frequency). Returns a ranked list of (score, nterms, path, hit_terms, snips)."""
+    """Score every 05-AI-Sessions/*.md by DISTINCT query terms covered, then
+    RECENCY (newer wins), then hit frequency. Returns a ranked list of
+    (score, nterms, path, hit_terms, snips).
+
+    Recency was added in v2.1: when the vault holds both an OLD and a NEW
+    statement of a fact that changed (a job renamed, an agent that moved host),
+    the two match a query equally on terms — and the old, more-repeated one used
+    to win on frequency and get injected as 'the answer'. Newer now breaks that
+    tie. Term coverage still dominates, so a richer canonical note is unaffected;
+    recency only decides between equally-relevant hits."""
     results = []
     for path in sess.rglob("*.md"):
         if path.name == "INDEX.md":
@@ -41,7 +74,12 @@ def run_search(sess, terms):
             if d:
                 scored_lines.append((d, i + 1, ln.strip()))
         scored_lines.sort(key=lambda x: (-x[0], x[1]))
-        score = len(hit_terms) * 100000 + min(total, 99999)
+        # Packing (v2.1): coverage (hit_terms) is the dominant digit block, then
+        # recency (0..~4000 days), then frequency (<100000). Each block is scaled
+        # so it can never bleed into the one above: coverage >> recency >> freq.
+        score = (len(hit_terms) * 10**10
+                 + _recency_ord(path) * 10**5
+                 + min(total, 99999))
         results.append((score, len(hit_terms), path, hit_terms, scored_lines[:3]))
     results.sort(key=lambda r: -r[0])
     return results

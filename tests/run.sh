@@ -1066,6 +1066,45 @@ else
   else
     fail "meta question did not inject recent conversations" "$meta"
   fi
+  # v2.1: RECENCY breaks a tie between an OLD and a NEW statement of a changed
+  # fact. Two notes cover the query terms equally; the OLDER one has MORE hits
+  # (frequency used to win). The newer one must now be injected/ranked first.
+  RV="$TMP/recvault/05-AI-Sessions/claude-code"
+  mkdir -p "$RV"
+  # old note: same fact, stated repeatedly (higher frequency) — the trap.
+  # mtime is the freshness signal (v2.1), so stamp it OLD explicitly.
+  printf '# Setup\nHermes agenten bor i WSL2. Hermes bor i WSL2. Hermes WSL2 hem.\n' \
+    > "$RV/2026-06-01-hermes-setup-aaaaaaaa.md"
+  touch -t 202606010000 "$RV/2026-06-01-hermes-setup-aaaaaaaa.md"
+  # new note: the fact changed, stated once — stamped NEWER.
+  printf '# Flytt\nHermes agenten bor numera pa Mac minin.\n' \
+    > "$RV/2026-07-14-hermes-flytt-bbbbbbbb.md"
+  touch -t 202607140000 "$RV/2026-07-14-hermes-flytt-bbbbbbbb.md"
+  # The hook injects the top-3 hits, so BOTH notes appear — what recency changes
+  # is the ORDER: the newer (correct) statement must rank FIRST (models weight
+  # earlier context most), ahead of the older, more-repeated one.
+  rec=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"var bor hermes agenten"}}' | bash ai-memory-search.sh --hook "$TMP/recvault" 2>/dev/null)
+  new_pos=$(printf '%s' "$rec" | grep -bo "hermes-flytt" | head -1 | cut -d: -f1)
+  old_pos=$(printf '%s' "$rec" | grep -bo "hermes-setup" | head -1 | cut -d: -f1)
+  if [ -n "$new_pos" ] && [ -n "$old_pos" ] && [ "$new_pos" -lt "$old_pos" ]; then
+    pass "recency wins: the NEWER statement of a changed fact ranks first (ahead of the older, more-repeated one)"
+  else
+    fail "recency tiebreak failed — stale fact still ranks first" "new@$new_pos old@$old_pos :: $rec"
+  fi
+  # guard: term COVERAGE still dominates recency — an old note covering MORE
+  # distinct terms must outrank a newer note covering fewer.
+  printf '# Gammal kanon\nRDP porten 55555 star oppen mot internet pa Windows maskinen.\n' \
+    > "$RV/2026-05-01-rdp-canon-cccccccc.md"
+  touch -t 202605010000 "$RV/2026-05-01-rdp-canon-cccccccc.md"
+  printf '# Ny notis\nNagot om internet helt utan portnummer eller RDP har.\n' \
+    > "$RV/2026-07-15-rdp-passing-dddddddd.md"
+  touch -t 202607150000 "$RV/2026-07-15-rdp-passing-dddddddd.md"
+  cov=$(printf '%s' '{"extra":{"turn_type":"user","user_message":"vilken RDP port 55555 mot internet"}}' | bash ai-memory-search.sh --hook "$TMP/recvault" 2>/dev/null)
+  if printf '%s' "$cov" | grep -q "55555"; then
+    pass "coverage still dominates: a richer OLD note beats a newer thin one"
+  else
+    fail "recency overpowered term coverage" "$cov"
+  fi
 fi
 
 # ── 6j. regression: ingest data-safety round (v2.27) ─────────────────────────
