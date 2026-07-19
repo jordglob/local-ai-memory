@@ -4,6 +4,15 @@ One entry per tagged release; per-script versions move independently and live
 in each script's header. History before v50 is in
 `docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
 
+## v55 — 2026-07-19
+
+- **Satellite hermes sessions can be vaulted** (ingest v3.2). New `--with-cli`
+  flag: hermes sessions tagged `source='cli'` are still skipped by default
+  (v2.24: one-shot `hermes -z` noise), but a state.db SYNCED from a satellite
+  machine (WSL/Windows) tags its interactive sessions `'cli'` too, so the
+  default filter silently archived zero of them. The satellite watcher passes
+  `--with-cli`; default behaviour unchanged. Regression: tests 6n.
+
 ## v54 — 2026-07-16
 
 - **Recall reaches the curated durable notes** (search v2.2). The hook only

@@ -1402,6 +1402,57 @@ else
   fi
 fi
 
+# ── 6n. regression: hermes cli-source sessions — skipped by default, --with-cli (v3.2) ──
+# Locks in the 2026-07-19 satellite-sync finding: a state.db synced from a
+# satellite machine (WSL/Windows) has its interactive sessions tagged
+# source='cli', so the v2.24 default filter silently archived ZERO of them.
+# Default must stay cli-free (one-shot `hermes -z` noise), but --with-cli
+# must vault them — that is what the satellite watcher passes.
+hdr "regression: hermes --with-cli"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  mkdir -p "$TMP/clivault/05-AI-Sessions"
+  cat > "$TMP/mkclidb.py" <<'PYEOF'
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+con.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, model TEXT,"
+            " started_at REAL, title TEXT)")
+con.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " session_id TEXT, role TEXT, content TEXT, timestamp REAL)")
+con.executemany("INSERT INTO sessions VALUES (?,?,?,?,?)", [
+    ("clichat1", "cli", "qwen", 1752900000.0, "Satellit-chatt om minne"),
+    ("tuichat1", "tui", "qwen", 1752900100.0, "TUI-chatt om minne"),
+])
+con.executemany("INSERT INTO messages (session_id, role, content, timestamp)"
+                " VALUES (?,?,?,?)", [
+    ("clichat1", "user", "satellitmarkor cli", 1.0),
+    ("clichat1", "assistant", "svar cli", 2.0),
+    ("tuichat1", "user", "satellitmarkor tui", 3.0),
+    ("tuichat1", "assistant", "svar tui", 4.0),
+])
+con.commit(); con.close()
+PYEOF
+  python3 "$TMP/mkclidb.py" "$TMP/clistate.db"
+  bash ai-memory-ingest.sh "$TMP/clivault" --source hermes --path "$TMP/clistate.db" --yes >/dev/null 2>&1
+  cli_default=$(ls "$TMP/clivault/05-AI-Sessions/hermes/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$cli_default" = 1 ] && grep -rq "satellitmarkor tui" "$TMP/clivault/05-AI-Sessions/hermes/" \
+     && ! grep -rq "satellitmarkor cli" "$TMP/clivault/05-AI-Sessions/hermes/"; then
+    pass "cli-source session skipped by default, tui vaulted"
+  else
+    fail "default cli filter wrong" "files=$cli_default"
+  fi
+  bash ai-memory-ingest.sh "$TMP/clivault" --source hermes --path "$TMP/clistate.db" --with-cli --yes >/dev/null 2>&1
+  cli_with=$(ls "$TMP/clivault/05-AI-Sessions/hermes/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$cli_with" = 2 ] && grep -rq "satellitmarkor cli" "$TMP/clivault/05-AI-Sessions/hermes/"; then
+    pass "--with-cli vaults cli-source sessions too"
+  else
+    fail "--with-cli did not vault cli session" "files=$cli_with"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then

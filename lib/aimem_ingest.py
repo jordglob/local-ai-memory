@@ -11,8 +11,9 @@ from pathlib import Path
 
 from aimem_common import scrub_secrets, slugify, _atomic_write, default_vault
 
-VERSION = "3.1"
+VERSION = "3.2"
 WITH_CRON = False
+WITH_CLI = False
 HOME = Path.home()
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
@@ -541,14 +542,16 @@ def parse_claude_code(root, out_root):
         except Exception: st["failed"] += 1
     return st
 
-def parse_hermes(db_path, out_root):
+def parse_hermes(db_path, out_root, with_cli=False):
     """Hermes keeps its own history in ~/.hermes/state.db (sessions + messages).
     Archiving it closes the loop the stack promises: the agent's short-term
     memory becomes long-term, searchable vault memory. Read-only open — safe
     to run while the agent is live (WAL readers don't block the writer).
-    Skips source='cli' rows (one-shot `hermes -z` automation/scripting) — only
-    interactive (tui) and gateway conversations are archived, so the vault fills
-    with real chats, not dev/test one-shots."""
+    Skips source='cli' rows (one-shot `hermes -z` automation/scripting) by
+    default — only interactive (tui) and gateway conversations are archived,
+    so the vault fills with real chats, not dev/test one-shots. Pass
+    --with-cli to also archive cli-source sessions (e.g. a synced state.db
+    from a satellite machine whose interactive sessions are tagged 'cli')."""
     st = _stats(); out = out_root / "hermes"
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -557,8 +560,10 @@ def parse_hermes(db_path, out_root):
         # interactive (tui) + gateway conversations. NULL-safe (COALESCE: a NULL
         # source counts as non-cli) AND column-safe (older/test dbs may have no
         # source column → PRAGMA check → no filter, ingest all).
+        # --with-cli disables the filter entirely.
         _cols = [r[1] for r in cur.execute("PRAGMA table_info(sessions)").fetchall()]
-        _srcf = "WHERE COALESCE(source, '') != 'cli' " if "source" in _cols else ""
+        _srcf = ("WHERE COALESCE(source, '') != 'cli' "
+                 if ("source" in _cols and not with_cli) else "")
         try:
             # Hermes titles its own sessions (sessions.title) — use that first;
             # v2.14–v2.18 never read the column and every heading fell back to
@@ -1282,7 +1287,11 @@ def run_source(name, out_root, explicit_path=None, scan_roots=None):
                 find_files(list(spec["paths"]) + (scan_roots or []), spec["pattern"],
                            shallow=spec.get("shallow", False))
         for f in files:
-            try: add(spec["fn"](f, out_root))
+            try:
+                if name == "hermes":        # only parser carrying a toggle
+                    add(spec["fn"](f, out_root, with_cli=WITH_CLI))
+                else:
+                    add(spec["fn"](f, out_root))
             except Exception as e:
                 err(f"{name}: {e}"); totals["failed"] += 1
     return totals
@@ -1351,7 +1360,7 @@ def build_index(vault):
     return total
 
 def main():
-    global ASSUME_YES, WITH_CRON, AI_TITLES
+    global ASSUME_YES, WITH_CRON, WITH_CLI, AI_TITLES
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("positional", nargs="*")
     ap.add_argument("--source"); ap.add_argument("--path")
@@ -1363,6 +1372,7 @@ def main():
     ap.add_argument("--scan-report", action="store_true")
     ap.add_argument("--reindex", action="store_true")
     ap.add_argument("--with-cron", action="store_true")
+    ap.add_argument("--with-cli", action="store_true")
     ap.add_argument("--ai-titles", action="store_true")
     ap.add_argument("--yes", "-y", action="store_true")
     ap.add_argument("--help", "-h", action="store_true")
@@ -1370,6 +1380,7 @@ def main():
     a = ap.parse_args()
     ASSUME_YES = a.yes
     WITH_CRON = a.with_cron
+    WITH_CLI = a.with_cli
     AI_TITLES = a.ai_titles
 
     if a.version:
@@ -1378,12 +1389,16 @@ def main():
         print("Usage: ai-memory-ingest.sh [vault] [export.zip] "
               "[--source NAME] [--path P] [--local] [--scan DIR] [--deep-scan] "
               "[--scan-report] [--reindex] [--with-cron] [--ai-titles] "
+              "[--with-cli] "
               "[--list-sources] [--yes]\n"
               "--local: sweep every LOCAL agent store (hermes, claude-code, codex, "
               "gemini-cli, …) — skips the zip/Downloads exporters. Used by the "
               "configure self-ingest hook (one OS-general, FDA-safe trigger).\n"
               "--with-cron: also vault openclaw cron/scheduler sessions "
               "(into openclaw-cron/; skipped by default).\n"
+              "--with-cli: also vault hermes sessions tagged source='cli' "
+              "(skipped by default — use for a synced state.db from a "
+              "satellite machine).\n"
               "--scan-report: map exports/unknowns to <vault>/ai-scan-report.md, "
               "import nothing.\n--reindex: rebuild <vault>/05-AI-Sessions/INDEX.md "
               "from what's on disk, import nothing.\n"

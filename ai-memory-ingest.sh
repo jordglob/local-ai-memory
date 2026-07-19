@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v3.1
+#  ai-memory-ingest.sh  v3.2
 #  Import scattered AI conversations into the vault — 13 sources
 #  v3.1:  Vault conversation notes are GENERATED artifacts — ingest always
 #         regenerates a changed conversation in place. The v2.27 "never
@@ -19,6 +19,12 @@
 #         next to itself (repo checkout AND the <vault>/.tools/ install, where
 #         setup/configure place lib/ alongside) and execs the engine. The
 #         engines are plain importable python (testable, no bash extraction).
+#  v3.2:  NEW `--with-cli` flag — hermes sessions tagged source='cli' are
+#         skipped by default (v2.24: one-shot `hermes -z` noise), but a
+#         state.db SYNCED from a satellite machine tags its interactive
+#         sessions 'cli' too, so the default filter silently archived zero
+#         of them. --with-cli disables the filter; the satellite watcher
+#         passes it. Default behaviour unchanged. Regression: tests 6n.
 #  v2.29: the next-steps footer names the mux cockpit (bash ai-memory-mux.sh,
 #         back in the family as the standard interface) as the talk-to-your-
 #         agent step, `hermes chat` staying the no-tmux path; an interactive
