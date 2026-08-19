@@ -4,6 +4,18 @@ One entry per tagged release; per-script versions move independently and live
 in each script's header. History before v50 is in
 `docs/history/PACKAGE_VERSION.txt` (the zip-bundle era, frozen).
 
+## v56 — 2026-08-19
+
+- **Grok Bot is a first-class ingest source** (ingest v3.3). Parent-agent
+  JSONL transcripts (`agent-transcripts/<uuid>/<uuid>.jsonl`) import into
+  `05-AI-Sessions/grok-bot/` as SPEC session markdown — user/assistant text
+  only. `--list-sources` lists `grok-bot`; `--local` discovers the generic
+  `$HOME/sand-data/agent-transcripts` and `$HOME/agent-data/agent-transcripts`
+  layouts (plus `AI_MEMORY_GROK_BOT` / `--path`, never a hardcoded home).
+  Child `sand-subagent-*` runs, hidden/SAND_HIDDEN setup lines, tool
+  payloads, `audit.jsonl` and sidecar DBs are skipped. Re-runs are
+  idempotent. Regression: tests 6o.
+
 ## v55 — 2026-07-19
 
 - **Satellite hermes sessions can be vaulted** (ingest v3.2). New `--with-cli`

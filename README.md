@@ -159,8 +159,8 @@ Same tool, same vault format, both ends of the hardware spectrum.
   history in one step. `ai-memory-doctor.sh` verifies the whole chain,
   read-only.
 - **Ingest** — importers for Claude.ai, ChatGPT, Claude Code, Codex CLI,
-  Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, and Google
-  Takeout (Gemini). Idempotent — re-run any time. A `--scan-report` mode maps
+  Gemini CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, Google
+  Takeout (Gemini), and Grok Bot. Idempotent — re-run any time. A `--scan-report` mode maps
   unknown/messy exports to a bridge file your agent can act on.
 - **Cockpit** — `ai-memory-mux.sh` is the default way to talk to your agent:
   a mouse-friendly two-pane tmux cockpit (agent chat and a working terminal

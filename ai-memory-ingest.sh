@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  ai-memory-ingest.sh  v3.2
-#  Import scattered AI conversations into the vault — 13 sources
+#  ai-memory-ingest.sh  v3.3
+#  Import scattered AI conversations into the vault — 14 sources
+#  v3.3:  NEW `grok-bot` source — parent-agent JSONL transcripts
+#         (agent-transcripts/<uuid>/<uuid>.jsonl) land in 05-AI-Sessions/grok-bot/
+#         as SPEC session markdown. --local discovers $HOME/sand-data and
+#         $HOME/agent-data layouts (plus AI_MEMORY_GROK_BOT); --path accepts a
+#         file or directory. Child sand-subagent-* runs, hidden/SAND_HIDDEN
+#         setup lines, tool payloads, audit.jsonl and sidecar DBs are skipped.
+#         Regression: tests 6o.
 #  v3.1:  Vault conversation notes are GENERATED artifacts — ingest always
 #         regenerates a changed conversation in place. The v2.27 "never
 #         overwrite a hand-edited file" guard is REMOVED: it re-proved the
@@ -153,7 +160,7 @@
 #
 #  Sources: claude-web, chatgpt, claude-code, codex, gemini-cli, openclaw,
 #           cursor, aider, lmstudio, open-webui, gemini-takeout, hermes,
-#           aistudio
+#           aistudio, grok-bot
 #
 #  Discovery (three tiers):
 #    default      known per-source paths + targeted ~/Downloads export sniffing

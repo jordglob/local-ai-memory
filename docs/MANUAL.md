@@ -176,7 +176,8 @@ links to the conversation file.
 - **Export files** in `~/Downloads` (it asks before importing anything found):
   Claude.ai, ChatGPT, Google Takeout (Gemini), AI Studio.
 - **Local tool stores**, found automatically: Claude Code, Codex CLI, Gemini
-  CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, and Hermes' own history.
+  CLI, OpenClaw, Cursor, Aider, LM Studio, Open WebUI, Hermes' own history,
+  and Grok Bot.
 - On WSL it offers to scan your **Windows** Downloads too — where browser
   exports actually land.
 
