@@ -1453,6 +1453,131 @@ PYEOF
   fi
 fi
 
+# ── 6o. regression: grok-bot JSONL parent chats (v3.3) ───────────────────────
+# Import produces a SPEC session; re-run is idempotent; hidden/system/tool
+# payloads and sand-subagent-* child runs never reach the vault. --list-sources
+# names grok-bot; --local discovers $HOME/sand-data/agent-transcripts.
+hdr "regression: grok-bot ingest (v3.3)"
+if [ "$PY_OK" = 0 ]; then
+  skip "no real python3 here"
+elif [ ! -f ai-memory-ingest.sh ]; then
+  skip "ai-memory-ingest.sh absent"
+else
+  if bash ai-memory-ingest.sh --list-sources 2>/dev/null | grep -q '^grok-bot '; then
+    pass "--list-sources includes grok-bot"
+  else
+    fail "--list-sources missing grok-bot" "$(bash ai-memory-ingest.sh --list-sources 2>/dev/null | head -5)"
+  fi
+
+  UUID="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+  SUB="sand-subagent-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  GB="$TMP/gbfake"
+  mkdir -p "$GB/agent-transcripts/$UUID" \
+           "$GB/agent-transcripts/$SUB" \
+           "$TMP/gbvault/05-AI-Sessions"
+  # sidecar junk that must NOT become sessions
+  printf 'not-a-session\n' > "$GB/audit.jsonl"
+  printf 'x' > "$GB/store.db"
+  printf 'x' > "$GB/conversation-blobs.db"
+  python3 - "$GB" "$UUID" "$SUB" << 'PYFIX'
+import json, sys
+root, uuid, sub = sys.argv[1], sys.argv[2], sys.argv[3]
+parent = [
+    {"role": "system", "message": {"content": [{"type": "text", "text": "system-setup-must-not-leak"}]}},
+    {"role": "user", "message": {"content": [{"type": "text", "text":
+        "<timestamp>Wednesday, Aug 19, 2026, 4:29 PM (UTC+2)</timestamp>\n"
+        "<user_query>\n[SAND_HIDDEN_PROMPT]setup text that must not leak\n</user_query>"}]}},
+    {"role": "user", "message": {"content": [{"type": "text", "text":
+        "<timestamp>Wednesday, Aug 19, 2026, 4:30 PM (UTC+2)</timestamp>\n"
+        "<user_query>\n[t0u]\nHello grok-bot fixture\n</user_query>"}]}},
+    {"role": "assistant", "message": {"content": [
+        {"type": "text", "text": "Hello from the fixture assistant"},
+        {"type": "tool_use", "id": "t1", "name": "Shell",
+         "input": {"command": "cat /etc/passwd-fixture-must-not-leak"}}]}},
+    {"role": "tool", "message": {"content": [{"type": "tool_result",
+        "content": "secret-tool-output-XYZ"}]}},
+    {"role": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Read", "input": {"path": "/secret-path"}},
+        {"type": "text", "text": "Visible assistant reply"}]}},
+]
+child = [
+    {"role": "user", "message": {"content": [{"type": "text", "text": "child-subagent-must-not-import"}]}},
+    {"role": "assistant", "message": {"content": [{"type": "text", "text": "child reply"}]}},
+]
+def write(path, rows):
+    with open(path, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+write(f"{root}/agent-transcripts/{uuid}/{uuid}.jsonl", parent)
+write(f"{root}/agent-transcripts/{sub}/{sub}.jsonl", child)
+write(f"{root}/audit.jsonl", [{"role": "user", "message": {"content": [{"type": "text", "text": "audit-must-not-import"}]}}])
+PYFIX
+
+  bash ai-memory-ingest.sh "$TMP/gbvault" --source grok-bot --path "$GB" --yes > "$TMP/gb1.out" 2>&1
+  gbdir="$TMP/gbvault/05-AI-Sessions/grok-bot"
+  gbn=$(ls "$gbdir"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  gbfile=$(ls "$gbdir"/*.md 2>/dev/null | head -1)
+  if [ "$gbn" = 1 ] && [ -n "$gbfile" ] \
+     && grep -q "^- source: grok-bot$" "$gbfile" \
+     && grep -q "^- id: $UUID$" "$gbfile" \
+     && grep -q "^- hash: " "$gbfile" \
+     && grep -q "^# Hello grok-bot fixture" "$gbfile" \
+     && grep -q "Hello grok-bot fixture" "$gbfile" \
+     && grep -q "Hello from the fixture assistant" "$gbfile" \
+     && grep -q "Visible assistant reply" "$gbfile" \
+     && grep -q "^\*\*You:\*\*" "$gbfile" \
+     && grep -q "^\*\*Assistant:\*\*" "$gbfile" \
+     && echo "$gbfile" | grep -q "2026-08-19-hello-grok-bot-fixture-$UUID.md"; then
+    pass "grok-bot import writes a valid SPEC session"
+  else
+    fail "grok-bot SPEC session missing/wrong" "files=$gbn file=${gbfile:-none}"
+  fi
+  if [ -n "$gbfile" ] \
+     && ! grep -q "SAND_HIDDEN" "$gbfile" \
+     && ! grep -q "system-setup-must-not-leak" "$gbfile" \
+     && ! grep -q "setup text that must not leak" "$gbfile" \
+     && ! grep -q "passwd-fixture-must-not-leak" "$gbfile" \
+     && ! grep -q "secret-tool-output-XYZ" "$gbfile" \
+     && ! grep -q "secret-path" "$gbfile" \
+     && ! grep -q "tool_use" "$gbfile" \
+     && ! grep -q "child-subagent-must-not-import" "$gbfile" \
+     && ! grep -q "audit-must-not-import" "$gbfile"; then
+    pass "hidden/system/tool/child/audit payloads stay out of the vault"
+  else
+    fail "harness noise leaked into grok-bot session" "${gbfile:-no file}"
+  fi
+
+  bash ai-memory-ingest.sh "$TMP/gbvault" --source grok-bot --path "$GB" --yes > "$TMP/gb2.out" 2>&1
+  gbn2=$(ls "$gbdir"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$gbn2" = 1 ] && grep -q "Nothing new" "$TMP/gb2.out"; then
+    pass "grok-bot re-run is idempotent (one file, skipped)"
+  else
+    fail "grok-bot re-run not idempotent" "files=$gbn2 $(tail -3 "$TMP/gb2.out")"
+  fi
+
+  # --path as a single JSONL file
+  mkdir -p "$TMP/gbvault2/05-AI-Sessions"
+  bash ai-memory-ingest.sh "$TMP/gbvault2" --source grok-bot \
+    --path "$GB/agent-transcripts/$UUID/$UUID.jsonl" --yes >/dev/null 2>&1
+  if ls "$TMP/gbvault2/05-AI-Sessions/grok-bot/"*"$UUID".md >/dev/null 2>&1; then
+    pass "--path accepts a single grok-bot JSONL file"
+  else
+    fail "--path file did not import" "$(ls "$TMP/gbvault2/05-AI-Sessions/grok-bot/" 2>/dev/null)"
+  fi
+
+  # --local discovers $HOME/sand-data/agent-transcripts (no hardcoded /home/box)
+  lh="$TMP/gbhome"
+  mkdir -p "$lh/sand-data/agent-transcripts/$UUID" "$TMP/gblocal/05-AI-Sessions"
+  cp "$GB/agent-transcripts/$UUID/$UUID.jsonl" \
+     "$lh/sand-data/agent-transcripts/$UUID/$UUID.jsonl"
+  HOME="$lh" bash ai-memory-ingest.sh "$TMP/gblocal" --local --yes > "$TMP/gblocal.out" 2>&1
+  if ls "$TMP/gblocal/05-AI-Sessions/grok-bot/"*"$UUID".md >/dev/null 2>&1; then
+    pass "--local discovered grok-bot via \$HOME/sand-data/agent-transcripts"
+  else
+    fail "--local did not find grok-bot under isolated HOME" "$(tail -4 "$TMP/gblocal.out")"
+  fi
+fi
+
 # ── 7. mux: real tmux session shape (skipped without tmux) ───────────────────
 hdr "mux tmux session (live)"
 if ! command -v tmux >/dev/null 2>&1; then

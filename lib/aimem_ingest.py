@@ -11,7 +11,7 @@ from pathlib import Path
 
 from aimem_common import scrub_secrets, slugify, _atomic_write, default_vault
 
-VERSION = "3.2"
+VERSION = "3.3"
 WITH_CRON = False
 WITH_CLI = False
 HOME = Path.home()
@@ -540,6 +540,171 @@ def parse_claude_code(root, out_root):
                         "note": f"project dir: {jl.parent.name}",
                         "messages": msgs}, st)
         except Exception: st["failed"] += 1
+    return st
+
+# Grok Bot parent chats: one JSONL per agent under agent-transcripts/<uuid>/.
+# Keep user/assistant *text* only. Tool payloads, system/hidden/SAND_HIDDEN
+# setup lines, child sand-subagent-* runs, audit.jsonl and the sidecar DBs
+# are not conversations. One parent JSONL → one SPEC session file.
+_GROK_HIDDEN_RE = re.compile(
+    r"\[SAND_HIDDEN_PROMPT\]|SAND_HIDDEN_PROMPT|\[SAND_HIDDEN\b", re.I)
+_GROK_TS_RE = re.compile(r"<timestamp>\s*(.*?)\s*</timestamp>", re.I | re.S)
+_GROK_UQ_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.I | re.S)
+_GROK_TURN_RE = re.compile(r"^\[t\d+[ua]\]\s*", re.I)
+
+def _grok_bot_paths():
+    """Well-known Grok Bot transcript layouts. Never a hardcoded /home/box
+    or a named user's home — $HOME plus an optional env override so other
+    machines can point at a non-default store."""
+    out, seen = [], set()
+    env = os.environ.get("AI_MEMORY_GROK_BOT")
+    cands = []
+    if env:
+        cands.append(Path(env).expanduser())
+    cands += [HOME / "sand-data" / "agent-transcripts",
+              HOME / "agent-data" / "agent-transcripts"]
+    for pth in cands:
+        try:
+            key = pth.resolve()
+        except OSError:
+            key = pth
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(pth)
+    return out
+
+def _is_grok_parent_jsonl(path):
+    """Parent-agent JSONL only — child runs and non-session files stay out."""
+    path = Path(path)
+    if not path.name.endswith(".jsonl"):
+        return False
+    if path.name == "audit.jsonl":
+        return False
+    if path.name.startswith("sand-subagent-"):
+        return False
+    if path.parent.name.startswith("sand-subagent-"):
+        return False
+    return True
+
+def _grok_bot_jsonls(root):
+    """Collect parent JSONLs from a file or a directory.
+
+    --path may be the JSONL itself, an agent uuid dir, agent-transcripts/,
+    or the parent store (sand-data / agent-data). When the store parent is
+    given, search only agent-transcripts/ so cookies, chrome profiles,
+    store.db and conversation-blobs.db are never walked.
+    """
+    root = Path(root)
+    if root.is_file():
+        return [root] if _is_grok_parent_jsonl(root) else []
+    search = root
+    nested = root / "agent-transcripts"
+    if nested.is_dir():
+        search = nested
+    found = []
+    try:
+        for jl in search.rglob("*.jsonl"):
+            if _is_grok_parent_jsonl(jl):
+                found.append(jl)
+    except PermissionError:
+        warn(f"Permission denied under {search}.")
+    return found
+
+def _parse_grok_timestamp(s):
+    """Best-effort ISO from a Grok Bot <timestamp> value; None if unusable."""
+    s = re.sub(r"\s*\([^)]*\)\s*$", "", (s or "")).strip()
+    for fmt in ("%A, %b %d, %Y, %I:%M %p",
+                "%A, %B %d, %Y, %I:%M %p",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(s, fmt).isoformat()
+        except ValueError:
+            continue
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", s)
+    return (m.group(1) + "T00:00:00") if m else None
+
+def _grok_hidden(text):
+    """True for system/setup lines that must never reach the vault."""
+    if not text:
+        return False
+    if _GROK_HIDDEN_RE.search(text):
+        return True
+    if "HIDDEN_PROMPT" in text or "[SAND_" in text:
+        return True
+    return False
+
+def _grok_clean_user_text(text):
+    """Strip harness wrappers; return (body, created_iso_or_None)."""
+    created = None
+    m = _GROK_TS_RE.search(text or "")
+    if m:
+        created = _parse_grok_timestamp(m.group(1))
+        text = _GROK_TS_RE.sub("", text)
+    uq = _GROK_UQ_RE.search(text or "")
+    if uq:
+        text = uq.group(1)
+    text = (text or "").strip()
+    text = _GROK_TURN_RE.sub("", text).strip()
+    return text, created
+
+def parse_grok_bot(root, out_root):
+    """Import Grok Bot parent-agent JSONL chats into 05-AI-Sessions/grok-bot/.
+
+    Each line is roughly {role, message: {content: [{type: text|tool_use}]}}.
+    User and assistant *text* only; tool_use / tool results / system / hidden
+    lines are dropped. One parent JSONL → one conversation (same as claude-code).
+    """
+    st = _stats(); out = out_root / "grok-bot"
+    for jl in _grok_bot_jsonls(root):
+        try:
+            msgs, created = [], None
+            for raw in jl.read_text(encoding="utf-8", errors="replace").splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    rec = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                role = str(rec.get("role") or rec.get("type") or "").lower()
+                if role in ("system", "hidden", "tool", "tool_result"):
+                    continue
+                if role not in ("user", "assistant", "human", "model", "ai"):
+                    continue
+                payload = rec.get("message") if isinstance(rec.get("message"), dict) else rec
+                # text_from_blocks already skips type=tool_use / non-text blocks
+                t = text_from_blocks(payload.get("content"))
+                if _grok_hidden(t):
+                    continue
+                if role in ("user", "human"):
+                    t, ts = _grok_clean_user_text(t)
+                    if _grok_hidden(t):
+                        continue
+                    if ts and created is None:
+                        created = ts
+                    role = "user"
+                if t.strip():
+                    msgs.append((role, t))
+            if not any(r == "user" for r, _ in msgs):
+                st["empty"] += 1
+                continue
+            if created is None:
+                created = datetime.datetime.fromtimestamp(jl.stat().st_mtime).isoformat()
+            first_user = next((t for r, t in msgs if r == "user"), "")
+            fallback = " ".join(first_user.split())[:60] or f"Grok Bot — {jl.stem}"
+            write_conv(out, "grok-bot",
+                       {"id": jl.stem,
+                        "title": fallback,
+                        "created": created,
+                        "untitled": True,
+                        "messages": msgs}, st)
+        except Exception:
+            st["failed"] += 1
     return st
 
 def parse_hermes(db_path, out_root, with_cli=False):
@@ -1085,6 +1250,9 @@ SOURCES = {
                               + [h / ".hermes" for h in _wsl_windows_homes()],
                      "pattern": "state.db",                     "fn": parse_hermes,
                      "shallow": True},
+    "grok-bot":     {"desc": "Grok Bot local transcripts",      "kind": "dir",
+                     "paths": _grok_bot_paths(),
+                     "fn": parse_grok_bot, "file_ok": True},
 }
 
 # Match known export *stems* without requiring an extension: browsers (and
@@ -1247,7 +1415,7 @@ def warn_path_source_mismatch(source, path):
         elif sniffed is None:
             warn(f"--path is not a recognizable {source} export ZIP"
                  " — importing as requested.")
-    elif kind == "dir" and not p.is_dir():
+    elif kind == "dir" and not p.is_dir() and not spec.get("file_ok"):
         warn(f"--source {source} expects a directory but --path is a file: {p}")
     elif kind == "glob":
         pat = spec.get("pattern", "")
@@ -1391,8 +1559,8 @@ def main():
               "[--scan-report] [--reindex] [--with-cron] [--ai-titles] "
               "[--with-cli] "
               "[--list-sources] [--yes]\n"
-              "--local: sweep every LOCAL agent store (hermes, claude-code, codex, "
-              "gemini-cli, …) — skips the zip/Downloads exporters. Used by the "
+              "--local: sweep every LOCAL agent store (hermes, claude-code, grok-bot, "
+              "codex, gemini-cli, …) — skips the zip/Downloads exporters. Used by the "
               "configure self-ingest hook (one OS-general, FDA-safe trigger).\n"
               "--with-cron: also vault openclaw cron/scheduler sessions "
               "(into openclaw-cron/; skipped by default).\n"
@@ -1505,8 +1673,8 @@ def main():
         results[a.source] = run_source(a.source, out_root,
                                        explicit_path=a.path, scan_roots=scan_roots)
     elif a.local:                                  # OS-general local sweep: every
-        # directory/db-based agent store (hermes, claude-code, codex, gemini-cli,
-        # …), skipping the zip/Downloads exporters. This is what the configure
+        # directory/db-based agent store (hermes, claude-code, grok-bot, codex,
+        # gemini-cli, …), skipping the zip/Downloads exporters. This is what the
         # self-ingest hook fires on session-start/end: one FDA-safe, no-scheduler
         # trigger that archives ALL local agents on this box, not just Hermes.
         hdr("Discovering LOCAL agent sources")
